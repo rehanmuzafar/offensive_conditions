@@ -1,0 +1,15 @@
+ALTER TABLE content.categories DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE content.tags DROP COLUMN IF EXISTS description;
+ALTER TABLE content.tags DROP COLUMN IF EXISTS color;
+ALTER TABLE content.tags DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE content.challenges DROP COLUMN IF EXISTS walkthrough_markdown;
+ALTER TABLE content.machine_hints DROP COLUMN IF EXISTS point_penalty;
+ALTER TABLE content.machine_hints DROP COLUMN IF EXISTS flag_type;
+ALTER TABLE content.machine_hints DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE content.path_enrollments DROP COLUMN IF EXISTS progress_percent;
+ALTER TABLE content.path_enrollments DROP COLUMN IF EXISTS created_at;
+ALTER TABLE content.path_enrollments DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE content.module_progress DROP COLUMN IF EXISTS correct_answers;
+ALTER TABLE content.module_progress DROP COLUMN IF EXISTS total_questions;
+ALTER TABLE content.module_progress DROP COLUMN IF EXISTS created_at;
+ALTER TABLE content.module_progress DROP COLUMN IF EXISTS updated_at;

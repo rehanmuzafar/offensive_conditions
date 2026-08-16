@@ -1,0 +1,115 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: labinstances.offensiveconditions.org
+spec:
+  group: offensiveconditions.org
+  scope: Namespaced
+  names:
+    kind: LabInstance
+    listKind: LabInstanceList
+    plural: labinstances
+    singular: labinstance
+    shortNames:
+      - li
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              required: ["instanceID", "userID", "machineSlug", "image", "phase"]
+              properties:
+                instanceID:
+                  type: string
+                  description: "UUID of the instance (from PostgreSQL lab.instances.id)"
+                userID:
+                  type: string
+                  description: "UUID of the owning user"
+                machineSlug:
+                  type: string
+                  description: "Machine catalog slug"
+                image:
+                  type: string
+                  description: "Container image (Kubernetes backend)"
+                phase:
+                  type: string
+                  enum: ["pending", "spawning", "running", "terminating", "terminated", "expired", "failed"]
+                  description: "Desired phase"
+                cpuLimit:
+                  type: string
+                  description: "K8s CPU resource limit (e.g. '2')"
+                memLimit:
+                  type: string
+                  description: "K8s memory resource limit (e.g. '4Gi')"
+                ports:
+                  type: array
+                  items:
+                    type: integer
+                expiresAt:
+                  type: string
+                  format: date-time
+                flagUserHash:
+                  type: string
+                  description: "SHA-256 of the user flag (never the raw flag)"
+                flagRootHash:
+                  type: string
+            status:
+              type: object
+              properties:
+                podName:
+                  type: string
+                podPhase:
+                  type: string
+                ipAddress:
+                  type: string
+                nodeName:
+                  type: string
+                ready:
+                  type: boolean
+                lastReconciled:
+                  type: string
+                  format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .spec.phase
+        - name: User
+          type: string
+          jsonPath: .spec.userID
+        - name: Machine
+          type: string
+          jsonPath: .spec.machineSlug
+        - name: IP
+          type: string
+          jsonPath: .status.ipAddress
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}

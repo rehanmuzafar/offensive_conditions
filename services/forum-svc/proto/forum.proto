@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package offcon.forum.v1;
+
+option go_package = "github.com/offcon/proto/forum/v1;forumv1";
+
+service ForumService {
+  rpc GetThreadMetadata(GetThreadMetadataRequest) returns (ThreadMetadata);
+  rpc GetUserReputation(GetUserReputationRequest) returns (UserReputation);
+  rpc CheckThreadAccess(CheckThreadAccessRequest) returns (CheckThreadAccessResponse);
+}
+
+message GetThreadMetadataRequest {
+  string thread_id = 1;
+}
+
+message ThreadMetadata {
+  string id = 1;
+  string slug = 2;
+  string title = 3;
+  string status = 4;
+  string author_id = 5;
+  string category_id = 6;
+  bool   is_solved = 7;
+  int32  reply_count = 8;
+  int32  view_count = 9;
+  repeated string tags = 10;
+}
+
+message GetUserReputationRequest {
+  string user_id = 1;
+}
+
+message UserReputation {
+  string user_id = 1;
+  int32  reputation = 2;
+  int32  posts_count = 3;
+  int32  threads_count = 4;
+  int32  solutions_accepted = 5;
+}
+
+message CheckThreadAccessRequest {
+  string thread_id = 1;
+  string viewer_tier = 2;
+}
+
+message CheckThreadAccessResponse {
+  bool can_view = 1;
+  string reason = 2;
+}

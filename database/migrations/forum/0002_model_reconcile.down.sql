@@ -1,0 +1,13 @@
+ALTER TABLE forum.categories DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE forum.reports DROP COLUMN IF EXISTS target_type;
+ALTER TABLE forum.reports DROP COLUMN IF EXISTS target_id;
+ALTER TABLE forum.reports DROP COLUMN IF EXISTS details;
+ALTER TABLE forum.reports DROP COLUMN IF EXISTS resolved_by;
+ALTER TABLE forum.reports DROP COLUMN IF EXISTS resolution_note;
+ALTER TABLE forum.reports DROP COLUMN IF EXISTS resolved_at;
+ALTER TABLE forum.user_reputation DROP COLUMN IF EXISTS reputation;
+ALTER TABLE forum.user_reputation DROP COLUMN IF EXISTS solutions_accepted;
+ALTER TABLE forum.user_reputation DROP COLUMN IF EXISTS last_recomputed_at;
+ALTER TABLE forum.thread_subscriptions DROP COLUMN IF EXISTS email_notifications;
+ALTER TABLE forum.thread_subscriptions DROP COLUMN IF EXISTS in_app_notifications;
+ALTER TABLE forum.post_votes DROP COLUMN IF EXISTS direction;

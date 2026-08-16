@@ -1,0 +1,176 @@
+# ============================================================================
+#  Service-level alerting rules — availability, latency, errors
+# ============================================================================
+groups:
+  # --------------------------------------------------------------------------
+  # Availability
+  # --------------------------------------------------------------------------
+  - name: offcon-availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"offcon-services.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.service }} is down"
+          description: "{{ $labels.service }} ({{ $labels.pod }}) has been unreachable for over 1 minute."
+          runbook: "https://runbooks.offensiveconditions.org/service-down"
+
+      - alert: ServiceFlapping
+        expr: changes(up{job=~"offcon-services.*"}[10m]) > 4
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.service }} is flapping"
+          description: "{{ $labels.service }} has restarted/recovered more than 4 times in 10 minutes."
+
+      - alert: HighPodRestarts
+        expr: increase(kube_pod_container_status_restarts_total{namespace="offcon"}[15m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} restarting frequently"
+          description: "{{ $labels.pod }} has restarted more than 3 times in 15 minutes — possible crash loop."
+
+  # --------------------------------------------------------------------------
+  # Latency (SLO-oriented)
+  # --------------------------------------------------------------------------
+  - name: offcon-latency
+    rules:
+      - alert: HighRequestLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High p95 latency on {{ $labels.service }}"
+          description: "p95 latency for {{ $labels.service }} is {{ $value | humanizeDuration }} (threshold 500ms)."
+
+      - alert: HighRequestLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 1.5
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Severe p99 latency on {{ $labels.service }}"
+          description: "p99 latency for {{ $labels.service }} is {{ $value | humanizeDuration }} (threshold 1.5s)."
+
+      - alert: GrpcHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (grpc_service, grpc_method, le) (rate(grpc_server_handling_seconds_bucket[5m]))
+          ) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High gRPC latency: {{ $labels.grpc_service }}/{{ $labels.grpc_method }}"
+          description: "p95 gRPC handling time is {{ $value | humanizeDuration }}."
+
+  # --------------------------------------------------------------------------
+  # Error rates
+  # --------------------------------------------------------------------------
+  - name: offcon-errors
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum by (service) (rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} is returning {{ $value | humanizePercentage }} 5xx responses (threshold 5%)."
+
+      - alert: ElevatedClientErrors
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status=~"4.."}[5m]))
+            /
+            sum by (service) (rate(http_requests_total[5m]))
+          ) > 0.30
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Elevated 4xx rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} is returning {{ $value | humanizePercentage }} 4xx responses — possible bad deploy or abuse."
+
+      - alert: GrpcErrorRate
+        expr: |
+          (
+            sum by (grpc_service) (rate(grpc_server_handled_total{grpc_code!~"OK|NotFound|AlreadyExists|InvalidArgument"}[5m]))
+            /
+            sum by (grpc_service) (rate(grpc_server_handled_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High gRPC error rate: {{ $labels.grpc_service }}"
+          description: "{{ $labels.grpc_service }} gRPC error ratio is {{ $value | humanizePercentage }}."
+
+  # --------------------------------------------------------------------------
+  # Saturation / resources
+  # --------------------------------------------------------------------------
+  - name: offcon-saturation
+    rules:
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            container_memory_working_set_bytes{namespace="offcon"}
+            /
+            kube_pod_container_resource_limits{namespace="offcon", resource="memory"}
+          ) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $labels.pod }} near memory limit"
+          description: "{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit — OOM risk."
+
+      - alert: HighCpuThrottling
+        expr: |
+          rate(container_cpu_cfs_throttled_periods_total{namespace="offcon"}[5m])
+          /
+          rate(container_cpu_cfs_periods_total{namespace="offcon"}[5m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $labels.pod }} is CPU-throttled"
+          description: "{{ $labels.pod }} is being throttled {{ $value | humanizePercentage }} of the time — needs more CPU."
+
+      - alert: GoGoroutineLeak
+        expr: go_goroutines{job=~"offcon-services.*"} > 10000
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Possible goroutine leak in {{ $labels.service }}"
+          description: "{{ $labels.service }} has {{ $value }} goroutines — investigate for leaks."

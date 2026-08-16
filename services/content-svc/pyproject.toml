@@ -1,0 +1,39 @@
+[project]
+name = "content-svc"
+version = "0.1.0"
+description = "Offensive Conditions content service"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "ASYNC", "S", "C4", "T20", "PT", "RET"]
+ignore = [
+    "E501",   # line length (handled by formatter)
+    "B008",   # function defaults in args (FastAPI Depends pattern)
+    "S101",   # assert (used in tests)
+    "S104",   # bind 0.0.0.0 (intentional for service)
+    "N805",   # first arg cls vs self (pydantic validators)
+]
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "T20"]
+"scripts/*" = ["T20"]
+"migrations/*" = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+disallow_untyped_decorators = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["aiokafka.*", "celery.*", "minio.*", "grpc.*", "grpc_reflection.*", "markdown_it.*", "bleach.*"]
+ignore_missing_imports = true

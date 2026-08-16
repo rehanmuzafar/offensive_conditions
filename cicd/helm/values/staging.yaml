@@ -1,0 +1,24 @@
+# Staging overrides — smaller footprint, lower replica counts, staging URLs.
+global:
+  deployEnv: staging
+
+auth-svc:
+  autoscaling: { minReplicas: 1, maxReplicas: 4 }
+orchestrator:
+  autoscaling: { minReplicas: 1, maxReplicas: 5 }
+scoring-svc:
+  autoscaling: { minReplicas: 1, maxReplicas: 3 }
+flag-verifier:
+  autoscaling: { minReplicas: 1, maxReplicas: 3 }
+content-svc:
+  autoscaling: { minReplicas: 1, maxReplicas: 3 }
+ctf-svc:
+  autoscaling: { minReplicas: 1, maxReplicas: 3 }
+payment-svc:
+  autoscaling: { minReplicas: 1, maxReplicas: 2 }
+notification-svc:
+  autoscaling: { minReplicas: 1, maxReplicas: 2 }
+frontend:
+  autoscaling: { minReplicas: 1, maxReplicas: 4 }
+  env:
+    NEXT_PUBLIC_API_BASE_URL: "https://api.staging.offensiveconditions.org"

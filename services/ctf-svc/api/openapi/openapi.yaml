@@ -1,0 +1,554 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions — CTF Service
+  version: 0.1.0
+  description: |
+    HTTP + WebSocket API for time-bound competitive hacking events. Internal
+    gRPC is documented in `proto/ctf.proto`.
+  contact:
+    name: Offensive Conditions Platform Team
+    email: platform@offensiveconditions.org
+
+servers:
+  - url: https://api.offensiveconditions.org
+    description: Production
+  - url: http://localhost:8004
+    description: Local dev
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: events
+  - name: challenges
+  - name: search
+  - name: websocket
+  - name: health
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      security: []
+      summary: Liveness
+      responses:
+        "200":
+          description: alive
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /readyz:
+    get:
+      tags: [health]
+      security: []
+      summary: Readiness
+      responses:
+        "200": { description: ready }
+        "503": { description: not ready }
+
+  /v1/events:
+    get:
+      tags: [events]
+      security: []
+      summary: List events
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 25, maximum: 100 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+        - { in: query, name: status, schema: { $ref: "#/components/schemas/EventStatus" } }
+        - { in: query, name: format, schema: { $ref: "#/components/schemas/EventFormat" } }
+        - { in: query, name: visibility, schema: { $ref: "#/components/schemas/EventVisibility" } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventList" }
+    post:
+      tags: [events]
+      summary: Create event (organizer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+
+  /v1/events/{event_id}:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [events]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+    patch:
+      tags: [events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+
+  /v1/events/{event_id}/publish:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [events]
+      summary: Publish event (draft → published)
+      responses:
+        "200": { description: Published }
+
+  /v1/events/{event_id}/start:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [events]
+      summary: Start event (registration → live)
+      responses:
+        "200": { description: Started }
+
+  /v1/events/{event_id}/end:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [events]
+      summary: End event (live → ended)
+      responses:
+        "200": { description: Ended }
+
+  /v1/events/{event_id}/register:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [events]
+      summary: Solo registration
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                invitation_code: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Participant" }
+
+  /v1/events/{event_id}/register-team:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [events]
+      summary: Team registration (captain only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id: { type: string, format: uuid }
+                invitation_code: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Participant" }
+
+  /v1/events/{event_id}/registration:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [events]
+      summary: Unregister
+      responses:
+        "204": { description: Removed }
+
+  /v1/events/{event_id}/leaderboard:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [events]
+      security: []
+      summary: Leaderboard (frozen after freeze time for public)
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 1000 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Leaderboard" }
+
+  /v1/events/{event_id}/scoreboard.csv:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [events]
+      summary: Scoreboard CSV export (organizer)
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv: {}
+
+  /v1/events/{event_id}/announcements:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [events]
+      security: []
+      summary: List announcements
+      responses:
+        "200": { description: OK }
+    post:
+      tags: [events]
+      summary: Post announcement (organizer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnnouncementCreate" }
+      responses:
+        "201":
+          description: Posted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Announcement" }
+
+  /v1/events/{event_id}/challenges:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [challenges]
+      summary: List event challenges (locked until event live)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/EventChallenge" }
+    post:
+      tags: [challenges]
+      summary: Create event challenge (organizer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventChallengeCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventChallenge" }
+
+  /v1/events/{event_id}/challenges/{challenge_id}/submit:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: challenge_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [challenges]
+      summary: Submit flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flag]
+              properties:
+                flag: { type: string, minLength: 1, maxLength: 512 }
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlagSubmitResponse" }
+        "422":
+          description: Flag incorrect
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/events/{event_id}/challenges/{challenge_id}/hints/{hint_id}:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: challenge_id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: hint_id, required: true, schema: { type: string } }
+    post:
+      tags: [challenges]
+      summary: Unlock hint (costs points)
+      responses:
+        "200":
+          description: Unlocked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hint_id: { type: string }
+                  text: { type: string }
+                  point_deduction: { type: integer }
+
+  /v1/events/{event_id}/live:
+    parameters:
+      - { in: path, name: event_id, required: true, schema: { type: string, format: uuid } }
+      - { in: query, name: token, required: true, schema: { type: string }, description: "JWT for auth" }
+    get:
+      tags: [websocket]
+      security: []
+      summary: WebSocket live feed (use upgrade)
+      responses:
+        "101": { description: Switching protocols (WebSocket) }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    EventStatus:
+      type: string
+      enum: [draft, published, registration, live, ended, archived]
+    EventFormat:
+      type: string
+      enum: [jeopardy, attack_defense, hybrid, king_of_hill]
+    EventVisibility:
+      type: string
+      enum: [public, private, invite_only]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    PageMeta:
+      type: object
+      properties:
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }
+
+    EventCreate:
+      type: object
+      required: [slug, name, registration_starts_at, registration_ends_at, starts_at, ends_at]
+      properties:
+        slug: { type: string, pattern: "^[a-z0-9-]{2,64}$" }
+        name: { type: string, minLength: 3, maxLength: 200 }
+        description: { type: string, nullable: true }
+        format: { $ref: "#/components/schemas/EventFormat" }
+        visibility: { $ref: "#/components/schemas/EventVisibility" }
+        team_play: { type: boolean }
+        solo_play: { type: boolean }
+        max_team_size: { type: integer, minimum: 1, maximum: 20 }
+        registration_starts_at: { type: string, format: date-time }
+        registration_ends_at: { type: string, format: date-time }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        scoreboard_freeze_at: { type: string, format: date-time, nullable: true }
+        dynamic_scoring: { type: boolean }
+        min_points: { type: integer }
+        required_tier: { type: string, enum: [free, vip, vip_plus] }
+        invitation_only: { type: boolean }
+        invitation_code: { type: string, nullable: true }
+        max_participants: { type: integer, nullable: true }
+        prize_pool:
+          type: array
+          items:
+            type: object
+            properties:
+              rank: { type: integer }
+              prize_description: { type: string }
+              amount: { type: number, nullable: true }
+              currency: { type: string, nullable: true }
+        rules_markdown: { type: string, nullable: true }
+
+    EventUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        max_team_size: { type: integer }
+        scoreboard_freeze_at: { type: string, format: date-time }
+        max_participants: { type: integer }
+        rules_markdown: { type: string }
+        cover_image_url: { type: string }
+        sponsor_info: { type: object }
+
+    Event:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        format: { type: string }
+        visibility: { type: string }
+        status: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        scoreboard_freeze_at: { type: string, format: date-time, nullable: true }
+        dynamic_scoring: { type: boolean }
+        total_registered: { type: integer }
+        total_teams: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    EventList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Event" }
+        meta: { $ref: "#/components/schemas/PageMeta" }
+
+    Participant:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        participant_type: { type: string }
+        user_id: { type: string, format: uuid, nullable: true }
+        team_id: { type: string, format: uuid, nullable: true }
+        points: { type: integer }
+        solve_count: { type: integer }
+        rank: { type: integer, nullable: true }
+        is_disqualified: { type: boolean }
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer }
+        participant_id: { type: string, format: uuid }
+        participant_type: { type: string }
+        display_name: { type: string }
+        points: { type: integer }
+        solve_count: { type: integer }
+        last_solve_at: { type: string, format: date-time, nullable: true }
+
+    Leaderboard:
+      type: object
+      properties:
+        event_id: { type: string, format: uuid }
+        frozen: { type: boolean }
+        generated_at: { type: string, format: date-time }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/LeaderboardEntry" }
+
+    EventChallengeCreate:
+      type: object
+      required: [name, category, description, base_points]
+      properties:
+        name: { type: string }
+        category: { type: string }
+        difficulty: { type: string }
+        description: { type: string }
+        base_points: { type: integer, minimum: 10, maximum: 100000 }
+        requires_instance: { type: boolean }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              url: { type: string }
+              size_bytes: { type: integer }
+              sha256: { type: string }
+        static_flag_hash: { type: string }
+        unlocks_at: { type: string, format: date-time, nullable: true }
+        requires_solving_ids:
+          type: array
+          items: { type: string, format: uuid }
+        hints:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              text: { type: string }
+              point_deduction: { type: integer }
+
+    EventChallenge:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        name: { type: string }
+        category: { type: string }
+        difficulty: { type: string, nullable: true }
+        description: { type: string }
+        base_points: { type: integer }
+        current_points: { type: integer }
+        total_solves: { type: integer }
+        first_blood_user_id: { type: string, format: uuid, nullable: true }
+        is_solved: { type: boolean }
+        hint_summaries:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              point_deduction: { type: integer }
+
+    FlagSubmitResponse:
+      type: object
+      properties:
+        accepted: { type: boolean }
+        message: { type: string }
+        is_first_blood: { type: boolean }
+        points_awarded: { type: integer }
+        new_total_points: { type: integer }
+        new_rank: { type: integer, nullable: true }
+
+    AnnouncementCreate:
+      type: object
+      required: [title, body]
+      properties:
+        title: { type: string, maxLength: 200 }
+        body: { type: string, maxLength: 4000 }
+        is_pinned: { type: boolean }
+        challenge_id: { type: string, format: uuid, nullable: true }
+
+    Announcement:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        is_pinned: { type: boolean }
+        created_at: { type: string, format: date-time }

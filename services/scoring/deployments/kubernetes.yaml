@@ -1,0 +1,423 @@
+# =============================================================================
+# Scoring service — Kubernetes manifests
+# =============================================================================
+# Three workloads:
+#   1. scoring-server     → HTTP API (3 replicas)
+#   2. scoring-worker     → Kafka consumer (3 replicas)
+#   3. scoring-seasonjob  → cron jobs (1 replica, leader-elected via lease)
+# =============================================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: offcon
+  labels:
+    name: offcon
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scoring
+  namespace: offcon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scoring-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "scoring"
+  APP_VERSION: "0.1.0"
+  HTTP_PORT: "8003"
+  GRPC_PORT: "9003"
+  HTTP_READ_TIMEOUT: "15s"
+  HTTP_WRITE_TIMEOUT: "30s"
+  HTTP_SHUTDOWN_TIMEOUT: "30s"
+  HTTP_CORS_ORIGINS: "https://offensiveconditions.org,https://app.offensiveconditions.org"
+  HTTP_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  DB_HOST: "postgres-cluster-rw.databases.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "svc_scoring"
+  DB_SSLMODE: "require"
+  DB_MAX_CONNS: "25"
+  DB_MIN_CONNS: "5"
+  REDIS_ADDR: "redis-master.databases.svc.cluster.local:6379"
+  REDIS_TLS: "false"
+  REDIS_POOL_SIZE: "20"
+  KAFKA_BROKERS: "kafka-bootstrap.messaging.svc.cluster.local:9092"
+  KAFKA_CONSUMER_GROUP: "scoring-svc"
+  KAFKA_TOPIC_FLAG_SUBMISSIONS: "flag.submissions"
+  KAFKA_TOPIC_CTF_EVENTS: "ctf.events"
+  KAFKA_TOPIC_USER_EVENTS: "user.events"
+  KAFKA_USE_TLS: "true"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/scoring/auth/jwt_public.pem"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  AUTH_JWT_CLOCK_SKEW: "5s"
+  AUTH_TOKEN_CACHE_TTL: "30s"
+  POINTS_BASE_VERY_EASY: "10"
+  POINTS_BASE_EASY: "20"
+  POINTS_BASE_MEDIUM: "30"
+  POINTS_BASE_HARD: "40"
+  POINTS_BASE_INSANE: "50"
+  POINTS_USER_FLAG_SHARE: "0.30"
+  POINTS_ROOT_FLAG_SHARE: "0.70"
+  POINTS_FIRST_BLOOD_MULT: "1.50"
+  POINTS_SECOND_BLOOD_MULT: "1.25"
+  POINTS_THIRD_BLOOD_MULT: "1.10"
+  POINTS_TIME_DECAY_DAYS: "365"
+  POINTS_TIME_DECAY_FLOOR: "0.50"
+  ELO_INITIAL: "1500"
+  ELO_K_FACTOR: "32"
+  ELO_K_FACTOR_HIGH: "16"
+  ELO_HIGH_THRESHOLD: "2400"
+  ELO_PROVISIONAL_MATCHES: "10"
+  ELO_K_FACTOR_PROVISIONAL: "40"
+  ELO_INACTIVITY_DAYS: "60"
+  ELO_DECAY_PER_CYCLE: "25"
+  SEASON_DURATION_DAYS: "90"
+  SEASON_CARRYOVER_FRACTION: "0.25"
+  SEASON_ROLLOVER_GRACE: "24h"
+  STREAK_BONUS_EVERY: "7"
+  STREAK_BONUS_POINTS: "50"
+  ANTICHEAT_ENABLE_SPEED: "true"
+  ANTICHEAT_MIN_SOLVE_SECONDS: "60"
+  ANTICHEAT_ENABLE_SHARED_FLAG: "true"
+  ANTICHEAT_ENABLE_IP_CHANGE: "true"
+  WORKER_CONCURRENCY: "8"
+  WORKER_MAX_RETRIES: "5"
+  WORKER_RETRY_BACKOFF: "500ms"
+  USER_SERVICE_URL: "http://user-svc.offcon.svc.cluster.local"
+  CONTENT_SERVICE_URL: "http://content-svc.offcon.svc.cluster.local"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+# Secrets must be provided externally — managed by Vault / External Secrets Operator
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scoring-secrets
+  namespace: offcon
+type: Opaque
+stringData:
+  DB_PASSWORD: "REPLACE_ME"
+  REDIS_PASSWORD: "REPLACE_ME"
+  jwt_public.pem: |
+    -----BEGIN PUBLIC KEY-----
+    REPLACE_ME
+    -----END PUBLIC KEY-----
+
+---
+# =============================================================================
+# Server Deployment (HTTP API)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-server
+  namespace: offcon
+  labels: { app: scoring, component: server }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: scoring, component: server }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels: { app: scoring, component: server }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8003"
+    spec:
+      serviceAccountName: scoring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: server
+          image: ghcr.io/offcon/scoring-server:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8003
+          envFrom:
+            - configMapRef: { name: scoring-config }
+          env:
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: scoring-secrets, key: DB_PASSWORD } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: scoring-secrets, key: REDIS_PASSWORD } }
+          volumeMounts:
+            - name: auth-keys
+              mountPath: /etc/scoring/auth
+              readOnly: true
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: auth-keys
+          secret:
+            secretName: scoring-secrets
+            items:
+              - key: jwt_public.pem
+                path: jwt_public.pem
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scoring-server
+  namespace: offcon
+  labels: { app: scoring, component: server }
+spec:
+  type: ClusterIP
+  selector: { app: scoring, component: server }
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scoring-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scoring-server
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 80 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: scoring-server
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: scoring, component: server }
+
+---
+# =============================================================================
+# Worker Deployment (Kafka consumer)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-worker
+  namespace: offcon
+  labels: { app: scoring, component: worker }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: scoring, component: worker }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels: { app: scoring, component: worker }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9003"
+    spec:
+      serviceAccountName: scoring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: worker
+          image: ghcr.io/offcon/scoring-worker:0.1.0
+          ports:
+            - name: metrics
+              containerPort: 9003
+          envFrom:
+            - configMapRef: { name: scoring-config }
+          env:
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: scoring-secrets, key: DB_PASSWORD } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: scoring-secrets, key: REDIS_PASSWORD } }
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits:   { cpu: "1000m", memory: "1Gi" }
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scoring-worker
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scoring-worker
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+
+---
+# =============================================================================
+# Season Job (cron, single instance)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-seasonjob
+  namespace: offcon
+  labels: { app: scoring, component: seasonjob }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # never run two seasonjobs in parallel
+  selector:
+    matchLabels: { app: scoring, component: seasonjob }
+  template:
+    metadata:
+      labels: { app: scoring, component: seasonjob }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10003"
+    spec:
+      serviceAccountName: scoring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: seasonjob
+          image: ghcr.io/offcon/scoring-seasonjob:0.1.0
+          ports:
+            - name: metrics
+              containerPort: 10003
+          envFrom:
+            - configMapRef: { name: scoring-config }
+          env:
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: scoring-secrets, key: DB_PASSWORD } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: scoring-secrets, key: REDIS_PASSWORD } }
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "500m", memory: "256Mi" }
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+
+---
+# =============================================================================
+# Network Policy — restrict egress/ingress to only what's needed
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scoring
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels: { app: scoring }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Allow API gateway + Prometheus to scrape metrics
+    - from:
+        - namespaceSelector: { matchLabels: { name: ingress } }
+        - namespaceSelector: { matchLabels: { name: monitoring } }
+      ports:
+        - { protocol: TCP, port: 8003 }
+        - { protocol: TCP, port: 9003 }
+        - { protocol: TCP, port: 10003 }
+    # Allow other offcon services to call the API
+    - from:
+        - namespaceSelector: { matchLabels: { name: offcon } }
+      ports:
+        - { protocol: TCP, port: 8003 }
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: { matchLabels: { name: kube-system } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Postgres
+    - to:
+        - namespaceSelector: { matchLabels: { name: databases } }
+      ports:
+        - { protocol: TCP, port: 5432 }
+    # Redis
+    - to:
+        - namespaceSelector: { matchLabels: { name: databases } }
+      ports:
+        - { protocol: TCP, port: 6379 }
+    # Kafka
+    - to:
+        - namespaceSelector: { matchLabels: { name: messaging } }
+      ports:
+        - { protocol: TCP, port: 9092 }
+    # Other offcon services (user, content, etc.)
+    - to:
+        - namespaceSelector: { matchLabels: { name: offcon } }
+      ports:
+        - { protocol: TCP, port: 80 }
+        - { protocol: TCP, port: 8080 }

@@ -1,0 +1,506 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions Auth API
+  description: |
+    Authentication and identity management for the Offensive Conditions platform.
+    Handles registration, login, JWT issuance, 2FA, OAuth, sessions, and password management.
+  version: 1.0.0
+  contact:
+    name: Offensive Conditions
+    url: https://offensiveconditions.org
+servers:
+  - url: https://api.offensiveconditions.org
+    description: Production
+  - url: https://api.staging.offensiveconditions.org
+    description: Staging
+  - url: http://localhost:8001
+    description: Local development
+
+tags:
+  - name: auth
+    description: Authentication flows
+  - name: 2fa
+    description: Two-factor authentication
+  - name: sessions
+    description: Session management
+  - name: oauth
+    description: OAuth/Social login
+  - name: account
+    description: Account management
+
+paths:
+  /v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Create a new account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Email or username taken
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated, returning tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '202':
+          description: 2FA required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TFAChallenge'
+        '401':
+          description: Invalid credentials
+        '403':
+          description: Account banned/suspended/locked or email not verified
+
+  /v1/auth/login/2fa:
+    post:
+      tags: [auth, 2fa]
+      summary: Complete 2FA login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge, code]
+              properties:
+                challenge: {type: string}
+                code: {type: string, pattern: '^[0-9]{6}$'}
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid code or challenge
+
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Exchange a refresh token for a new access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: {type: string}
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid, expired, or reused token
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current refresh token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: {type: string}
+      responses:
+        '204':
+          description: Logged out
+
+  /v1/auth/logout-all:
+    post:
+      tags: [auth]
+      summary: Revoke all sessions for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: All sessions revoked
+
+  /v1/auth/verify-email:
+    post:
+      tags: [account]
+      summary: Confirm an email verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: {type: string}
+      responses:
+        '200':
+          description: Email verified
+
+  /v1/auth/forgot-password:
+    post:
+      tags: [account]
+      summary: Initiate password reset (sends email)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email}
+      responses:
+        '200':
+          description: Reset link sent (always returned even if email doesn't exist)
+
+  /v1/auth/reset-password:
+    post:
+      tags: [account]
+      summary: Complete password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: {type: string}
+                new_password: {type: string, minLength: 12, maxLength: 128}
+      responses:
+        '200':
+          description: Password reset
+
+  /v1/auth/password/change:
+    post:
+      tags: [account]
+      summary: Change password (authenticated)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: {type: string}
+                new_password: {type: string, minLength: 12, maxLength: 128}
+      responses:
+        '200':
+          description: Password changed
+
+  /v1/auth/me:
+    get:
+      tags: [account]
+      summary: Get current user info from JWT
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: {type: string, format: uuid}
+                  session_id: {type: string, format: uuid}
+                  roles: {type: array, items: {type: string}}
+                  tier: {type: string}
+
+  /v1/auth/sessions:
+    get:
+      tags: [sessions]
+      summary: List active sessions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+
+  /v1/auth/sessions/{id}:
+    delete:
+      tags: [sessions]
+      summary: Revoke a specific session
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '204':
+          description: Session revoked
+
+  /v1/auth/2fa/enroll:
+    post:
+      tags: [2fa]
+      summary: Begin TOTP enrollment
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Secret and QR data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret: {type: string}
+                  otpauth_url: {type: string}
+                  backup_codes:
+                    type: array
+                    items: {type: string}
+
+  /v1/auth/2fa/confirm:
+    post:
+      tags: [2fa]
+      summary: Confirm TOTP enrollment with first code
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string}
+      responses:
+        '200':
+          description: 2FA enabled
+
+  /v1/auth/2fa/disable:
+    post:
+      tags: [2fa]
+      summary: Disable 2FA (requires password + code)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, code]
+              properties:
+                password: {type: string}
+                code: {type: string}
+      responses:
+        '200':
+          description: 2FA disabled
+
+  /v1/auth/2fa/backup-codes:
+    post:
+      tags: [2fa]
+      summary: Regenerate backup codes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: New backup codes (old ones invalidated)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backup_codes:
+                    type: array
+                    items: {type: string}
+
+  /v1/auth/oauth/{provider}:
+    get:
+      tags: [oauth]
+      summary: Initiate OAuth flow
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, github, discord]
+      responses:
+        '200':
+          description: Auth URL to redirect the browser to
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_url: {type: string, format: uri}
+
+  /v1/auth/oauth/{provider}/callback:
+    get:
+      tags: [oauth]
+      summary: OAuth callback (called by provider)
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: true
+          schema: {type: string}
+        - name: state
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '302':
+          description: Redirect to frontend with tokens in URL fragment
+
+  /healthz:
+    get:
+      summary: Liveness check
+      responses:
+        '200':
+          description: Service is alive
+
+  /readyz:
+    get:
+      summary: Readiness check (verifies dependencies)
+      responses:
+        '200':
+          description: All dependencies up
+        '503':
+          description: One or more dependencies down
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, username, password]
+      properties:
+        email: {type: string, format: email}
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: '^[a-zA-Z][a-zA-Z0-9_-]{2,31}$'
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+
+    RegisterResponse:
+      type: object
+      properties:
+        user_id: {type: string, format: uuid}
+        verification_required: {type: boolean}
+        message: {type: string}
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string}
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token: {type: string}
+        refresh_token: {type: string}
+        token_type: {type: string, example: Bearer}
+        expires_in: {type: integer, example: 900}
+        user_id: {type: string, format: uuid}
+
+    TFAChallenge:
+      type: object
+      properties:
+        tfa_challenge: {type: string}
+        user_id: {type: string, format: uuid}
+
+    Session:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        user_agent: {type: string}
+        ip_address: {type: string}
+        country: {type: string}
+        city: {type: string}
+        last_active_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        is_current: {type: boolean}
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
+            details: {type: object}
+
+  responses:
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema: {type: integer}
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

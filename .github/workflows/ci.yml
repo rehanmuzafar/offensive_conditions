@@ -1,0 +1,229 @@
+# ============================================================================
+#  CI — lint + test. Runs on every PR and push to main. Uses path filters so
+#  only the services that changed are tested, keeping CI fast on a big monorepo.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Detect which parts of the monorepo changed
+  # --------------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      python: ${{ steps.filter.outputs.python }}
+      node: ${{ steps.filter.outputs.node }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      helm: ${{ steps.filter.outputs.helm }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - 'services/auth/**'
+              - 'services/orchestrator/**'
+              - 'services/scoring/**'
+              - 'services/flag-verifier/**'
+              - 'services/user-svc/**'
+              - 'gateway/**'
+            python:
+              - 'services/content-svc/**'
+              - 'services/ctf-svc/**'
+              - 'services/forum-svc/**'
+              - 'services/writeup-svc/**'
+              - 'services/bounty-svc/**'
+            node:
+              - 'services/payment-svc/**'
+              - 'services/notification-svc/**'
+            frontend:
+              - 'frontend/**'
+            helm:
+              - 'cicd/helm/**'
+
+  # --------------------------------------------------------------------------
+  # Go — vet, test, build, golangci-lint
+  # --------------------------------------------------------------------------
+  go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth, orchestrator, scoring, flag-verifier, user-svc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+      - name: Vet
+        working-directory: services/${{ matrix.service }}
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: services/${{ matrix.service }}
+          args: --timeout=5m
+      - name: Test
+        working-directory: services/${{ matrix.service }}
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Build
+        working-directory: services/${{ matrix.service }}
+        run: go build ./...
+
+  # --------------------------------------------------------------------------
+  # Python — ruff, mypy, pytest
+  # --------------------------------------------------------------------------
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [content-svc, ctf-svc, forum-svc, writeup-svc, bounty-svc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy pytest pytest-cov pytest-asyncio
+      - name: Ruff (lint + format check)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: mypy
+        working-directory: services/${{ matrix.service }}
+        run: mypy app || true   # type-check advisory until fully annotated
+      - name: pytest
+        working-directory: services/${{ matrix.service }}
+        run: pytest -q --cov=app --cov-report=term-missing
+
+  # --------------------------------------------------------------------------
+  # Node services — eslint, tsc, vitest
+  # --------------------------------------------------------------------------
+  node:
+    needs: changes
+    if: needs.changes.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [payment-svc, notification-svc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+      - name: Install
+        working-directory: services/${{ matrix.service }}
+        run: npm ci
+      - name: Lint
+        working-directory: services/${{ matrix.service }}
+        run: npm run lint --if-present
+      - name: Typecheck
+        working-directory: services/${{ matrix.service }}
+        run: npx tsc --noEmit
+      - name: Test
+        working-directory: services/${{ matrix.service }}
+        run: npm test --if-present
+
+  # --------------------------------------------------------------------------
+  # Frontend — eslint, tsc, next build
+  # --------------------------------------------------------------------------
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: https://api.offensiveconditions.org
+
+  # --------------------------------------------------------------------------
+  # Helm — lint + template render
+  # --------------------------------------------------------------------------
+  helm:
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.3"
+      - name: Lint reusable chart
+        run: helm lint cicd/helm/offcon-service
+      - name: Build dependencies
+        run: helm dependency build cicd/helm/offcon
+      - name: Lint umbrella
+        run: helm lint cicd/helm/offcon -f cicd/helm/values/production.yaml
+      - name: Template render (production)
+        run: helm template offcon cicd/helm/offcon -f cicd/helm/values/production.yaml > /dev/null
+      - name: Template render (staging)
+        run: helm template offcon cicd/helm/offcon -f cicd/helm/values/staging.yaml > /dev/null
+
+  # --------------------------------------------------------------------------
+  # Gate — a single required check that passes only if everything that ran
+  # succeeded. Branch protection points at this one job.
+  # --------------------------------------------------------------------------
+  ci-success:
+    needs: [go, python, node, frontend, helm]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all jobs succeeded
+        run: |
+          results='${{ needs.go.result }} ${{ needs.python.result }} ${{ needs.node.result }} ${{ needs.frontend.result }} ${{ needs.helm.result }}'
+          echo "Job results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A required CI job failed ($r)"
+              exit 1
+            fi
+          done
+          echo "All CI jobs passed (or were skipped)."

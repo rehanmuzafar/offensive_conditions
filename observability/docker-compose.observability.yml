@@ -1,0 +1,110 @@
+# ============================================================================
+#  Local observability stack — docker-compose. Brings up Prometheus, Grafana,
+#  Loki, Tempo, AlertManager, OTel collector, and Promtail for local dev.
+#
+#  Usage:  docker compose -f docker-compose.observability.yml up -d
+#  Grafana: http://localhost:3000  (admin / admin)
+#
+#  Services running locally should send OTLP to localhost:4317 and expose
+#  /metrics for Prometheus to scrape (see the static targets in prometheus.yml).
+# ============================================================================
+name: offcon-observability
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: dark
+      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor traceToMetrics"
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus, loki, tempo]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.3.2
+    command: ["-config.file=/etc/loki/loki-config.yml", "-config.expand-env=true"]
+    ports: ["3100:3100"]
+    environment:
+      # Local dev uses the filesystem backend instead of S3 — override via env.
+      S3_ENDPOINT: ""
+      S3_ACCESS_KEY: ""
+      S3_SECRET_KEY: ""
+    volumes:
+      - ./loki/loki-config.local.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo/tempo-config.yml", "-config.expand-env=true"]
+    ports:
+      - "3200:3200"
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./tempo/tempo-config.local.yml:/etc/tempo/tempo-config.yml:ro
+      - tempo-data:/var/tempo
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports: ["9093:9093"]
+    environment:
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/PLACEHOLDER}"
+      PAGERDUTY_ROUTING_KEY: "${PAGERDUTY_ROUTING_KEY:-placeholder}"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.0
+    command: ["--config=/etc/otel/otel-collector-config.yml"]
+    ports:
+      - "13133:13133" # health
+      - "8888:8888" # collector metrics
+    volumes:
+      - ./otel-collector/otel-collector-config.local.yml:/etc/otel/otel-collector-config.yml:ro
+    depends_on: [tempo, prometheus]
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]
+    volumes:
+      - ./promtail/promtail-config.local.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:

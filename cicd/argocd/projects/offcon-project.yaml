@@ -1,0 +1,66 @@
+# ============================================================================
+#  ArgoCD AppProject — scopes what the OFFCON apps may deploy and where.
+#  Restricts source repos, destination namespaces, and allowed resource kinds.
+# ============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: offcon
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: OFFCON platform — services, gateway, and observability.
+
+  # Only our GitOps repo may be a source.
+  sourceRepos:
+    - "https://github.com/offcon/offcon.git"
+    - "https://github.com/offcon/gitops.git"
+
+  # Apps may only deploy into these namespaces in the in-cluster destination.
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: offcon
+    - server: https://kubernetes.default.svc
+      namespace: observability
+    - server: https://kubernetes.default.svc
+      namespace: istio-system
+    - server: https://kubernetes.default.svc
+      namespace: data
+
+  # Cluster-scoped resources the project is allowed to manage.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: networking.istio.io
+      kind: "*"
+    - group: security.istio.io
+      kind: "*"
+
+  # Namespaced resources allowed (deny everything else).
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # Sync windows — allow auto-sync anytime in staging; block prod deploys
+  # during the weekend freeze (manual override still possible).
+  syncWindows:
+    - kind: deny
+      schedule: "0 0 * * 6"
+      duration: 48h
+      applications:
+        - "offcon-production"
+      manualSync: true
+
+  # Roles — read-only token for dashboards, sync token for CI.
+  roles:
+    - name: readonly
+      policies:
+        - p, proj:offcon:readonly, applications, get, offcon/*, allow
+    - name: ci-sync
+      policies:
+        - p, proj:offcon:ci-sync, applications, sync, offcon/*, allow

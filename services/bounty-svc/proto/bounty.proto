@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package offcon.bounty.v1;
+
+option go_package = "github.com/offcon/proto/bounty/v1;bountyv1";
+
+service BountyService {
+  rpc GetReportSummary(GetReportSummaryRequest) returns (ReportSummary);
+  rpc GetProgramSummary(GetProgramSummaryRequest) returns (ProgramSummary);
+  rpc RecordPayout(RecordPayoutRequest) returns (RecordPayoutResponse);
+}
+
+message GetReportSummaryRequest {
+  string report_id = 1;
+}
+
+message ReportSummary {
+  string id = 1;
+  string short_id = 2;
+  string program_id = 3;
+  string researcher_id = 4;
+  string title = 5;
+  string severity = 6;
+  string state = 7;
+  int32  bounty_cents = 8;
+  string bounty_currency = 9;
+}
+
+message GetProgramSummaryRequest {
+  string slug = 1;
+}
+
+message ProgramSummary {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string owner_org_id = 4;
+  string visibility = 5;
+  string status = 6;
+  string currency = 7;
+  int32  total_reports = 8;
+  int64  total_payouts_cents = 9;
+}
+
+message RecordPayoutRequest {
+  string payment_svc_payout_id = 1;
+  string provider_payout_id = 2;
+  string state = 3;  // paid|failed|canceled|processing
+}
+
+message RecordPayoutResponse {
+  string payout_id = 1;
+  string state = 2;
+}

@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package offcon.payment.v1;
+
+option go_package = "github.com/offcon/proto/payment/v1;paymentv1";
+
+service PaymentService {
+  rpc GetUserTier(GetUserTierRequest) returns (UserTier);
+  rpc GetUserSubscription(GetUserSubscriptionRequest) returns (UserSubscription);
+  rpc IsFeatureEnabled(IsFeatureEnabledRequest) returns (FeatureCheck);
+  rpc GetSubscriptionHistory(GetSubscriptionHistoryRequest) returns (SubscriptionHistory);
+}
+
+message GetUserTierRequest {
+  string user_id = 1;
+}
+
+message UserTier {
+  string user_id = 1;
+  string tier = 2;                       // free|vip|vip_plus|team|enterprise
+  string status = 3;                     // none|trialing|active|past_due|...
+  string current_period_end = 4;         // ISO-8601 timestamp, empty if none
+  int32  max_concurrent_instances = 5;
+  int32  max_daily_spawns = 6;
+}
+
+message GetUserSubscriptionRequest {
+  string user_id = 1;
+}
+
+message UserSubscription {
+  bool   has_subscription = 1;
+  string subscription_id = 2;
+  string plan_code = 3;
+  string tier = 4;
+  string status = 5;
+  string current_period_end = 6;
+  bool   cancel_at_period_end = 7;
+}
+
+message IsFeatureEnabledRequest {
+  string user_id = 1;
+  string feature_code = 2;
+}
+
+message FeatureCheck {
+  bool enabled = 1;
+  string reason = 2;
+}
+
+message GetSubscriptionHistoryRequest {
+  string user_id = 1;
+}
+
+message SubscriptionSummary {
+  string id = 1;
+  string plan_code = 2;
+  string status = 3;
+  string current_period_start = 4;
+  string current_period_end = 5;
+  string canceled_at = 6;
+}
+
+message SubscriptionHistory {
+  repeated SubscriptionSummary subscriptions = 1;
+}

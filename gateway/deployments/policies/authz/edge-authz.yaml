@@ -1,0 +1,125 @@
+# =============================================================================
+# AuthorizationPolicy — north-south access control at the ingressgateway
+# =============================================================================
+# Strategy:
+#   1. A DENY policy that requires a valid JWT for everything EXCEPT the
+#      explicitly public paths (auth login/register, public GETs, webhooks,
+#      health, WS upgrades that self-authenticate).
+#   2. A separate DENY policy for /v1/admin/* that additionally requires an
+#      admin-tier role claim.
+# Istio evaluates: CUSTOM → DENY → ALLOW. A request must pass all DENY rules.
+# =============================================================================
+---
+# Require a valid JWT for protected paths. Anything matching `to` here without
+# a validated principal is denied.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: require-jwt
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notRequestPrincipals: ["*"]   # no validated JWT principal
+      to:
+        - operation:
+            paths:
+              - /v1/me/*
+              - /v1/teams/*
+              - /v1/instances/*
+              - /v1/vpn/*
+              - /v1/flag/submit
+              - /v1/billing/*
+              - /v1/payments/*
+              - /v1/reports/*
+              - /v1/attachments/*
+              - /v1/admin/*
+            notPaths:
+              # WS endpoints validate the token themselves (query param)
+              - /v1/ws/*
+
+---
+# Admin paths additionally require an admin-tier role. The JWT must carry a
+# `roles` claim containing at least one privileged role.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: require-admin-role
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/v1/admin/*"]
+      when:
+        - key: request.auth.claims[roles]
+          notValues:
+            - admin
+            - moderator
+            - support
+            - ctf_organizer
+            - triager
+
+---
+# Explicit ALLOW for the public surface. Combined with the DENY above, this
+# yields: public paths open to all; everything else requires JWT.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-public
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  action: ALLOW
+  rules:
+    # Open auth endpoints
+    - to:
+        - operation:
+            paths:
+              - /v1/auth/login
+              - /v1/auth/register
+              - /v1/auth/oauth/*
+              - /v1/auth/password-reset
+              - /.well-known/*
+    # Public GET content
+    - to:
+        - operation:
+            methods: [GET]
+            paths:
+              - /v1/users/*
+              - /v1/machines/*
+              - /v1/challenges/*
+              - /v1/tracks/*
+              - /v1/leaderboards/*
+              - /v1/seasons/*
+              - /v1/ctf/*
+              - /v1/forum/*
+              - /v1/writeups/*
+              - /v1/programs/*
+    # WebSocket upgrades (self-authenticated)
+    - to:
+        - operation:
+            paths: ["/v1/ws/*"]
+    # Stripe webhook (signature validated in-service)
+    - to:
+        - operation:
+            paths: ["/v1/webhooks/*"]
+    # Health
+    - to:
+        - operation:
+            paths: ["/healthz", "/readyz"]
+    # Authenticated routes — allowed once the require-jwt DENY has passed
+    - from:
+        - source:
+            requestPrincipals: ["*"]

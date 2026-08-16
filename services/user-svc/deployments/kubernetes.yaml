@@ -1,0 +1,384 @@
+# =============================================================================
+# user-svc Kubernetes manifests
+# =============================================================================
+# Resources:
+#   - Namespace (assumed already created: offcon)
+#   - ConfigMap: user-svc-config
+#   - Secret: user-svc-secrets (created out-of-band; sealed-secrets in prod)
+#   - Deployment: user-svc-server (HTTP + gRPC)
+#   - Deployment: user-svc-worker (Kafka consumer)
+#   - CronJob: user-svc-gdprjob (daily)
+#   - Service: user-svc (ClusterIP for HTTP + gRPC)
+#   - HPA: scales server based on CPU
+#   - PodDisruptionBudget: keep at least 2 server replicas during voluntary disruption
+#   - NetworkPolicy: only allow ingress from gateway / authorized services
+#   - ServiceAccount + RBAC
+#
+# Apply with: kubectl apply -f deployments/kubernetes.yaml -n offcon
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-svc
+  namespace: offcon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-svc-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "user-svc"
+  APP_VERSION: "0.1.0"
+  HTTP_PORT: "8001"
+  HTTP_READ_TIMEOUT: "15s"
+  HTTP_WRITE_TIMEOUT: "30s"
+  HTTP_IDLE_TIMEOUT: "60s"
+  HTTP_SHUTDOWN_TIMEOUT: "30s"
+  HTTP_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  HTTP_CORS_ORIGINS: "https://app.offensiveconditions.org,https://staging.offensiveconditions.org"
+  HTTP_MAX_AVATAR_BYTES: "2097152"
+  GRPC_PORT: "9001"
+  GRPC_ENABLE_REFLECTION: "false"
+  DB_HOST: "postgres-primary.offcon.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "user_svc"
+  DB_SSLMODE: "require"
+  DB_MAX_CONNS: "25"
+  DB_MIN_CONNS: "5"
+  REDIS_ADDR: "redis-primary.offcon.svc.cluster.local:6379"
+  REDIS_DB: "1"
+  REDIS_POOL_SIZE: "20"
+  REDIS_TLS: "false"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/jwt/jwt.pub"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  AUTH_JWT_CLOCK_SKEW: "5s"
+  AUTH_TOKEN_CACHE_TTL: "30s"
+  KAFKA_BROKERS: "kafka-0.kafka.offcon.svc.cluster.local:9092,kafka-1.kafka.offcon.svc.cluster.local:9092,kafka-2.kafka.offcon.svc.cluster.local:9092"
+  KAFKA_CONSUMER_GROUP: "user-svc"
+  KAFKA_TOPIC_USER_EVENTS: "user.events"
+  KAFKA_TOPIC_AUTH_EVENTS: "auth.events"
+  KAFKA_USE_TLS: "true"
+  STORAGE_ENDPOINT: "minio.offcon.svc.cluster.local:9000"
+  STORAGE_USE_SSL: "true"
+  STORAGE_REGION: "us-east-1"
+  STORAGE_AVATAR_BUCKET: "offcon-avatars"
+  STORAGE_EXPORT_BUCKET: "offcon-gdpr-exports"
+  STORAGE_CDN_BASE_URL: "https://cdn.offensiveconditions.org"
+  LIMIT_USERNAME_MIN_LENGTH: "3"
+  LIMIT_USERNAME_MAX_LENGTH: "32"
+  LIMIT_BIO_MAX_LENGTH: "500"
+  LIMIT_MAX_FRIENDS_FREE: "100"
+  LIMIT_MAX_FRIENDS_PRO: "1000"
+  LIMIT_MAX_TEAM_SIZE_FREE: "5"
+  LIMIT_MAX_TEAM_SIZE_PRO: "25"
+  LIMIT_MAX_TEAMS_PER_USER: "5"
+  LIMIT_INVITATION_TTL: "168h"
+  LIMIT_FRIEND_REQUEST_TTL: "720h"
+  GDPR_DELETION_GRACE_PERIOD: "720h"
+  GDPR_EXPORT_TTL: "168h"
+  GDPR_EXPORT_SIGNED_URL_TTL: "24h"
+  WORKER_CONCURRENCY: "4"
+  WORKER_MAX_RETRIES: "5"
+  WORKER_RETRY_BACKOFF: "500ms"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+# NOTE: Secret is created out-of-band (e.g., External Secrets Operator).
+# Keys required:
+#   DB_PASSWORD
+#   REDIS_PASSWORD
+#   STORAGE_ACCESS_KEY
+#   STORAGE_SECRET_KEY
+# This is just a placeholder skeleton.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-svc-secrets
+  namespace: offcon
+type: Opaque
+stringData:
+  DB_PASSWORD: "<bind-via-ExternalSecret>"
+  REDIS_PASSWORD: "<bind-via-ExternalSecret>"
+  STORAGE_ACCESS_KEY: "<bind-via-ExternalSecret>"
+  STORAGE_SECRET_KEY: "<bind-via-ExternalSecret>"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-svc
+  namespace: offcon
+  labels:
+    app: user-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: user-svc
+    role: server
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+    - name: grpc
+      port: 9001
+      targetPort: 9001
+      protocol: TCP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-svc-server
+  namespace: offcon
+  labels:
+    app: user-svc
+    role: server
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: user-svc
+      role: server
+  template:
+    metadata:
+      labels:
+        app: user-svc
+        role: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: user-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: user-svc
+          image: registry.offensiveconditions.org/user-svc:0.1.0
+          args: []
+          ports:
+            - name: http
+              containerPort: 8001
+            - name: grpc
+              containerPort: 9001
+          envFrom:
+            - configMapRef: { name: user-svc-config }
+            - secretRef: { name: user-svc-secrets }
+          volumeMounts:
+            - { name: jwt-pub, mountPath: /etc/jwt, readOnly: true }
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits:   { cpu: "1000m", memory: "512Mi" }
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: jwt-pub
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - key: jwt.pub
+                path: jwt.pub
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: user-svc
+              role: server
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-svc-worker
+  namespace: offcon
+  labels:
+    app: user-svc
+    role: worker
+spec:
+  replicas: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: user-svc
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: user-svc
+        role: worker
+    spec:
+      serviceAccountName: user-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: registry.offensiveconditions.org/user-svc-worker:0.1.0
+          envFrom:
+            - configMapRef: { name: user-svc-config }
+            - secretRef: { name: user-svc-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "256Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: user-svc-gdprjob
+  namespace: offcon
+spec:
+  schedule: "0 3 * * *"  # daily at 03:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          serviceAccountName: user-svc
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: gdprjob
+              image: registry.offensiveconditions.org/user-svc-gdprjob:0.1.0
+              envFrom:
+                - configMapRef: { name: user-svc-config }
+                - secretRef: { name: user-svc-secrets }
+              resources:
+                requests: { cpu: "100m", memory: "256Mi" }
+                limits:   { cpu: "500m", memory: "1Gi" }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-svc-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-svc-server
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 80 }
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - { type: Percent, value: 50, periodSeconds: 60 }
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 30 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-svc-server
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: user-svc
+      role: server
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: user-svc
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels:
+      app: user-svc
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # API gateway / Istio ingress
+    - from:
+        - namespaceSelector:
+            matchLabels: { name: istio-system }
+        - podSelector:
+            matchLabels: { app: api-gateway }
+      ports:
+        - { protocol: TCP, port: 8001 }
+    # Service-to-service gRPC consumers (scoring, ctf, forum, etc.)
+    - from:
+        - podSelector:
+            matchLabels: { tier: backend }
+      ports:
+        - { protocol: TCP, port: 9001 }
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports: [{ protocol: TCP, port: 5432 }]
+    - to:
+        - podSelector: { matchLabels: { app: redis } }
+      ports: [{ protocol: TCP, port: 6379 }]
+    - to:
+        - podSelector: { matchLabels: { app: kafka } }
+      ports: [{ protocol: TCP, port: 9092 }]
+    - to:
+        - podSelector: { matchLabels: { app: minio } }
+      ports: [{ protocol: TCP, port: 9000 }]
+    - to: []
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]

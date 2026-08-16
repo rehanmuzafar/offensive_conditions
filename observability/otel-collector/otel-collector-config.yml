@@ -1,0 +1,140 @@
+# ============================================================================
+#  OpenTelemetry Collector — the central telemetry pipeline. Every service
+#  sends OTLP traces (and optionally metrics) here; the collector batches,
+#  enriches, samples, and fans out to Tempo (traces) + Prometheus (metrics).
+#
+#  Deployed as a Deployment (gateway pattern) behind a Service, plus an
+#  optional per-node agent DaemonSet for host metrics.
+# ============================================================================
+receivers:
+  # Apps push OTLP here
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 8
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Scrape the collector's own metrics
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["localhost:8888"]
+
+processors:
+  # Batch spans/metrics for efficient export
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Guard against memory blowups
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # Enrich every span with k8s metadata (pod, node, namespace)
+  k8sattributes:
+    auth_type: serviceAccount
+    passthrough: false
+    extract:
+      metadata:
+        - k8s.namespace.name
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.node.name
+        - k8s.deployment.name
+      labels:
+        - tag_name: service
+          key: app
+          from: pod
+        - tag_name: tier
+          key: tier
+          from: pod
+    pod_association:
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+      - sources:
+          - from: connection
+
+  # Tail-based sampling — keep all errors + slow traces, sample the rest.
+  # Keeps trace volume (and cost) sane while never dropping interesting traces.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 100000
+    expected_new_traces_per_sec: 2000
+    policies:
+      - name: errors-always
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow-traces
+        type: latency
+        latency:
+          threshold_ms: 500
+      - name: probabilistic-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+  # Add cluster-wide resource attributes
+  resource:
+    attributes:
+      - key: cluster
+        value: offcon-prod
+        action: upsert
+      - key: deployment.environment
+        value: production
+        action: upsert
+
+exporters:
+  # Traces → Tempo
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+
+  # Metrics → Prometheus (remote write)
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Debug (disabled in prod; flip to enable verbose logging)
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, resource, tail_sampling, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, k8sattributes, resource, batch]
+      exporters: [prometheusremotewrite]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888

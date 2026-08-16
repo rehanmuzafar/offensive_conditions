@@ -1,0 +1,36 @@
+<mjml>
+  <mj-head>
+    <mj-title>First blood: {{target_name}}</mj-title>
+    <mj-preview>+{{bonus_points}} bonus points on top of the solve.</mj-preview>
+    <mj-attributes>
+      <mj-all font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" />
+      <mj-text color="#1a1a1a" font-size="15px" line-height="1.5" />
+      <mj-button background-color="#dc2626" color="#ffffff" font-weight="600" border-radius="6px" />
+    </mj-attributes>
+  </mj-head>
+  <mj-body background-color="#f6f7fb">
+    <mj-section background-color="#ffffff" padding="32px 24px">
+      <mj-column>
+        <mj-text font-size="28px" font-weight="700">🩸 First blood on {{target_name}}</mj-text>
+        <mj-text>
+          {{username}}, you were the first to crack it. {{bonus_points}}
+          bonus points have been added to your season total.
+        </mj-text>
+        <mj-button href="{{target_url}}" padding="20px 0 4px">
+          View on the box
+        </mj-button>
+        <mj-text padding-top="20px" color="#6b7280">
+          Solve time: {{solve_time_formatted}} &middot; Total points: {{total_points}}
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="16px 24px">
+      <mj-column>
+        <mj-text color="#6b7280" font-size="12px">
+          Want fewer of these? <a href="{{preferences_url}}" style="color: #6b7280;">Manage notifications</a>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

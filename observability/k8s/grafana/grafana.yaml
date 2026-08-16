@@ -1,0 +1,82 @@
+# ============================================================================
+#  Grafana — Deployment with provisioned datasources + dashboards. Admin
+#  password + secrets come from a Secret. Persists its SQLite state on a PVC.
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+  labels: { app: grafana }
+spec:
+  selector: { app: grafana }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: observability
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { storage: 10Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: grafana }
+  template:
+    metadata:
+      labels: { app: grafana, tier: observability }
+    spec:
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+        runAsNonRoot: true
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.4.0
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: grafana-secrets, key: admin-password }
+            - name: GF_SERVER_ROOT_URL
+              value: "https://grafana.offensiveconditions.org"
+            - name: GF_USERS_DEFAULT_THEME
+              value: "dark"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: "traceqlEditor traceToMetrics"
+            - name: GF_INSTALL_PLUGINS
+              value: ""
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 20
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/grafana }
+            - { name: datasources, mountPath: /etc/grafana/provisioning/datasources }
+            - { name: dashboard-provider, mountPath: /etc/grafana/provisioning/dashboards }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: grafana-data }
+        - name: datasources
+          configMap: { name: grafana-datasources }
+        - name: dashboard-provider
+          configMap: { name: grafana-dashboard-provider }
+        - name: dashboards
+          configMap: { name: grafana-dashboards }

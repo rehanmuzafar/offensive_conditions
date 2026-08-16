@@ -1,0 +1,456 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: offcon-orchestrator
+---
+# =============================================================================
+# Lab instances namespace - where lab pods land
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-instances
+  labels:
+    name: lab-instances
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+# =============================================================================
+# ServiceAccount + RBAC for orchestrator
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator
+  namespace: offcon-orchestrator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: orchestrator
+rules:
+  # Manage pods in lab-instances namespace
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Manage network policies for isolation
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read namespaces (for capacity queries)
+  - apiGroups: [""]
+    resources: ["namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  # Read configmaps/secrets for image pull secrets etc.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # CRD: LabInstance
+  - apiGroups: ["offensiveconditions.org"]
+    resources: ["labinstances", "labinstances/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: orchestrator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: orchestrator
+subjects:
+  - kind: ServiceAccount
+    name: orchestrator
+    namespace: offcon-orchestrator
+---
+# =============================================================================
+# ConfigMap (non-secret config)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orchestrator-config
+  namespace: offcon-orchestrator
+data:
+  APP_ENV: "production"
+  APP_NAME: "orchestrator"
+  HTTP_PORT: "8002"
+  GRPC_PORT: "9002"
+  K8S_IN_CLUSTER: "true"
+  K8S_LAB_NAMESPACE: "lab-instances"
+  K8S_RUNTIME_CLASS: "gvisor"
+  K8S_NETWORK_ATTACH_DEF: "lab-instance-net"
+  K8S_CPU_LIMIT: "2"
+  K8S_MEM_LIMIT: "4Gi"
+  NETWORK_USER_SUBNET_BASE: "10.10.0.0/16"
+  NETWORK_USER_SUBNET_SIZE: "24"
+  NETWORK_INSTANCE_SUBNET_SIZE: "30"
+  WIREGUARD_API: "http://wg-controller.network.svc:8090"
+  INSTANCE_DEFAULT_TTL: "8h"
+  INSTANCE_MAX_TTL: "24h"
+  INSTANCE_EXTEND_STEP: "4h"
+  INSTANCE_MAX_EXTENSIONS: "3"
+  REAPER_INTERVAL: "60s"
+  INSTANCE_HEALTH_INTERVAL: "30s"
+  AUTH_GRPC_ENDPOINT: "auth.offcon-auth.svc:9001"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/auth/jwt-public.pem"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  AUTH_INSECURE: "false"
+  KAFKA_BROKERS: "kafka-0.kafka:9092,kafka-1.kafka:9092,kafka-2.kafka:9092"
+  KAFKA_TOPIC_INSTANCE_EVENTS: "instance.events"
+  KAFKA_USE_TLS: "true"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+---
+# =============================================================================
+# Server deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: offcon-orchestrator
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: api
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: orchestrator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: registry.offensiveconditions.org/orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8002 }
+            - { name: grpc, containerPort: 9002 }
+          envFrom:
+            - configMapRef:
+                name: orchestrator-config
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef: { name: orchestrator-db, key: host }
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef: { name: orchestrator-db, key: port }
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef: { name: orchestrator-db, key: dbname }
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: orchestrator-db, key: user }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: orchestrator-db, key: password }
+            - name: DB_SSLMODE
+              value: "require"
+            - name: REDIS_ADDR
+              valueFrom:
+                secretKeyRef: { name: orchestrator-redis, key: addr }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: orchestrator-redis, key: password }
+            - name: FLAG_HMAC_SECRET
+              valueFrom:
+                secretKeyRef: { name: orchestrator-flag, key: hmac-secret }
+            - name: PROXMOX_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: orchestrator-proxmox, key: endpoint, optional: true }
+            - name: PROXMOX_TOKEN_ID
+              valueFrom:
+                secretKeyRef: { name: orchestrator-proxmox, key: token-id, optional: true }
+            - name: PROXMOX_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef: { name: orchestrator-proxmox, key: token-secret, optional: true }
+            - name: WIREGUARD_API_KEY
+              valueFrom:
+                secretKeyRef: { name: orchestrator-wg, key: api-key, optional: true }
+          volumeMounts:
+            - { name: auth-pubkey, mountPath: /etc/auth, readOnly: true }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits:   { cpu: 1000m, memory: 1Gi }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: auth-pubkey
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - { key: jwt-public.pem, path: jwt-public.pem }
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: orchestrator
+                topologyKey: kubernetes.io/hostname
+---
+# =============================================================================
+# Reaper deployment (single replica via leader election in future)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-reaper
+  namespace: offcon-orchestrator
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: reaper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+      app.kubernetes.io/component: reaper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/component: reaper
+    spec:
+      serviceAccountName: orchestrator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: reaper
+          image: registry.offensiveconditions.org/orchestrator-reaper:latest
+          envFrom:
+            - configMapRef: { name: orchestrator-config }
+          env:
+            - name: DB_HOST
+              valueFrom: { secretKeyRef: { name: orchestrator-db, key: host } }
+            - name: DB_NAME
+              valueFrom: { secretKeyRef: { name: orchestrator-db, key: dbname } }
+            - name: DB_USER
+              valueFrom: { secretKeyRef: { name: orchestrator-db, key: user } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: orchestrator-db, key: password } }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+# =============================================================================
+# Operator deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-operator
+  namespace: offcon-orchestrator
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+      app.kubernetes.io/component: operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/component: operator
+    spec:
+      serviceAccountName: orchestrator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: operator
+          image: registry.offensiveconditions.org/orchestrator-operator:latest
+          args: ["--leader-elect=true"]
+          ports:
+            - { name: metrics, containerPort: 8080 }
+            - { name: probe, containerPort: 8081 }
+          livenessProbe:
+            httpGet: { path: /healthz, port: probe }
+          readinessProbe:
+            httpGet: { path: /readyz, port: probe }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 256Mi }
+---
+# =============================================================================
+# Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: offcon-orchestrator
+  labels:
+    app.kubernetes.io/name: orchestrator
+spec:
+  selector:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: api
+  ports:
+    - { name: http, port: 8002, targetPort: http }
+    - { name: grpc, port: 9002, targetPort: grpc }
+---
+# =============================================================================
+# HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orchestrator
+  namespace: offcon-orchestrator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orchestrator
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 75 }
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+# =============================================================================
+# PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orchestrator
+  namespace: offcon-orchestrator
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+      app.kubernetes.io/component: api
+---
+# =============================================================================
+# NetworkPolicy - default deny + allow only the traffic we need
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator
+  namespace: offcon-orchestrator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Allow ingress only from API gateway namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: api-gateway
+      ports:
+        - { protocol: TCP, port: 8002 }
+        - { protocol: TCP, port: 9002 }
+    # Allow Prometheus to scrape metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - { protocol: TCP, port: 8002 }
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }]
+    # PostgreSQL
+    - to:
+        - namespaceSelector: { matchLabels: { name: databases } }
+      ports: [{ protocol: TCP, port: 5432 }]
+    # Redis
+    - to:
+        - namespaceSelector: { matchLabels: { name: databases } }
+      ports: [{ protocol: TCP, port: 6379 }]
+    # Kafka
+    - to:
+        - namespaceSelector: { matchLabels: { name: kafka } }
+      ports: [{ protocol: TCP, port: 9092 }]
+    # Auth service gRPC
+    - to:
+        - namespaceSelector: { matchLabels: { name: offcon-auth } }
+      ports: [{ protocol: TCP, port: 9001 }]
+    # Kubernetes API server (to create lab pods)
+    - to:
+        - namespaceSelector: { matchLabels: { name: kube-system } }
+      ports: [{ protocol: TCP, port: 443 }]
+    # Proxmox API (HTTPS)
+    - to: []
+      ports: [{ protocol: TCP, port: 8006 }]
+    # WireGuard controller
+    - to:
+        - namespaceSelector: { matchLabels: { name: network } }
+      ports: [{ protocol: TCP, port: 8090 }]

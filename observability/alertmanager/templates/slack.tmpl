@@ -1,0 +1,18 @@
+{{/* ===========================================================================
+     AlertManager Slack message templates
+     =========================================================================== */}}
+
+{{ define "slack.title" -}}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
+{{- end }}
+
+{{ define "slack.text" -}}
+{{ range .Alerts -}}
+*Severity:* `{{ .Labels.severity }}`  *Team:* `{{ .Labels.team }}`
+{{ if .Labels.service }}*Service:* `{{ .Labels.service }}`{{ end }}
+*Summary:* {{ .Annotations.summary }}
+{{ if .Annotations.description }}*Details:* {{ .Annotations.description }}{{ end }}
+{{ if .Annotations.runbook }}*Runbook:* <{{ .Annotations.runbook }}|open>{{ end }}
+{{ if .StartsAt }}*Since:* {{ .StartsAt.Format "15:04:05 MST" }}{{ end }}
+{{ end }}
+{{- end }}

@@ -1,0 +1,55 @@
+# =============================================================================
+# RequestAuthentication — validate JWTs issued by auth-svc
+# =============================================================================
+# This tells the ingressgateway how to verify the signature + claims of the
+# Bearer tokens our auth-svc issues. It does NOT enforce presence (that's the
+# AuthorizationPolicy's job) — it only validates tokens that ARE present and
+# populates request.auth.claims for downstream policy.
+# =============================================================================
+---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: offcon-jwt
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  jwtRules:
+    - issuer: "https://auth.offensiveconditions.org"
+      audiences:
+        - "offcon-api"
+      # JWKS endpoint served by auth-svc — Istio caches + refreshes
+      jwksUri: "http://auth.offcon.svc.cluster.local:8001/.well-known/jwks.json"
+      # Where to find the token
+      fromHeaders:
+        - name: Authorization
+          prefix: "Bearer "
+      # WebSocket clients send the token in a query param because browsers
+      # can't set headers on the WS handshake.
+      fromParams:
+        - "token"
+      # Copy validated claims into a header so services can read them without
+      # re-validating. The auth filter strips any client-supplied value first.
+      outputPayloadToHeader: "x-jwt-payload"
+      forwardOriginalToken: true
+
+---
+# Stripe + other webhook callers present NO JWT. We carve their paths out so
+# the AuthorizationPolicy below doesn't reject them. Signature validation
+# happens inside payment-svc.
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: offcon-jwt-spa
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  jwtRules:
+    - issuer: "https://auth.offensiveconditions.org"
+      audiences: ["offcon-api"]
+      jwksUri: "http://auth.offcon.svc.cluster.local:8001/.well-known/jwks.json"
+      forwardOriginalToken: true

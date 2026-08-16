@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package offcon.ctf.v1;
+
+option go_package = "github.com/offcon/proto/ctf/v1;ctfv1";
+
+import "google/protobuf/timestamp.proto";
+
+// CtfService — internal-only gRPC for scoring + orchestrator.
+service CtfService {
+  rpc IsUserInEvent(IsUserInEventRequest) returns (IsUserInEventResponse);
+  rpc GetEventState(GetEventStateRequest) returns (EventState);
+  rpc GetTeamForUser(GetTeamForUserRequest) returns (GetTeamForUserResponse);
+  rpc GetParticipant(GetParticipantRequest) returns (Participant);
+  rpc ListLiveEvents(ListLiveEventsRequest) returns (stream EventState);
+}
+
+message IsUserInEventRequest {
+  string user_id = 1;
+  string event_id = 2;
+}
+
+message IsUserInEventResponse {
+  bool in_event = 1;
+  string participant_id = 2;       // empty if not in event
+  string participant_type = 3;     // user|team
+  string team_id = 4;              // if team participant
+}
+
+message GetEventStateRequest {
+  string event_id = 1;
+}
+
+message EventState {
+  string id = 1;
+  string slug = 2;
+  string status = 3;               // draft|published|registration|live|ended|archived
+  google.protobuf.Timestamp starts_at = 4;
+  google.protobuf.Timestamp ends_at = 5;
+  google.protobuf.Timestamp scoreboard_freeze_at = 6;
+  bool dynamic_scoring = 7;
+  int32 min_points = 8;
+  int32 total_registered = 9;
+  int32 total_teams = 10;
+}
+
+message GetTeamForUserRequest {
+  string user_id = 1;
+  string event_id = 2;
+}
+
+message GetTeamForUserResponse {
+  string team_id = 1;              // empty if no team registered
+  string team_name = 2;
+  string participant_id = 3;
+}
+
+message GetParticipantRequest {
+  string participant_id = 1;
+}
+
+message Participant {
+  string id = 1;
+  string event_id = 2;
+  string participant_type = 3;
+  string user_id = 4;
+  string team_id = 5;
+  int32  points = 6;
+  int32  solve_count = 7;
+  int32  rank = 8;
+  bool   is_disqualified = 9;
+}
+
+message ListLiveEventsRequest {}

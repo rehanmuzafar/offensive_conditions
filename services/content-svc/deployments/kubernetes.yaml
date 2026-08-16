@@ -1,0 +1,538 @@
+# =============================================================================
+# Content service — Kubernetes manifests
+# Namespace: offcon
+# Three deployments: server (HTTP+gRPC), worker (Celery), beat (Celery scheduler)
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: content-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: content-svc
+    app.kubernetes.io/part-of: offcon
+automountServiceAccountToken: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: content-svc-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "content-svc"
+  HTTP_PORT: "8003"
+  HTTP_HOST: "0.0.0.0"
+  HTTP_WORKERS: "2"
+  HTTP_CORS_ORIGINS: '["https://app.offensiveconditions.org","https://offensiveconditions.org"]'
+  GRPC_PORT: "9003"
+  GRPC_ENABLE_REFLECTION: "false"
+  DB_HOST: "pg-primary.data.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "content_svc"
+  DB_SSLMODE: "require"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+  REDIS_HOST: "redis-primary.data.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "2"
+  REDIS_TLS: "true"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/auth/jwt.pub"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  KAFKA_BROKERS: '["kafka-0.kafka.data.svc.cluster.local:9093","kafka-1.kafka.data.svc.cluster.local:9093","kafka-2.kafka.data.svc.cluster.local:9093"]'
+  KAFKA_TOPIC_CONTENT_EVENTS: "content.events"
+  KAFKA_USE_TLS: "true"
+  KAFKA_ACKS: "all"
+  STORAGE_ENDPOINT: "minio.data.svc.cluster.local:9000"
+  STORAGE_USE_SSL: "true"
+  STORAGE_MEDIA_BUCKET: "offcon-content-media"
+  STORAGE_FILES_BUCKET: "offcon-content-files"
+  STORAGE_CDN_BASE_URL: "https://cdn.offensiveconditions.org"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: content-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: content-svc
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: content-svc
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8003
+      targetPort: http
+    - name: grpc
+      port: 9003
+      targetPort: grpc
+
+---
+# =============================================================================
+# Server Deployment — HTTP API + gRPC
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-svc-server
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: content-svc
+    app.kubernetes.io/component: server
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: content-svc
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: content-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: content-svc
+              app.kubernetes.io/component: server
+      containers:
+        - name: content-svc
+          image: harbor.offensiveconditions.org/services/content-svc:v0.1.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: content-svc-config
+            - secretRef:
+                name: content-svc-secrets
+          ports:
+            - name: http
+              containerPort: 8003
+              protocol: TCP
+            - name: grpc
+              containerPort: 9003
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "300m"
+              memory: "512Mi"
+            limits:
+              cpu: "1500m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          volumeMounts:
+            - name: auth-jwt
+              mountPath: /etc/auth
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: auth-jwt
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - key: jwt.pub
+                path: jwt.pub
+      terminationGracePeriodSeconds: 30
+
+---
+# =============================================================================
+# Celery Worker Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-svc-worker
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: content-svc
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: content-svc
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: content-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: harbor.offensiveconditions.org/services/content-svc:v0.1.0
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - worker
+            - --loglevel=info
+            - --concurrency=4
+            - --max-tasks-per-child=1000
+          envFrom:
+            - configMapRef:
+                name: content-svc-config
+            - secretRef:
+                name: content-svc-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "384Mi"
+            limits:
+              cpu: "1000m"
+              memory: "768Mi"
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - app.workers.celery_app
+                - inspect
+                - ping
+                - -d
+                - celery@$(POD_NAME)
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 60
+
+---
+# =============================================================================
+# Celery Beat (scheduler) — exactly one replica
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: content-svc-beat
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: content-svc
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+      app.kubernetes.io/component: beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: content-svc
+        app.kubernetes.io/component: beat
+    spec:
+      serviceAccountName: content-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: beat
+          image: harbor.offensiveconditions.org/services/content-svc:v0.1.0
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - beat
+            - --loglevel=info
+            - --schedule=/tmp/celerybeat-schedule
+          envFrom:
+            - configMapRef:
+                name: content-svc-config
+            - secretRef:
+                name: content-svc-secrets
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: beat-schedule
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: beat-schedule
+          emptyDir: {}
+
+---
+# =============================================================================
+# HPA — autoscale the server based on CPU
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: content-svc-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: content-svc-server
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+      selectPolicy: Max
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: content-svc-worker
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: content-svc-worker
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+
+---
+# =============================================================================
+# PDB — keep at least 2 server pods running during voluntary disruptions
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: content-svc-server
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+      app.kubernetes.io/component: server
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: content-svc-worker
+  namespace: offcon
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+      app.kubernetes.io/component: worker
+
+---
+# =============================================================================
+# NetworkPolicy — restrict who can talk to us, and who we can talk to
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: content-svc
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # API gateway can hit HTTP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-system
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8003
+    # Other services can hit gRPC
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: offcon
+      ports:
+        - protocol: TCP
+          port: 9003
+    # Prometheus scrape
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: observability
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8003
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Postgres
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Kafka
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka
+      ports:
+        - protocol: TCP
+          port: 9093
+    # MinIO
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: minio
+      ports:
+        - protocol: TCP
+          port: 9000

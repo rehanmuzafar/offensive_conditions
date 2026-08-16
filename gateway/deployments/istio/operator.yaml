@@ -1,0 +1,115 @@
+# =============================================================================
+# Istio control plane configuration
+# =============================================================================
+# Apply: istioctl install -f operator.yaml -y
+# Or via the Istio operator CRD if you've already installed the operator.
+# =============================================================================
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: offcon-istio
+  namespace: istio-system
+spec:
+  profile: default
+  meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
+    accessLogFormat: |
+      {
+        "ts": "%START_TIME%",
+        "method": "%REQ(:METHOD)%",
+        "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
+        "protocol": "%PROTOCOL%",
+        "status": "%RESPONSE_CODE%",
+        "duration_ms": "%DURATION%",
+        "request_id": "%REQ(X-REQUEST-ID)%",
+        "user_agent": "%REQ(USER-AGENT)%",
+        "upstream": "%UPSTREAM_CLUSTER%",
+        "upstream_host": "%UPSTREAM_HOST%",
+        "remote_ip": "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%",
+        "bytes_received": "%BYTES_RECEIVED%",
+        "bytes_sent": "%BYTES_SENT%"
+      }
+    enableTracing: true
+    defaultConfig:
+      tracing:
+        sampling: 5.0   # % — bump to 100 in staging, 1 in production-peak
+        zipkin:
+          address: jaeger-collector.observability.svc.cluster.local:9411
+      proxyMetadata:
+        ISTIO_META_DNS_CAPTURE: "true"
+        ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+    extensionProviders:
+      # auth-svc ext_authz — validates JWT + populates X-User-* headers
+      - name: auth-svc-ext-authz
+        envoyExtAuthzGrpc:
+          service: auth.offcon.svc.cluster.local
+          port: 9001
+          includeRequestBodyInCheck:
+            maxRequestBytes: 8192
+            allowPartialMessage: true
+            packAsBytes: true
+      # External rate-limit service (Lyft RLS, Redis-backed)
+      - name: ratelimit-svc
+        envoyExtAuthzGrpc:
+          service: ratelimit.gateway-system.svc.cluster.local
+          port: 8081
+  components:
+    pilot:
+      k8s:
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            memory: 4Gi
+        hpaSpec:
+          minReplicas: 2
+          maxReplicas: 5
+          metrics:
+            - type: Resource
+              resource:
+                name: cpu
+                target:
+                  type: Utilization
+                  averageUtilization: 75
+    ingressGateways:
+      - name: istio-ingressgateway
+        enabled: true
+        k8s:
+          service:
+            type: LoadBalancer
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+              service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+            ports:
+              - { name: status-port, port: 15021, targetPort: 15021 }
+              - { name: http2,       port: 80,    targetPort: 8080 }
+              - { name: https,       port: 443,   targetPort: 8443 }
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          hpaSpec:
+            minReplicas: 3
+            maxReplicas: 10
+            metrics:
+              - type: Resource
+                resource:
+                  name: cpu
+                  target:
+                    type: Utilization
+                    averageUtilization: 70
+  values:
+    global:
+      proxy:
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits:   { cpu: 1000m, memory: 256Mi }
+        logLevel: warning
+      logAsJson: true
+    sidecarInjectorWebhook:
+      rewriteAppHTTPProbe: true

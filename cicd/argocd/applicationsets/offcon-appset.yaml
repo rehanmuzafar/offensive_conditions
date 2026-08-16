@@ -1,0 +1,62 @@
+# ============================================================================
+#  ApplicationSet — generates one ArgoCD Application per environment from a
+#  single template. Adding an env is one list entry, not a whole new manifest.
+#
+#  - staging:    auto-syncs on every commit to main (CI bumps staging tags)
+#  - production: auto-syncs on tag-driven prod tag bumps, with a sync window
+# ============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: offcon
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - env: staging
+            namespace: offcon
+            valuesFile: cicd/helm/values/staging.yaml
+            autoSync: "true"
+          - env: production
+            namespace: offcon
+            valuesFile: cicd/helm/values/production.yaml
+            autoSync: "true"
+  template:
+    metadata:
+      name: "offcon-{{ .env }}"
+      labels:
+        env: "{{ .env }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: offcon
+      source:
+        repoURL: https://github.com/offcon/offcon.git
+        targetRevision: main
+        path: cicd/helm/offcon
+        helm:
+          valueFiles:
+            - "../values/{{ .env }}.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - ApplyOutOfSyncOnly=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
+      revisionHistoryLimit: 10

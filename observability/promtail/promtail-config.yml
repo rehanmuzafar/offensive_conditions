@@ -1,0 +1,91 @@
+# ============================================================================
+#  Promtail — discovers and ships container logs to Loki. Runs as a DaemonSet
+#  on every node, tails pod logs, enriches with Kubernetes metadata, and parses
+#  structured (JSON / logfmt) log lines into labels.
+# ============================================================================
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+positions:
+  filename: /run/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+    batchwait: 1s
+    batchsize: 1048576
+
+scrape_configs:
+  # --------------------------------------------------------------------------
+  # Kubernetes pod logs
+  # --------------------------------------------------------------------------
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    pipeline_stages:
+      # Try JSON first (Go/Node structured logs)
+      - match:
+          selector: '{namespace="offcon"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  msg: msg
+                  trace_id: trace_id
+                  span_id: span_id
+                  request_id: request_id
+            # Promote level to a label for fast filtering
+            - labels:
+                level:
+            # Use the parsed timestamp if present
+            - timestamp:
+                source: time
+                format: RFC3339Nano
+                action_on_failure: skip
+      # Surface trace_id so logs ↔ traces correlate in Grafana
+      - regex:
+          expression: '(?P<trace_id>[a-f0-9]{32})'
+          source: msg
+    relabel_configs:
+      # Only ship pods in our namespaces
+      - source_labels: [__meta_kubernetes_namespace]
+        action: keep
+        regex: offcon|istio-system
+      # Standard labels
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_label_tier]
+        target_label: tier
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_container_name]
+        target_label: container
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      # Build the log file path Promtail reads
+      - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+        target_label: __path__
+        separator: /
+        replacement: /var/log/pods/*$1/*.log
+
+  # --------------------------------------------------------------------------
+  # Node system logs (journald) — kubelet, containerd, etc.
+  # --------------------------------------------------------------------------
+  - job_name: systemd-journal
+    journal:
+      path: /var/log/journal
+      max_age: 12h
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: ["__journal__systemd_unit"]
+        target_label: unit
+      - source_labels: ["__journal__hostname"]
+        target_label: node

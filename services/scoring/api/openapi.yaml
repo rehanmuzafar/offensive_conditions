@@ -1,0 +1,367 @@
+openapi: 3.1.0
+info:
+  title: Offensive Conditions Scoring API
+  description: |
+    The Scoring service computes points, ELO ratings, leaderboards, and badges
+    for the Offensive Conditions platform. Most data is consumed via Kafka events
+    from the lab orchestrator and CTF services; this API is read-mostly for
+    dashboards and profile views.
+  version: 0.1.0
+  contact:
+    name: Offensive Conditions Engineering
+    email: engineering@offensiveconditions.org
+servers:
+  - url: https://api.offensiveconditions.org/scoring
+    description: Production
+  - url: http://localhost:8003
+    description: Local
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+  /readyz:
+    get:
+      summary: Readiness probe (db + redis)
+      security: []
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: Dependency down
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: Plain text metrics
+  /v1/profile/me:
+    get:
+      summary: Current user's scoring profile
+      tags: [profile]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+  /v1/profile/{user_id}:
+    get:
+      summary: Another user's public scoring profile
+      tags: [profile]
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+  /v1/leaderboard/global:
+    get:
+      summary: All-time global leaderboard
+      tags: [leaderboard]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+  /v1/leaderboard/season/{id}:
+    get:
+      summary: Season-scoped leaderboard
+      tags: [leaderboard]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+  /v1/leaderboard/country/{iso}:
+    get:
+      summary: Country-scoped leaderboard
+      tags: [leaderboard]
+      security: []
+      parameters:
+        - in: path
+          name: iso
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 2 }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+  /v1/leaderboard/category/{cat}:
+    get:
+      summary: Category-scoped leaderboard
+      tags: [leaderboard]
+      security: []
+      parameters:
+        - in: path
+          name: cat
+          required: true
+          schema: { type: string, example: web }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Leaderboard' }
+  /v1/leaderboard/surrounding:
+    get:
+      summary: Entries surrounding the calling user on the global leaderboard
+      tags: [leaderboard]
+      parameters:
+        - in: query
+          name: before
+          schema: { type: integer, default: 5, minimum: 0, maximum: 20 }
+        - in: query
+          name: after
+          schema: { type: integer, default: 5, minimum: 0, maximum: 20 }
+      responses:
+        "200":
+          description: OK
+  /v1/seasons:
+    get:
+      summary: List seasons
+      tags: [seasons]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+  /v1/seasons/current:
+    get:
+      summary: Current active season (with your rank if authenticated)
+      tags: [seasons]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CurrentSeason' }
+  /v1/seasons/{id}:
+    get:
+      summary: A specific season
+      tags: [seasons]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+  /v1/badges:
+    get:
+      summary: List all active achievements/badges
+      tags: [badges]
+      security: []
+      responses:
+        "200":
+          description: OK
+  /v1/badges/me:
+    get:
+      summary: List badges earned by the calling user
+      tags: [badges]
+      responses:
+        "200":
+          description: OK
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+  /v1/badges/me/{id}/seen:
+    post:
+      summary: Mark a badge popup as seen
+      tags: [badges]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+  /v1/admin/anti-cheat-flags:
+    get:
+      summary: List pending anti-cheat flags
+      tags: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+        "403":
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/anti-cheat-flags/{id}/decide:
+    post:
+      summary: Decide on an anti-cheat flag
+      tags: [admin]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [confirmed, dismissed, appealed]
+                notes:
+                  type: string
+                action:
+                  type: string
+                  enum: [none, warning, points_revoked, suspended, banned]
+      responses:
+        "200":
+          description: OK
+  /v1/admin/seasons/{id}/rollover:
+    post:
+      summary: Force a season rollover
+      tags: [admin]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Rollover complete
+components:
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+    Offset:
+      in: query
+      name: offset
+      schema: { type: integer, default: 0, minimum: 0 }
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:    { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+    Profile:
+      type: object
+      properties:
+        user_id:               { type: string, format: uuid }
+        total_points:          { type: integer }
+        machine_points:        { type: integer }
+        challenge_points:      { type: integer }
+        ctf_points:            { type: integer }
+        bonus_points:          { type: integer }
+        machines_owned:        { type: integer }
+        challenges_solved:     { type: integer }
+        first_bloods:          { type: integer }
+        user_flags_count:      { type: integer }
+        root_flags_count:      { type: integer }
+        global_rank:           { type: integer }
+        country_code:          { type: string }
+        rank_tier:             { type: string }
+        rank_tier_name:        { type: string }
+        current_streak_days:   { type: integer }
+        longest_streak_days:   { type: integer }
+        achievements_count:    { type: integer }
+        elo:
+          type: object
+          properties:
+            rating:           { type: integer }
+            peak_rating:      { type: integer }
+            matches_played:   { type: integer }
+            wins:             { type: integer }
+            losses:           { type: integer }
+            draws:            { type: integer }
+            is_provisional:   { type: boolean }
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank:    { type: integer }
+        user_id: { type: string, format: uuid }
+        score:   { type: integer }
+    Leaderboard:
+      type: object
+      properties:
+        scope:     { type: string }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/LeaderboardEntry' }
+        limit:     { type: integer }
+        offset:    { type: integer }
+    CurrentSeason:
+      type: object
+      properties:
+        season:
+          type: object
+          properties:
+            id:                { type: string, format: uuid }
+            code:              { type: string }
+            name:              { type: string }
+            starts_at:         { type: string, format: date-time }
+            ends_at:           { type: string, format: date-time }
+            state:             { type: string }
+            carryover_fraction: { type: number }
+        your_rank:    { type: integer }
+        your_points:  { type: integer }

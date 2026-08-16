@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package offcon.notification.v1;
+
+option go_package = "github.com/offcon/proto/notification/v1;notificationv1";
+
+service NotificationService {
+  rpc SendNotification(SendNotificationRequest) returns (SendNotificationResponse);
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (UnreadCount);
+  rpc GetUserPreferences(GetUserPreferencesRequest) returns (UserPreferences);
+  rpc ListRecentNotifications(ListRecentNotificationsRequest) returns (RecentNotifications);
+}
+
+message SendNotificationRequest {
+  string user_id = 1;
+  string event_id = 2;
+  string event_type = 3;
+  repeated string channels = 4;
+  string priority = 5;
+  map<string, string> variables = 6;
+  string title = 7;
+  string body = 8;
+  string action_url = 9;
+}
+
+message SendNotificationResponse {
+  repeated string delivery_ids = 1;
+  repeated string channels_used = 2;
+  repeated string channels_skipped = 3;
+}
+
+message GetUnreadCountRequest {
+  string user_id = 1;
+}
+
+message UnreadCount {
+  int32 count = 1;
+}
+
+message GetUserPreferencesRequest {
+  string user_id = 1;
+}
+
+message Preference {
+  string event_type = 1;
+  bool email_enabled = 2;
+  bool in_app_enabled = 3;
+  bool push_enabled = 4;
+  bool sms_enabled = 5;
+  bool digest_enabled = 6;
+  string digest_frequency = 7;
+}
+
+message UserPreferences {
+  repeated Preference preferences = 1;
+}
+
+message ListRecentNotificationsRequest {
+  string user_id = 1;
+  int32 limit = 2;
+}
+
+message NotificationSummary {
+  string id = 1;
+  string event_type = 2;
+  string priority = 3;
+  string title = 4;
+  string body = 5;
+  string action_url = 6;
+  string created_at = 7;
+  string read_at = 8;
+}
+
+message RecentNotifications {
+  repeated NotificationSummary notifications = 1;
+}

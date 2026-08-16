@@ -1,0 +1,33 @@
+# ============================================================================
+#  ArgoCD Application — the observability stack (Phase 15). Synced from the
+#  kustomize base; ConfigMaps are generated from the real config files.
+# ============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: offcon-observability
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: offcon
+  source:
+    repoURL: https://github.com/offcon/offcon.git
+    targetRevision: main
+    path: observability/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

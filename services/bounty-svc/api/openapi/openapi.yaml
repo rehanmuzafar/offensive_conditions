@@ -1,0 +1,481 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions — Bounty Service
+  version: 0.1.0
+  description: |
+    Bug bounty platform. Companies publish programs, researchers submit
+    vulnerability reports, triagers validate and award payouts via Stripe
+    Connect (calls payment-svc).
+  contact:
+    name: Offensive Conditions Platform Team
+    email: platform@offensiveconditions.org
+
+servers:
+  - { url: https://api.offensiveconditions.org, description: Production }
+  - { url: http://localhost:8009, description: Local dev }
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: programs
+  - name: reports
+  - name: comments
+  - name: attachments
+  - name: payouts
+  - name: admin
+  - name: health
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      security: []
+      responses: { "200": { description: alive } }
+
+  /readyz:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: ready }
+        "503": { description: not ready }
+
+  # =========================================================================
+  # Programs (public reads)
+  # =========================================================================
+  /v1/programs:
+    get:
+      tags: [programs]
+      security: []
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 25 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+        - { in: query, name: q, schema: { type: string } }
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProgramList" }
+
+  /v1/programs/{slug}:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    get:
+      tags: [programs]
+      security: []
+      responses:
+        "200":
+          description: Program detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProgramDetail" }
+        "404": { description: Not found }
+
+  /v1/programs/{slug}/scope:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    get:
+      tags: [programs]
+      security: []
+      responses: { "200": { description: Scope items } }
+
+  /v1/programs/{slug}/rewards:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    get:
+      tags: [programs]
+      security: []
+      responses: { "200": { description: Reward tiers } }
+
+  # =========================================================================
+  # Reports (researcher-facing)
+  # =========================================================================
+  /v1/programs/{slug}/reports:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    post:
+      tags: [reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportCreate" }
+      responses:
+        "201": { description: Created }
+        "409": { description: Program not accepting submissions }
+        "422": { description: Out of scope }
+
+  /v1/me/reports:
+    get:
+      tags: [reports]
+      parameters:
+        - { in: query, name: state, schema: { type: string } }
+      responses: { "200": { description: My reports } }
+
+  /v1/reports/{report_id}:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [reports]
+      responses:
+        "200":
+          description: Report detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportDetail" }
+        "404": { description: Not found or no access }
+
+  /v1/reports/{report_id}/comments:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [comments]
+      responses: { "200": { description: Comment thread } }
+    post:
+      tags: [comments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+                visibility: { type: string, enum: [public, internal], default: public }
+      responses:
+        "201": { description: Created }
+        "403": { description: Researchers cannot post internal }
+
+  /v1/reports/{report_id}/attachments:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [attachments]
+      responses: { "200": { description: List of attachments } }
+    post:
+      tags: [attachments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, content_type, byte_size]
+              properties:
+                filename: { type: string }
+                content_type: { type: string }
+                byte_size: { type: integer }
+      responses:
+        "201":
+          description: Presigned upload URL + form fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment_id: { type: string, format: uuid }
+                  s3_key: { type: string }
+                  presigned_url: { type: string }
+                  presigned_fields: { type: object }
+                  expires_at: { type: string, format: date-time }
+        "413": { description: Attachment too large }
+        "415": { description: Content type not allowed }
+
+  /v1/attachments/{attachment_id}/download:
+    parameters:
+      - { in: path, name: attachment_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [attachments]
+      responses: { "200": { description: Presigned GET URL } }
+
+  /v1/me/payouts:
+    get:
+      tags: [payouts]
+      responses: { "200": { description: My payouts } }
+
+  # =========================================================================
+  # Admin / triager
+  # =========================================================================
+  /v1/admin/programs:
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProgramCreate" }
+      responses: { "201": { description: Created } }
+
+  /v1/admin/programs/{slug}:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    patch:
+      tags: [admin]
+      responses: { "200": { description: Updated } }
+
+  /v1/admin/programs/{slug}/scope:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    put:
+      tags: [admin]
+      responses: { "200": { description: Replaced } }
+
+  /v1/admin/programs/{slug}/rewards:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    put:
+      tags: [admin]
+      responses: { "200": { description: Replaced } }
+
+  /v1/admin/programs/{slug}/publish:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    post:
+      tags: [admin]
+      responses:
+        "200": { description: Published }
+        "409": { description: Invalid status transition }
+
+  /v1/admin/programs/{slug}/pause:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    post:
+      tags: [admin]
+      responses: { "200": { description: Paused } }
+
+  /v1/admin/programs/{slug}/close:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+    post:
+      tags: [admin]
+      responses: { "200": { description: Closed } }
+
+  /v1/admin/programs/{slug}/reports:
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string } }
+      - { in: query, name: state, schema: { type: string } }
+      - { in: query, name: severity, schema: { type: string } }
+    get:
+      tags: [admin]
+      responses: { "200": { description: Program report list } }
+
+  /v1/admin/reports/{report_id}/triage:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      responses: { "200": { description: Triage opened } }
+
+  /v1/admin/reports/{report_id}/accept:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [severity]
+              properties:
+                severity: { type: string, enum: [critical, high, medium, low, informational] }
+                cvss_vector: { type: string }
+                cvss_score: { type: number, minimum: 0, maximum: 10 }
+                internal_notes: { type: string }
+      responses: { "200": { description: Accepted } }
+
+  /v1/admin/reports/{report_id}/reject:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses: { "200": { description: Rejected } }
+
+  /v1/admin/reports/{report_id}/duplicate:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [duplicate_of_id]
+              properties:
+                duplicate_of_id: { type: string, format: uuid }
+                reason: { type: string }
+      responses: { "200": { description: Marked duplicate } }
+
+  /v1/admin/reports/{report_id}/resolve:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      responses: { "200": { description: Resolved } }
+
+  /v1/admin/reports/{report_id}/award:
+    parameters:
+      - { in: path, name: report_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_cents, currency]
+              properties:
+                amount_cents: { type: integer, minimum: 1 }
+                currency: { type: string, default: USD }
+                initiate_payout: { type: boolean, default: true }
+      responses:
+        "200":
+          description: Award + payout created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payout" }
+        "422": { description: Account unverified or amount exceeds cap }
+        "502": { description: payment-svc unavailable }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ProgramCreate:
+      type: object
+      required: [slug, name, owner_org_id, description, policy]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        owner_org_id: { type: string, format: uuid }
+        description: { type: string }
+        policy: { type: string }
+        visibility: { type: string, enum: [public, invite_only, private], default: public }
+        currency: { type: string, default: USD }
+        min_reward_cents: { type: integer }
+        max_reward_cents: { type: integer }
+        disclosure_policy: { type: string, enum: [coordinated, none, public], default: coordinated }
+        response_sla_hours: { type: integer, default: 72 }
+        triage_sla_hours: { type: integer, default: 168 }
+        resolution_sla_days: { type: integer, default: 90 }
+        safe_harbor: { type: boolean, default: true }
+        scope:
+          type: array
+          items: { $ref: "#/components/schemas/ScopeItem" }
+        rewards:
+          type: array
+          items: { $ref: "#/components/schemas/RewardTier" }
+
+    ScopeItem:
+      type: object
+      required: [asset_type, asset_identifier]
+      properties:
+        asset_type: { type: string, enum: [domain, wildcard, ip, ip_range, mobile_app, source_code, api, other] }
+        asset_identifier: { type: string }
+        severity_max: { type: string, default: critical }
+        in_scope: { type: boolean, default: true }
+        notes: { type: string }
+
+    RewardTier:
+      type: object
+      required: [severity, min_cents, max_cents]
+      properties:
+        severity: { type: string, enum: [critical, high, medium, low, informational] }
+        min_cents: { type: integer, minimum: 0 }
+        max_cents: { type: integer, minimum: 0 }
+        currency: { type: string, default: USD }
+
+    ProgramDetail:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [draft, published, paused, closed] }
+        visibility: { type: string }
+        currency: { type: string }
+        total_reports: { type: integer }
+        total_payouts_cents: { type: integer }
+        policy: { type: string }
+        published_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    ProgramList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ProgramDetail" }
+        meta: { $ref: "#/components/schemas/PageMeta" }
+
+    ReportCreate:
+      type: object
+      required: [title, description_md, reproduction_steps, impact]
+      properties:
+        title: { type: string }
+        description_md: { type: string }
+        reproduction_steps: { type: string }
+        impact: { type: string }
+        asset_identifier: { type: string }
+        vrt_category: { type: string }
+        severity: { type: string, enum: [critical, high, medium, low, informational], default: medium }
+        cvss_vector: { type: string }
+        cvss_score: { type: number, minimum: 0, maximum: 10 }
+
+    ReportDetail:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        short_id: { type: string }
+        program_id: { type: string, format: uuid }
+        researcher_id: { type: string, format: uuid }
+        title: { type: string }
+        description_md: { type: string }
+        reproduction_steps: { type: string }
+        impact: { type: string }
+        severity: { type: string }
+        cvss_score: { type: number, nullable: true }
+        state: { type: string, enum: [submitted, triaging, accepted, rejected, duplicate, informational, resolved, paid, closed] }
+        bounty_cents: { type: integer }
+        bounty_currency: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Payout:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        report_id: { type: string, format: uuid }
+        researcher_id: { type: string, format: uuid }
+        amount_cents: { type: integer }
+        currency: { type: string }
+        state: { type: string, enum: [requested, processing, paid, failed, canceled] }
+        requested_at: { type: string, format: date-time }
+        paid_at: { type: string, format: date-time, nullable: true }
+
+    PageMeta:
+      type: object
+      properties:
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }

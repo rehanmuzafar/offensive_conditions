@@ -1,0 +1,21 @@
+{{- if and .Values.istio.enabled .Values.istio.destinationRule.enabled }}
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ include "offcon-service.name" . }}
+  labels:
+    {{- include "offcon-service.labels" . | nindent 4 }}
+spec:
+  host: {{ include "offcon-service.name" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: {{ .Values.istio.destinationRule.connectionPool.tcp.maxConnections }}
+      http:
+        http2MaxRequests: {{ .Values.istio.destinationRule.connectionPool.http.http2MaxRequests }}
+        maxRequestsPerConnection: {{ .Values.istio.destinationRule.connectionPool.http.maxRequestsPerConnection }}
+    outlierDetection:
+      consecutive5xxErrors: {{ .Values.istio.destinationRule.outlierDetection.consecutive5xxErrors }}
+      interval: {{ .Values.istio.destinationRule.outlierDetection.interval }}
+      baseEjectionTime: {{ .Values.istio.destinationRule.outlierDetection.baseEjectionTime }}
+{{- end }}

@@ -1,0 +1,113 @@
+# =============================================================================
+# Auth & User VirtualServices
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: auth-routes
+  namespace: gateway-system
+spec:
+  hosts:
+    - api.offensiveconditions.org
+  gateways:
+    - gateway-system/offcon-api-gateway
+  http:
+    # Login: tight rate limit, no retries (POST shouldn't retry)
+    - name: auth-login
+      match:
+        - uri: { prefix: /v1/auth/login }
+        - uri: { prefix: /v1/auth/register }
+        - uri: { prefix: /v1/auth/password-reset }
+        - uri: { prefix: /v1/auth/oauth }
+      route:
+        - destination:
+            host: auth.offcon.svc.cluster.local
+            port: { number: 8001 }
+      timeout: 15s
+      retries:
+        attempts: 0
+      corsPolicy:
+        allowOrigins:
+          - exact: https://offensiveconditions.org
+          - exact: https://app.offensiveconditions.org
+        allowMethods: [POST, OPTIONS]
+        allowHeaders: [content-type, authorization, x-request-id]
+        maxAge: 24h
+        allowCredentials: true
+
+    # All other auth routes: 2FA setup, token refresh, sessions
+    - name: auth-general
+      match:
+        - uri: { prefix: /v1/auth/ }
+      route:
+        - destination:
+            host: auth.offcon.svc.cluster.local
+            port: { number: 8001 }
+      timeout: 10s
+      retries:
+        attempts: 1
+        perTryTimeout: 5s
+        retryOn: connect-failure,refused-stream,unavailable
+      corsPolicy:
+        allowOrigins:
+          - exact: https://offensiveconditions.org
+          - exact: https://app.offensiveconditions.org
+        allowMethods: [GET, POST, PATCH, DELETE, OPTIONS]
+        allowHeaders: [content-type, authorization, x-request-id]
+        maxAge: 24h
+        allowCredentials: true
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: user-routes
+  namespace: gateway-system
+spec:
+  hosts:
+    - api.offensiveconditions.org
+  gateways:
+    - gateway-system/offcon-api-gateway
+  http:
+    # Note: /v1/me/notifications, /v1/me/webhooks, /v1/me/preferences,
+    # /v1/me/reports, /v1/me/payouts — these are routed by their respective
+    # service VirtualServices BEFORE this one due to higher priority. Istio
+    # evaluates VirtualServices in the order they appear in the route table,
+    # so we rely on the order: notification → bounty → user.
+    - name: me
+      match:
+        - uri: { prefix: /v1/me }
+      route:
+        - destination:
+            host: user-svc.offcon.svc.cluster.local
+            port: { number: 8002 }
+      timeout: 10s
+      retries:
+        attempts: 1
+        perTryTimeout: 5s
+
+    - name: users-public
+      match:
+        - uri: { prefix: /v1/users }
+      route:
+        - destination:
+            host: user-svc.offcon.svc.cluster.local
+            port: { number: 8002 }
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure,refused-stream
+
+    - name: teams
+      match:
+        - uri: { prefix: /v1/teams }
+      route:
+        - destination:
+            host: user-svc.offcon.svc.cluster.local
+            port: { number: 8002 }
+      timeout: 10s
+      retries:
+        attempts: 1
+        perTryTimeout: 5s

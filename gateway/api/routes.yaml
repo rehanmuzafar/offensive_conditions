@@ -1,0 +1,479 @@
+# =============================================================================
+# Offensive Conditions — Public Route Registry
+# =============================================================================
+# This file is the canonical, version-controlled map of every route exposed
+# on https://api.offensiveconditions.org. Istio VirtualServices, rate-limit rules, and
+# the OpenAPI gateway spec are all generated from here.
+#
+# Schema:
+#   routes:
+#     - prefix: URL path prefix (must start with /)
+#       service: Internal Kubernetes service name (without .offcon.svc.cluster.local)
+#       port: Internal HTTP port
+#       auth:
+#         mode: open | jwt | jwt_optional | webhook_signature | admin_only
+#         required_roles: [list of roles required if mode=admin_only]
+#       rate_limit:
+#         key: ip | user | both
+#         requests: int
+#         window: 1s | 1m | 1h
+#       timeout_seconds: int (envoy upstream timeout)
+#       retries: int (max retry attempts on 5xx)
+#       cors_allowed: bool (whether browser SPA may hit this)
+#       websocket: bool (upgrade allowed)
+#       priority: int (lower = more specific match, evaluated first)
+#       description: human-friendly description
+# =============================================================================
+
+routes:
+
+  # =============================================================================
+  # Health + meta
+  # =============================================================================
+  - prefix: /healthz
+    service: gateway-healthcheck
+    port: 8080
+    auth: { mode: open }
+    rate_limit: { key: ip, requests: 30, window: 1m }
+    timeout_seconds: 5
+    retries: 0
+    cors_allowed: false
+    priority: 10
+    description: Aggregated gateway + downstream health
+
+  - prefix: /readyz
+    service: gateway-healthcheck
+    port: 8080
+    auth: { mode: open }
+    rate_limit: { key: ip, requests: 60, window: 1m }
+    timeout_seconds: 5
+    retries: 0
+    cors_allowed: false
+    priority: 10
+    description: Readiness probe
+
+  # =============================================================================
+  # Auth service
+  # =============================================================================
+  - prefix: /v1/auth/login
+    service: auth
+    port: 8001
+    auth: { mode: open }
+    rate_limit: { key: ip, requests: 10, window: 1m }
+    timeout_seconds: 10
+    retries: 0
+    cors_allowed: true
+    priority: 100
+    description: Login + token issuance
+
+  - prefix: /v1/auth/register
+    service: auth
+    port: 8001
+    auth: { mode: open }
+    rate_limit: { key: ip, requests: 5, window: 1h }
+    timeout_seconds: 15
+    retries: 0
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/auth/oauth
+    service: auth
+    port: 8001
+    auth: { mode: open }
+    rate_limit: { key: ip, requests: 20, window: 1m }
+    timeout_seconds: 10
+    retries: 0
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/auth/password-reset
+    service: auth
+    port: 8001
+    auth: { mode: open }
+    rate_limit: { key: ip, requests: 3, window: 1h }
+    timeout_seconds: 10
+    retries: 0
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/auth
+    service: auth
+    port: 8001
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 200
+
+  # =============================================================================
+  # User service
+  # =============================================================================
+  - prefix: /v1/users
+    service: user-svc
+    port: 8002
+    auth: { mode: jwt_optional }
+    rate_limit: { key: ip, requests: 120, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+    description: Public user profiles
+
+  - prefix: /v1/me
+    service: user-svc
+    port: 8002
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+    description: Current-user profile + settings
+
+  - prefix: /v1/teams
+    service: user-svc
+    port: 8002
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Content (machines, challenges, dojos)
+  # =============================================================================
+  - prefix: /v1/machines
+    service: content-svc
+    port: 8003
+    auth: { mode: jwt_optional }
+    rate_limit: { key: user, requests: 120, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/challenges
+    service: content-svc
+    port: 8003
+    auth: { mode: jwt_optional }
+    rate_limit: { key: user, requests: 120, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/tracks
+    service: content-svc
+    port: 8003
+    auth: { mode: jwt_optional }
+    rate_limit: { key: user, requests: 120, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Orchestrator (lab instances)
+  # =============================================================================
+  - prefix: /v1/instances
+    service: orchestrator
+    port: 8000
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 10, window: 1m }
+    timeout_seconds: 30
+    retries: 0
+    cors_allowed: true
+    priority: 100
+    description: Spawn/destroy lab containers + VMs
+
+  - prefix: /v1/vpn
+    service: orchestrator
+    port: 8000
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 5, window: 1m }
+    timeout_seconds: 20
+    retries: 0
+    cors_allowed: true
+    priority: 100
+    description: WireGuard config issuance
+
+  # =============================================================================
+  # Scoring + leaderboards
+  # =============================================================================
+  - prefix: /v1/leaderboards
+    service: scoring
+    port: 8004
+    auth: { mode: jwt_optional }
+    rate_limit: { key: ip, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 2
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/seasons
+    service: scoring
+    port: 8004
+    auth: { mode: jwt_optional }
+    rate_limit: { key: ip, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/flag/submit
+    service: flag-verifier
+    port: 8005
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 20, window: 1m }
+    timeout_seconds: 5
+    retries: 0
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # CTF
+  # =============================================================================
+  - prefix: /v1/ctf/ws
+    service: ctf-svc
+    port: 8004
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 5, window: 1m }
+    timeout_seconds: 0
+    retries: 0
+    cors_allowed: true
+    websocket: true
+    priority: 50
+    description: Live CTF leaderboard + scoreboard updates
+
+  - prefix: /v1/ctf
+    service: ctf-svc
+    port: 8004
+    auth: { mode: jwt_optional }
+    rate_limit: { key: user, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Forum
+  # =============================================================================
+  - prefix: /v1/forum
+    service: forum-svc
+    port: 8005
+    auth: { mode: jwt_optional }
+    rate_limit: { key: user, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Writeups
+  # =============================================================================
+  - prefix: /v1/writeups
+    service: writeup-svc
+    port: 8006
+    auth: { mode: jwt_optional }
+    rate_limit: { key: user, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Payment + billing
+  # =============================================================================
+  - prefix: /v1/webhooks/payment
+    service: payment-svc
+    port: 8007
+    auth: { mode: webhook_signature }
+    rate_limit: { key: ip, requests: 100, window: 1m }
+    timeout_seconds: 15
+    retries: 0
+    cors_allowed: false
+    priority: 50
+    description: Stripe webhook endpoint — Stripe-Signature header validated
+
+  - prefix: /v1/billing
+    service: payment-svc
+    port: 8007
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 15
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/payments
+    service: payment-svc
+    port: 8007
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 15
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Notifications (REST + WebSocket)
+  # =============================================================================
+  - prefix: /v1/ws/notifications
+    service: notification-svc
+    port: 8008
+    auth: { mode: open }   # WS upgrade carries ?token=; service validates
+    rate_limit: { key: ip, requests: 30, window: 1m }
+    timeout_seconds: 0
+    retries: 0
+    cors_allowed: true
+    websocket: true
+    priority: 50
+
+  - prefix: /v1/me/notifications
+    service: notification-svc
+    port: 8008
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 100, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 90
+    description: Notifications inbox (more specific than /v1/me)
+
+  - prefix: /v1/me/webhooks
+    service: notification-svc
+    port: 8008
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 90
+
+  - prefix: /v1/me/preferences
+    service: notification-svc
+    port: 8008
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 90
+
+  # =============================================================================
+  # Bounty
+  # =============================================================================
+  - prefix: /v1/programs
+    service: bounty-svc
+    port: 8009
+    auth: { mode: jwt_optional }
+    rate_limit: { key: ip, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/me/reports
+    service: bounty-svc
+    port: 8009
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 90
+
+  - prefix: /v1/me/payouts
+    service: bounty-svc
+    port: 8009
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 90
+
+  - prefix: /v1/reports
+    service: bounty-svc
+    port: 8009
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  - prefix: /v1/attachments
+    service: bounty-svc
+    port: 8009
+    auth: { mode: jwt }
+    rate_limit: { key: user, requests: 60, window: 1m }
+    timeout_seconds: 10
+    retries: 1
+    cors_allowed: true
+    priority: 100
+
+  # =============================================================================
+  # Admin routes (gateway-level role check via JWT claims)
+  # =============================================================================
+  - prefix: /v1/admin
+    service: admin-router
+    port: 0   # special — routed at L7 by Host header / X-Admin-Target header
+    auth:
+      mode: admin_only
+      required_roles: [admin, moderator, support, ctf_organizer, triager]
+    rate_limit: { key: user, requests: 30, window: 1m }
+    timeout_seconds: 15
+    retries: 1
+    cors_allowed: true
+    priority: 50
+    description: |
+      Admin endpoints are sharded across services. The gateway inspects the
+      sub-path to route to the right service. The auth filter enforces that
+      the JWT carries at least one of the required roles before forwarding.
+
+# =============================================================================
+# Admin sub-path routing table (used by the admin-router VirtualService)
+# =============================================================================
+admin_subpaths:
+  - sub: /programs        # bounty-svc
+    service: bounty-svc
+    port: 8009
+  - sub: /reports         # bounty-svc
+    service: bounty-svc
+    port: 8009
+  - sub: /broadcast       # notification-svc
+    service: notification-svc
+    port: 8008
+  - sub: /templates       # notification-svc
+    service: notification-svc
+    port: 8008
+  - sub: /deliveries      # notification-svc
+    service: notification-svc
+    port: 8008
+  - sub: /machines        # content-svc
+    service: content-svc
+    port: 8003
+  - sub: /challenges      # content-svc
+    service: content-svc
+    port: 8003
+  - sub: /ctf             # ctf-svc
+    service: ctf-svc
+    port: 8004
+  - sub: /forum           # forum-svc
+    service: forum-svc
+    port: 8005
+  - sub: /writeups        # writeup-svc
+    service: writeup-svc
+    port: 8006
+  - sub: /payments        # payment-svc
+    service: payment-svc
+    port: 8007
+  - sub: /users           # user-svc
+    service: user-svc
+    port: 8002
+  - sub: /seasons         # scoring
+    service: scoring
+    port: 8004

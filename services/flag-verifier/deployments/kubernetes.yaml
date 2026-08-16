@@ -1,0 +1,247 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flag-verifier
+  namespace: offcon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flag-verifier-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "flag-verifier"
+  APP_VERSION: "0.1.0"
+  HTTP_PORT: "8005"
+  HTTP_READ_TIMEOUT: "10s"
+  HTTP_WRITE_TIMEOUT: "10s"
+  HTTP_SHUTDOWN_TIMEOUT: "30s"
+  HTTP_CORS_ORIGINS: "https://offensiveconditions.org,https://app.offensiveconditions.org"
+  HTTP_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  DB_HOST: "postgres-cluster-rw.databases.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "svc_flag_verifier"
+  DB_SSLMODE: "require"
+  DB_MAX_CONNS: "25"
+  DB_MIN_CONNS: "5"
+  REDIS_ADDR: "redis-master.databases.svc.cluster.local:6379"
+  REDIS_POOL_SIZE: "20"
+  REDIS_TLS: "false"
+  KAFKA_BROKERS: "kafka-bootstrap.messaging.svc.cluster.local:9092"
+  KAFKA_TOPIC_FLAG_SUBMISSIONS: "flag.submissions"
+  KAFKA_USE_TLS: "true"
+  KAFKA_ACKS: "all"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/flag-verifier/auth/jwt_public.pem"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  AUTH_JWT_CLOCK_SKEW: "5s"
+  AUTH_TOKEN_CACHE_TTL: "30s"
+  VAULT_ENABLED: "true"
+  VAULT_ADDR: "https://vault.security.svc.cluster.local:8200"
+  VAULT_TOKEN_PATH: "/var/run/secrets/vault/token"
+  VAULT_FLAG_SECRETS_PATH: "secret/data/flag-hmac"
+  VAULT_REFRESH_INTERVAL: "5m"
+  RL_PER_CONTENT_PER_MIN: "10"
+  RL_PER_USER_PER_MIN: "100"
+  RL_PER_IP_PER_MIN: "200"
+  RL_COOLDOWN_SECONDS: "60"
+  RL_IP_COOLDOWN_SECONDS: "300"
+  RL_WINDOW_SECONDS: "60"
+  IDEMPOTENCY_TTL_SECONDS: "60"
+  IDEMPOTENCY_ENABLED: "true"
+  FLAG_PREFIX: "OFFCON{"
+  FLAG_SUFFIX: "}"
+  FLAG_HMAC_BYTES: "16"
+  FLAG_MAX_LENGTH: "256"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flag-verifier-secrets
+  namespace: offcon
+type: Opaque
+stringData:
+  DB_PASSWORD: "REPLACE_ME"
+  REDIS_PASSWORD: "REPLACE_ME"
+  jwt_public.pem: |
+    -----BEGIN PUBLIC KEY-----
+    REPLACE_ME
+    -----END PUBLIC KEY-----
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flag-verifier
+  namespace: offcon
+  labels: { app: flag-verifier }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: flag-verifier }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels: { app: flag-verifier }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8005"
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "flag-verifier"
+    spec:
+      serviceAccountName: flag-verifier
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: flag-verifier
+          image: ghcr.io/offcon/flag-verifier:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8005
+          envFrom:
+            - configMapRef: { name: flag-verifier-config }
+          env:
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: flag-verifier-secrets, key: DB_PASSWORD } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: flag-verifier-secrets, key: REDIS_PASSWORD } }
+          volumeMounts:
+            - name: auth-keys
+              mountPath: /etc/flag-verifier/auth
+              readOnly: true
+            - name: vault-token
+              mountPath: /var/run/secrets/vault
+              readOnly: true
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: auth-keys
+          secret:
+            secretName: flag-verifier-secrets
+            items:
+              - key: jwt_public.pem
+                path: jwt_public.pem
+        - name: vault-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: vault
+                  expirationSeconds: 3600
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flag-verifier
+  namespace: offcon
+  labels: { app: flag-verifier }
+spec:
+  type: ClusterIP
+  selector: { app: flag-verifier }
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flag-verifier
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flag-verifier
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 80 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flag-verifier
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: flag-verifier }
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flag-verifier
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels: { app: flag-verifier }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { name: ingress } }
+        - namespaceSelector: { matchLabels: { name: monitoring } }
+      ports:
+        - { protocol: TCP, port: 8005 }
+    - from:
+        - namespaceSelector: { matchLabels: { name: offcon } }
+      ports:
+        - { protocol: TCP, port: 8005 }
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { name: kube-system } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: databases } }
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 6379 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: messaging } }
+      ports:
+        - { protocol: TCP, port: 9092 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: security } }
+      ports:
+        - { protocol: TCP, port: 8200 }

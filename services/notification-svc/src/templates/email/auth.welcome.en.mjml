@@ -1,0 +1,51 @@
+<mjml>
+  <mj-head>
+    <mj-title>Welcome to Offensive Conditions</mj-title>
+    <mj-preview>Glad to have you onboard.</mj-preview>
+    <mj-attributes>
+      <mj-all font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" />
+      <mj-text color="#1a1a1a" font-size="15px" line-height="1.5" />
+      <mj-button background-color="#16a34a" color="#ffffff" font-weight="600" border-radius="6px" />
+    </mj-attributes>
+    <mj-style>
+      .footer { color: #6b7280; font-size: 12px; }
+    </mj-style>
+  </mj-head>
+  <mj-body background-color="#f6f7fb">
+    <mj-section background-color="#ffffff" padding="32px 0">
+      <mj-column>
+        <mj-image width="160px" src="https://cdn.offensiveconditions.org/logo-dark.png" alt="Offensive Conditions" />
+      </mj-column>
+    </mj-section>
+
+    <mj-section background-color="#ffffff" padding="0 24px 32px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="8px">
+          Welcome, {{username}}.
+        </mj-text>
+        <mj-text>
+          You're in. Offensive Conditions is a place to sharpen real
+          offensive-security skills — boxes, challenges, dojos, and CTFs that
+          ramp from beginner to advanced. Hop into the onboarding track to
+          place yourself on the map.
+        </mj-text>
+        <mj-button href="{{onboarding_url}}" padding="20px 0 4px">
+          Start onboarding
+        </mj-button>
+        <mj-text padding-top="20px" color="#6b7280">
+          Got stuck? Reply to this email — the team reads everything.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+
+    <mj-section padding="16px 24px">
+      <mj-column>
+        <mj-text css-class="footer">
+          You're getting this email because you signed up at offensiveconditions.org.
+          <br />
+          <a href="{{unsubscribe_url}}" style="color: #6b7280;">Manage notifications</a>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

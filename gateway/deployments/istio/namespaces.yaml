@@ -1,0 +1,52 @@
+# =============================================================================
+# Namespace bootstrap
+# =============================================================================
+# Labels every offcon namespace for Istio sidecar injection and applies
+# mesh-wide defaults.
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: offcon
+  labels:
+    istio-injection: enabled
+    name: offcon
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway-system
+  labels:
+    istio-injection: enabled
+    name: gateway-system
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data
+  labels:
+    # Data plane (postgres, redis, kafka, minio) is NOT mesh-injected.
+    # External access uses ServiceEntry instead.
+    istio-injection: disabled
+    name: data
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    istio-injection: enabled
+    name: observability
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egress
+  labels:
+    istio-injection: enabled
+    name: egress

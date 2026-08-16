@@ -1,0 +1,67 @@
+apiVersion: v2
+name: offcon
+description: >-
+  Umbrella chart for the entire OFFCON platform. Deploys all 12 microservices
+  plus the web frontend, each via the reusable offcon-service library chart.
+  A single `helm upgrade --install offcon ./helm/offcon -f <env>.yaml` rolls
+  out the whole platform.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+# Each service is a dependency that points at the local reusable chart, with
+# its own alias + values block (see values.yaml). This keeps one templating
+# implementation while letting every service be configured independently.
+dependencies:
+  - name: offcon-service
+    alias: auth-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: orchestrator
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: scoring-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: flag-verifier
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: user-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: content-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: ctf-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: forum-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: writeup-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: bounty-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: payment-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: notification-svc
+    version: "0.1.0"
+    repository: "file://../offcon-service"
+  - name: offcon-service
+    alias: frontend
+    version: "0.1.0"
+    repository: "file://../offcon-service"

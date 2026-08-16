@@ -1,0 +1,11 @@
+ALTER TABLE writeup.bookmarks DROP COLUMN IF EXISTS created_at;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS content_html;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS edit_count;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS downvote_count;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS score;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS edited_at;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS edited_by;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE writeup.comments DROP COLUMN IF EXISTS deleted_by;
+ALTER TABLE writeup.votes DROP COLUMN IF EXISTS direction;
+DROP TABLE IF EXISTS writeup.comment_votes;

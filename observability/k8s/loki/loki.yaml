@@ -1,0 +1,60 @@
+# ============================================================================
+#  Loki — single-binary scalable mode with persistent WAL + S3 backend.
+# ============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: observability
+  labels: { app: loki }
+spec:
+  selector: { app: loki }
+  ports:
+    - { name: http, port: 3100, targetPort: 3100 }
+    - { name: grpc, port: 9096, targetPort: 9096 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  serviceName: loki
+  replicas: 1
+  selector:
+    matchLabels: { app: loki }
+  template:
+    metadata:
+      labels: { app: loki, tier: observability }
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+      containers:
+        - name: loki
+          image: grafana/loki:3.3.2
+          args: ["-config.file=/etc/loki/loki-config.yml", "-config.expand-env=true"]
+          ports:
+            - { name: http, containerPort: 3100 }
+            - { name: grpc, containerPort: 9096 }
+          envFrom:
+            - secretRef: { name: loki-s3-secrets }
+          resources:
+            requests: { cpu: "300m", memory: "1Gi" }
+            limits: { cpu: "1500m", memory: "3Gi" }
+          readinessProbe:
+            httpGet: { path: /ready, port: 3100 }
+            initialDelaySeconds: 30
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki }
+            - { name: data, mountPath: /loki }
+      volumes:
+        - name: config
+          configMap: { name: loki-config }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 20Gi }

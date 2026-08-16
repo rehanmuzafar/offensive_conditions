@@ -1,0 +1,33 @@
+# ============================================================================
+#  Platform-wide config shared by all services (non-secret). Service-specific
+#  secrets are created out-of-band (see docs). This ConfigMap is referenced by
+#  every service via envFrom: configMapRef: offcon-common-config.
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: offcon-common-config
+  labels:
+    app.kubernetes.io/part-of: offcon
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  # Service discovery — internal cluster DNS
+  AUTH_SVC_ADDR: "auth-svc:9001"
+  ORCHESTRATOR_ADDR: "orchestrator:9000"
+  SCORING_SVC_ADDR: "scoring-svc:9003"
+  FLAG_VERIFIER_ADDR: "flag-verifier:9004"
+  USER_SVC_ADDR: "user-svc:9002"
+  CONTENT_SVC_ADDR: "content-svc:9005"
+  CTF_SVC_ADDR: "ctf-svc:9006"
+  FORUM_SVC_ADDR: "forum-svc:9007"
+  WRITEUP_SVC_ADDR: "writeup-svc:9008"
+  BOUNTY_SVC_ADDR: "bounty-svc:9009"
+  PAYMENT_SVC_ADDR: "payment-svc:9010"
+  NOTIFICATION_SVC_ADDR: "notification-svc:9011"
+  # Infra endpoints
+  REDIS_ADDR: "redis-master.data:6379"
+  NATS_URL: "nats://nats.data:4222"
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector.observability:4317"
+  LOG_LEVEL: "info"
+  DEPLOY_ENV: {{ .Values.global.deployEnv | default "production" | quote }}

@@ -1,0 +1,86 @@
+# ============================================================================
+#  Composite action: build a service's Docker image and push to GHCR with
+#  multi-arch support, layer caching, SBOM, and provenance attestation.
+# ============================================================================
+name: Build & Push Image
+description: Build a multi-arch Docker image and push to GHCR with caching + SBOM.
+
+inputs:
+  service:
+    description: Service name (matches the image name + dir under services/)
+    required: true
+  context:
+    description: Docker build context path
+    required: true
+  dockerfile:
+    description: Path to the Dockerfile
+    required: false
+    default: ""
+  registry:
+    description: Container registry
+    required: false
+    default: ghcr.io
+  image-name:
+    description: Full image name (without tag)
+    required: true
+  push:
+    description: Whether to push (false on PRs)
+    required: false
+    default: "true"
+  github-token:
+    description: Token for registry auth
+    required: true
+
+outputs:
+  digest:
+    description: The pushed image digest
+    value: ${{ steps.build.outputs.digest }}
+  tags:
+    description: The tags applied
+    value: ${{ steps.meta.outputs.tags }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to registry
+      if: inputs.push == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.github-token }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.image-name }}
+        tags: |
+          type=sha,format=long
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile || format('{0}/Dockerfile', inputs.context) }}
+        platforms: linux/amd64,linux/arm64
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha,scope=${{ inputs.service }}
+        cache-to: type=gha,scope=${{ inputs.service }},mode=max
+        provenance: true
+        sbom: true
+        build-args: |
+          SERVICE=${{ inputs.service }}

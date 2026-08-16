@@ -1,0 +1,1 @@
+ALTER TABLE users.teams DROP COLUMN IF EXISTS website;

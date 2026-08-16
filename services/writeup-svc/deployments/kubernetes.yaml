@@ -1,0 +1,314 @@
+# Writeup service Kubernetes manifests
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: writeup-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: writeup-svc
+    app.kubernetes.io/part-of: offcon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: writeup-svc-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "writeup-svc"
+  HTTP_PORT: "8006"
+  HTTP_HOST: "0.0.0.0"
+  HTTP_WORKERS: "2"
+  HTTP_CORS_ORIGINS: '["https://app.offensiveconditions.org","https://offensiveconditions.org"]'
+  GRPC_PORT: "9006"
+  GRPC_ENABLE_REFLECTION: "false"
+  DB_HOST: "pg-primary.data.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "writeup_svc"
+  DB_SSLMODE: "require"
+  REDIS_HOST: "redis-primary.data.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "5"
+  REDIS_TLS: "true"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/auth/jwt.pub"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  KAFKA_BROKERS: '["kafka-0.kafka.data.svc.cluster.local:9093","kafka-1.kafka.data.svc.cluster.local:9093","kafka-2.kafka.data.svc.cluster.local:9093"]'
+  KAFKA_TOPIC_WRITEUP_EVENTS: "writeup.events"
+  KAFKA_USE_TLS: "true"
+  SCORING_SVC_ADDR: "scoring.offcon.svc.cluster.local:9004"
+  CONTENT_SVC_ADDR: "content-svc.offcon.svc.cluster.local:9003"
+  REQUIRE_SOLVE_TO_READ: "true"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: writeup-svc
+  namespace: offcon
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: writeup-svc
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8006
+      targetPort: http
+    - name: grpc
+      port: 9006
+      targetPort: grpc
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writeup-svc-server
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: writeup-svc
+    app.kubernetes.io/component: server
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: writeup-svc
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: writeup-svc
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8006"
+    spec:
+      serviceAccountName: writeup-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: writeup-svc
+          image: harbor.offensiveconditions.org/services/writeup-svc:v0.1.0
+          envFrom:
+            - configMapRef: { name: writeup-svc-config }
+            - secretRef: { name: writeup-svc-secrets }
+          ports:
+            - { name: http, containerPort: 8006 }
+            - { name: grpc, containerPort: 9006 }
+          resources:
+            requests: { cpu: "300m", memory: "512Mi" }
+            limits: { cpu: "1500m", memory: "1Gi" }
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - { name: auth-jwt, mountPath: /etc/auth, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: auth-jwt
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - { key: jwt.pub, path: jwt.pub }
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writeup-svc-worker
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: writeup-svc
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: writeup-svc
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: writeup-svc
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: writeup-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: harbor.offensiveconditions.org/services/writeup-svc:v0.1.0
+          command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+          envFrom:
+            - configMapRef: { name: writeup-svc-config }
+            - secretRef: { name: writeup-svc-secrets }
+          resources:
+            requests: { cpu: "200m", memory: "384Mi" }
+            limits: { cpu: "1000m", memory: "768Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writeup-svc-beat
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: writeup-svc
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: writeup-svc
+      app.kubernetes.io/component: beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: writeup-svc
+        app.kubernetes.io/component: beat
+    spec:
+      serviceAccountName: writeup-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: beat
+          image: harbor.offensiveconditions.org/services/writeup-svc:v0.1.0
+          command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+          envFrom:
+            - configMapRef: { name: writeup-svc-config }
+            - secretRef: { name: writeup-svc-secrets }
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "200m", memory: "256Mi" }
+          volumeMounts:
+            - { name: beat-schedule, mountPath: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: beat-schedule
+          emptyDir: {}
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: writeup-svc-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: writeup-svc-server
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: writeup-svc-server
+  namespace: offcon
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: writeup-svc
+      app.kubernetes.io/component: server
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: writeup-svc
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: writeup-svc
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { name: ingress-system } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: api-gateway } }
+      ports:
+        - { protocol: TCP, port: 8006 }
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/part-of: offcon } }
+      ports:
+        - { protocol: TCP, port: 9006 }
+    - from:
+        - namespaceSelector: { matchLabels: { name: observability } }
+          podSelector: { matchLabels: { app: prometheus } }
+      ports:
+        - { protocol: TCP, port: 8006 }
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: postgres } }
+      ports:
+        - { protocol: TCP, port: 5432 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: redis } }
+      ports:
+        - { protocol: TCP, port: 6379 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: kafka } }
+      ports:
+        - { protocol: TCP, port: 9093 }
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: scoring } }
+      ports:
+        - { protocol: TCP, port: 9004 }
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: content-svc } }
+      ports:
+        - { protocol: TCP, port: 9003 }

@@ -1,0 +1,82 @@
+# =============================================================================
+# CTF, forum, writeup
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: ctf-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    # Match the WebSocket prefix FIRST (more specific) before the general /v1/ctf
+    - name: ctf-ws
+      match:
+        - uri: { prefix: /v1/ctf/ws }
+      route:
+        - destination:
+            host: ctf-svc.offcon.svc.cluster.local
+            port: { number: 8004 }
+      timeout: 0s   # WS — no upstream timeout
+      retries: { attempts: 0 }
+
+    - name: ctf-rest
+      match:
+        - uri: { prefix: /v1/ctf }
+      route:
+        - destination:
+            host: ctf-svc.offcon.svc.cluster.local
+            port: { number: 8004 }
+      timeout: 10s
+      retries:
+        attempts: 1
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: forum-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: forum
+      match:
+        - uri: { prefix: /v1/forum }
+      route:
+        - destination:
+            host: forum-svc.offcon.svc.cluster.local
+            port: { number: 8005 }
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: writeup-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: writeups
+      match:
+        - uri: { prefix: /v1/writeups }
+      route:
+        - destination:
+            host: writeup-svc.offcon.svc.cluster.local
+            port: { number: 8006 }
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure

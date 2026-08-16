@@ -1,0 +1,83 @@
+# =============================================================================
+# Sidecar resource — restrict each workload's egress reach
+# =============================================================================
+# By default an Istio sidecar knows about EVERY service in the mesh, bloating
+# the Envoy config. We scope each namespace's sidecars to only the services
+# they actually need, which:
+#   - shrinks proxy memory + config push time
+#   - acts as a second layer of egress control alongside AuthorizationPolicy
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Sidecar
+metadata:
+  name: default
+  namespace: offcon
+spec:
+  egress:
+    - hosts:
+        # Same-namespace services
+        - "./*"
+        # Istio control plane
+        - "istio-system/*"
+        # Data plane (registered via ServiceEntry)
+        - "offcon/pg-primary.data.svc.cluster.local"
+        - "offcon/redis-primary.data.svc.cluster.local"
+        - "offcon/kafka-0.kafka.data.svc.cluster.local"
+        - "offcon/minio.data.svc.cluster.local"
+  outboundTrafficPolicy:
+    mode: REGISTRY_ONLY   # block egress to anything not in the mesh registry
+
+---
+# The gateway-system namespace needs to reach offcon services + the RLS
+apiVersion: networking.istio.io/v1beta1
+kind: Sidecar
+metadata:
+  name: default
+  namespace: gateway-system
+spec:
+  egress:
+    - hosts:
+        - "./*"
+        - "istio-system/*"
+        - "offcon/*"
+  outboundTrafficPolicy:
+    mode: REGISTRY_ONLY
+
+---
+# =============================================================================
+# WasmPlugin — OWASP CRS-style WAF at the edge (Coraza)
+# =============================================================================
+# Runs the Coraza WAF (ModSecurity-compatible) as a Wasm filter on the
+# ingressgateway. Blocks common injection + scanner patterns before they reach
+# any service. Rules are the OWASP Core Rule Set in detection+blocking mode.
+# =============================================================================
+apiVersion: extensions.istio.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: coraza-waf
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  url: oci://ghcr.io/corazawaf/coraza-proxy-wasm:latest
+  imagePullPolicy: IfNotPresent
+  phase: AUTHN   # run before routing/authz
+  pluginConfig:
+    directives_map:
+      default:
+        - SecRuleEngine On
+        - SecRequestBodyAccess On
+        - SecRequestBodyLimit 13107200
+        - SecRequestBodyInMemoryLimit 131072
+        # Include OWASP CRS
+        - Include @owasp_crs/*.conf
+        # Paranoia level 1 (production-safe; raise to 2 after tuning)
+        - SecAction "id:900000,phase:1,nolog,pass,t:none,setvar:tx.blocking_paranoia_level=1"
+        # Anomaly scoring thresholds
+        - SecAction "id:900110,phase:1,nolog,pass,t:none,setvar:tx.inbound_anomaly_score_threshold=10,setvar:tx.outbound_anomaly_score_threshold=8"
+        # Allow our own WS upgrade + multipart uploads
+        - SecRule REQUEST_URI "@beginsWith /v1/ws/" "id:1000,phase:1,pass,nolog,ctl:ruleEngine=Off"
+        - SecRule REQUEST_URI "@beginsWith /v1/reports/" "id:1001,phase:1,pass,nolog,ctl:requestBodyAccess=Off"
+    default_directives: default

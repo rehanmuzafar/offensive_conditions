@@ -1,0 +1,93 @@
+# ============================================================================
+#  Tempo — distributed tracing backend. Receives OTLP spans (via the OTel
+#  collector), stores them in object storage, and serves trace lookups +
+#  service-graph + span metrics to Grafana. Chosen over standalone Jaeger for
+#  native Grafana integration and metrics-from-traces (the "RED" generator).
+# ============================================================================
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+
+# Receivers — accept spans in OTLP + Jaeger + Zipkin formats
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+    zipkin:
+      endpoint: 0.0.0.0:9411
+
+# Ingester — batch + flush spans to storage
+ingester:
+  max_block_duration: 5m
+  trace_idle_period: 10s
+
+compactor:
+  compaction:
+    block_retention: 336h # 14 days of traces
+
+# Storage — S3-compatible object store
+storage:
+  trace:
+    backend: s3
+    s3:
+      endpoint: "${S3_ENDPOINT}"
+      bucket: offcon-tempo
+      access_key: "${S3_ACCESS_KEY}"
+      secret_key: "${S3_SECRET_KEY}"
+      insecure: false
+      forcepathstyle: true
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+# Per-tenant limits
+overrides:
+  defaults:
+    ingestion:
+      rate_limit_bytes: 20000000
+      burst_size_bytes: 30000000
+    global:
+      max_bytes_per_trace: 5000000
+
+# ----------------------------------------------------------------------------
+# metrics_generator — derive RED metrics + service graphs FROM traces and
+# remote-write them to Prometheus. This is what powers the service-map in
+# Grafana without any extra instrumentation.
+# ----------------------------------------------------------------------------
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      cluster: offcon-prod
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  processor:
+    service_graphs:
+      max_items: 10000
+      dimensions: [service, span_kind]
+    span_metrics:
+      dimensions: [service, span_name, span_kind, status_code]
+      histogram_buckets: [0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.024, 2.048, 4.096]
+
+# Enable the metrics generator for all traces
+overrides_defaults_metrics_generator_processors:
+  - service-graphs
+  - span-metrics

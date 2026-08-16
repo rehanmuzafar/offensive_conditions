@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package offcon.user.v1;
+
+option go_package = "github.com/offensive-conditions/user-svc/api/proto/userpb;userpb";
+
+import "google/protobuf/timestamp.proto";
+
+// UserService is the internal gRPC surface other services use to resolve
+// user metadata in batch. NOT exposed externally.
+service UserService {
+  // GetUserMetadata returns single-user info. Returns NOT_FOUND if missing.
+  rpc GetUserMetadata(GetUserMetadataRequest) returns (UserMetadata);
+
+  // BatchGetUserMetadata resolves up to 500 users in one round-trip.
+  // Missing user IDs are silently omitted from the response.
+  rpc BatchGetUserMetadata(BatchGetUserMetadataRequest) returns (BatchGetUserMetadataResponse);
+
+  // ResolveUsernames returns the username for each provided user id.
+  rpc ResolveUsernames(ResolveUsernamesRequest) returns (ResolveUsernamesResponse);
+
+  // GetTeamMemberships returns the team IDs the user is currently a member of.
+  rpc GetTeamMemberships(GetTeamMembershipsRequest) returns (GetTeamMembershipsResponse);
+
+  // CheckBlock returns true if either user has blocked the other.
+  // Used by content service before showing comments / forum posts / messages.
+  rpc CheckBlock(CheckBlockRequest) returns (CheckBlockResponse);
+}
+
+message GetUserMetadataRequest {
+  string user_id = 1;
+}
+
+message UserMetadata {
+  string user_id = 1;
+  string username = 2;
+  string display_name = 3;
+  string country_code = 4;
+  string tier = 5;
+  bool is_staff = 6;
+  string avatar_url = 7;
+  string timezone = 8;
+  google.protobuf.Timestamp last_seen_at = 9;
+  bool show_country = 10;
+  bool show_on_leaderboard = 11;
+}
+
+message BatchGetUserMetadataRequest {
+  repeated string user_ids = 1;
+}
+
+message BatchGetUserMetadataResponse {
+  map<string, UserMetadata> users = 1;
+}
+
+message ResolveUsernamesRequest {
+  repeated string user_ids = 1;
+}
+
+message ResolveUsernamesResponse {
+  // user_id -> username
+  map<string, string> usernames = 1;
+}
+
+message GetTeamMembershipsRequest {
+  string user_id = 1;
+}
+
+message Team {
+  string team_id = 1;
+  string name = 2;
+  string slug = 3;
+  string role = 4; // owner|admin|member
+}
+
+message GetTeamMembershipsResponse {
+  repeated Team teams = 1;
+}
+
+message CheckBlockRequest {
+  string user_a = 1;
+  string user_b = 2;
+}
+
+message CheckBlockResponse {
+  bool blocked = 1;
+}

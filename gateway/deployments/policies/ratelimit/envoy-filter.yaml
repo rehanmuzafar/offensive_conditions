@@ -1,0 +1,82 @@
+# =============================================================================
+# EnvoyFilter — wire the rate-limit service into the ingressgateway
+# =============================================================================
+# Two filters:
+#   1. The HTTP filter that calls the RLS gRPC service
+#   2. The route-level actions that build descriptors from request attributes
+#      (path, remote IP, the user_id extracted from the JWT payload header)
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: ratelimit-filter
+  namespace: gateway-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.ratelimit
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
+            domain: offcon-edge
+            failure_mode_deny: false   # fail open if RLS is down (availability > strictness)
+            timeout: 0.05s             # 50ms budget — don't add latency
+            rate_limit_service:
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: outbound|8081||ratelimit.gateway-system.svc.cluster.local
+              transport_api_version: V3
+
+---
+# Descriptor generation: extract remote IP, path, and user_id from the
+# x-jwt-payload header that RequestAuthentication populated.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: ratelimit-actions
+  namespace: gateway-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          vhost:
+            name: "api.offensiveconditions.org:443"
+      patch:
+        operation: MERGE
+        value:
+          rate_limits:
+            # Per-IP descriptor (always present)
+            - actions:
+                - request_headers:
+                    header_name: ":path"
+                    descriptor_key: "PATH"
+                - remote_address: {}
+            # Per-user descriptor (only when a user_id header is present —
+            # the JWT filter sets x-user-id after validating the token)
+            - actions:
+                - request_headers:
+                    header_name: ":path"
+                    descriptor_key: "PATH"
+                - request_headers:
+                    header_name: "x-user-id"
+                    descriptor_key: "USER_ID"
+                    skip_if_absent: true

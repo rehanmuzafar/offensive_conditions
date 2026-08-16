@@ -1,0 +1,779 @@
+openapi: 3.1.0
+info:
+  title: Offensive Conditions — User Service API
+  description: |
+    Profiles, teams, friendships, follows, search, and GDPR rights for the
+    Offensive Conditions platform.
+
+    All endpoints (except `/livez` and `/readyz`) require a Bearer JWT issued
+    by the auth service.
+
+    Errors are returned as:
+    ```json
+    {"error": {"code": "VALIDATION_FAILED", "message": "…", "details": {…}}}
+    ```
+  version: 0.1.0
+  contact:
+    name: Offensive Conditions Engineering
+    email: eng@offensiveconditions.org
+servers:
+  - url: https://api.offensiveconditions.org
+    description: Production
+  - url: https://staging-api.offensiveconditions.org
+    description: Staging
+  - url: http://localhost:8001
+    description: Local
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Profile
+  - name: Team
+  - name: Friends
+  - name: Follows
+  - name: Search
+  - name: GDPR
+  - name: Health
+
+paths:
+  /livez:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  version: { type: string }
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe (checks db + redis)
+      security: []
+      responses:
+        '200': { description: ready }
+        '503': { description: not ready }
+
+  /v1/users/me:
+    get:
+      tags: [Profile]
+      summary: Current user profile
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile: { $ref: '#/components/schemas/Profile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Profile]
+      summary: Update own profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile: { $ref: '#/components/schemas/Profile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/users/me/privacy:
+    patch:
+      tags: [Profile]
+      summary: Update privacy settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PrivacySettings' }
+      responses:
+        '200': { description: ok }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/users/me/avatar:
+    post:
+      tags: [Profile]
+      summary: Upload avatar (multipart)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avatar_url: { type: string, format: uri }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413':
+          description: avatar too large
+    delete:
+      tags: [Profile]
+      summary: Remove avatar
+      responses:
+        '200': { description: ok }
+
+  /v1/users/{id}:
+    get:
+      tags: [Profile]
+      summary: Public profile
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile: { $ref: '#/components/schemas/Profile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/users/by-username/{username}:
+    get:
+      tags: [Profile]
+      summary: Lookup profile by username
+      parameters:
+        - { name: username, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile: { $ref: '#/components/schemas/Profile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/users/search:
+    get:
+      tags: [Search]
+      summary: Search by username prefix + country
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 32 } }
+        - { name: country, in: query, required: false, schema: { type: string, minLength: 2, maxLength: 2 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/Profile' }
+
+  /v1/users/{id}/friends:
+    get:
+      tags: [Friends]
+      summary: List a user's friends
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  friends:
+                    type: array
+                    items: { type: string, format: uuid }
+
+  /v1/users/{id}/followers:
+    get:
+      tags: [Follows]
+      summary: List a user's followers
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowList' }
+
+  /v1/users/{id}/following:
+    get:
+      tags: [Follows]
+      summary: List who a user is following
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowList' }
+
+  /v1/users/{id}/block:
+    post:
+      tags: [Friends]
+      summary: Block a user
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: ok }
+    delete:
+      tags: [Friends]
+      summary: Unblock a user
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/blocked:
+    get:
+      tags: [Friends]
+      summary: List users you have blocked
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocked:
+                    type: array
+                    items: { type: string, format: uuid }
+
+  /v1/teams:
+    post:
+      tags: [Team]
+      summary: Create a team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTeamRequest' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team: { $ref: '#/components/schemas/Team' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/teams/me:
+    get:
+      tags: [Team]
+      summary: List teams you belong to
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items: { $ref: '#/components/schemas/Team' }
+
+  /v1/teams/{id}:
+    get:
+      tags: [Team]
+      summary: Get team
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team: { $ref: '#/components/schemas/Team' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Team]
+      summary: Update team (owner only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTeamRequest' }
+      responses:
+        '200':
+          description: updated
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Team]
+      summary: Disband team (owner only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/teams/by-slug/{slug}:
+    get:
+      tags: [Team]
+      summary: Get team by slug
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: ok
+
+  /v1/teams/{id}/members:
+    get:
+      tags: [Team]
+      summary: List active members
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ok
+
+  /v1/teams/{id}/invitations:
+    post:
+      tags: [Team]
+      summary: Invite a user
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invitee_id]
+              properties:
+                invitee_id: { type: string, format: uuid }
+                message: { type: string, maxLength: 500 }
+      responses:
+        '201': { description: ok }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/teams/invitations/me:
+    get:
+      tags: [Team]
+      summary: List pending invitations for me
+      responses:
+        '200': { description: ok }
+
+  /v1/teams/invitations/{id}/accept:
+    post:
+      tags: [Team]
+      summary: Accept invitation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/teams/invitations/{id}/decline:
+    post:
+      tags: [Team]
+      summary: Decline invitation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/teams/{id}/leave:
+    post:
+      tags: [Team]
+      summary: Leave team
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/teams/{id}/kick/{user_id}:
+    post:
+      tags: [Team]
+      summary: Kick a member (owner/admin)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/teams/{id}/promote/{user_id}:
+    post:
+      tags: [Team]
+      summary: Transfer ownership
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/friends/requests:
+    post:
+      tags: [Friends]
+      summary: Send a friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receiver_id]
+              properties:
+                receiver_id: { type: string, format: uuid }
+                message: { type: string, maxLength: 500 }
+      responses:
+        '201': { description: ok }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Friends]
+      summary: List incoming + outgoing friend requests
+      responses:
+        '200': { description: ok }
+
+  /v1/friends/requests/{id}/accept:
+    post:
+      tags: [Friends]
+      summary: Accept friend request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/friends/requests/{id}/decline:
+    post:
+      tags: [Friends]
+      summary: Decline friend request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/friends/requests/{id}/cancel:
+    post:
+      tags: [Friends]
+      summary: Cancel an outgoing friend request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/friends/{user_id}:
+    delete:
+      tags: [Friends]
+      summary: Unfriend a user
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/follows/{user_id}:
+    post:
+      tags: [Follows]
+      summary: Follow a user
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Follows]
+      summary: Unfollow a user
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ok }
+
+  /v1/countries/{code}/count:
+    get:
+      tags: [Search]
+      summary: Count users in a country (1h cached)
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string, minLength: 2, maxLength: 2 } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  country: { type: string }
+                  count: { type: integer }
+
+  /v1/gdpr/export:
+    post:
+      tags: [GDPR]
+      summary: Request a data export
+      responses:
+        '202':
+          description: scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  export_id: { type: string, format: uuid }
+                  status: { type: string }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/gdpr/export/{id}:
+    get:
+      tags: [GDPR]
+      summary: Get export status (returns signed URL when complete)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  export:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      status: { type: string }
+                      size_bytes: { type: integer }
+                      created_at: { type: string, format: date-time }
+                      completed_at: { type: string, format: date-time, nullable: true }
+                      expires_at: { type: string, format: date-time }
+                  download_url:
+                    type: string
+                    format: uri
+                    description: Signed URL; valid for 24h. Empty if export not yet complete.
+
+  /v1/gdpr/delete:
+    post:
+      tags: [GDPR]
+      summary: Schedule account deletion (30-day grace)
+      responses:
+        '202': { description: scheduled }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/gdpr/delete/cancel:
+    post:
+      tags: [GDPR]
+      summary: Cancel a pending deletion
+      responses:
+        '200': { description: ok }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/gdpr/delete/status:
+    get:
+      tags: [GDPR]
+      summary: Get deletion status
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending: { type: boolean }
+                  status: { type: string, enum: [pending, cancelled, completed] }
+                  scheduled_at: { type: string, format: date-time }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Profile:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        username: { type: string }
+        display_name: { type: string }
+        bio: { type: string }
+        avatar_url: { type: string, format: uri }
+        country_code: { type: string }
+        timezone: { type: string }
+        tier: { type: string, enum: [free, vip, vip_plus, team, enterprise] }
+        is_staff: { type: boolean }
+        email: { type: string, description: 'visible only to the owning user' }
+        email_verified: { type: boolean }
+        onboarding_complete: { type: boolean }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        social:
+          type: object
+          properties:
+            twitter: { type: string }
+            github: { type: string }
+            linkedin: { type: string }
+            website: { type: string }
+        privacy:
+          $ref: '#/components/schemas/PrivacySettings'
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        display_name: { type: string, maxLength: 50 }
+        bio: { type: string, maxLength: 500 }
+        country_code: { type: string, minLength: 2, maxLength: 2 }
+        timezone: { type: string }
+        twitter_handle: { type: string, maxLength: 15 }
+        github_handle: { type: string, maxLength: 39 }
+        linkedin_url: { type: string, maxLength: 500 }
+        website_url: { type: string, maxLength: 500 }
+
+    PrivacySettings:
+      type: object
+      properties:
+        profile_visibility: { type: string, enum: [public, friends_only, private] }
+        show_country: { type: boolean }
+        show_team: { type: boolean }
+        show_achievements: { type: boolean }
+        show_on_leaderboard: { type: boolean }
+        allow_friend_requests: { type: boolean }
+        allow_messages: { type: string, enum: [anyone, friends_only, nobody] }
+
+    Team:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        avatar_url: { type: string, format: uri }
+        banner_url: { type: string, format: uri }
+        country_code: { type: string }
+        website: { type: string }
+        is_private: { type: boolean }
+        is_recruiting: { type: boolean }
+        max_members: { type: integer }
+        owner_id: { type: string, format: uuid }
+        member_count: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    CreateTeamRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 50 }
+        slug: { type: string, pattern: '^[a-z0-9-]{3,32}$' }
+        description: { type: string, maxLength: 1000 }
+        country_code: { type: string, minLength: 2, maxLength: 2 }
+        is_private: { type: boolean }
+        is_recruiting: { type: boolean }
+
+    UpdateTeamRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 3, maxLength: 50 }
+        description: { type: string }
+        country_code: { type: string }
+        website: { type: string }
+        is_private: { type: boolean }
+        is_recruiting: { type: boolean }
+
+    FollowList:
+      type: object
+      properties:
+        followers:
+          type: array
+          items: { type: string, format: uuid }
+        following:
+          type: array
+          items: { type: string, format: uuid }
+        counts:
+          type: object
+          properties:
+            followers: { type: integer }
+            following: { type: integer }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details:
+              type: object
+              additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: insufficient privileges
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

@@ -1,0 +1,341 @@
+# =============================================================================
+# Offensive Conditions — Auth Service Kubernetes Manifests
+# =============================================================================
+# Production deployment. Apply via Kustomize overlays for env-specific config.
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: offcon-auth
+  labels:
+    name: offcon-auth
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-service
+  namespace: offcon-auth
+---
+# Sealed secrets in production — use SealedSecrets or External Secrets Operator
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-secrets
+  namespace: offcon-auth
+type: Opaque
+stringData:
+  # Set these from Vault / External Secrets, not here
+  DB_PASSWORD: "REPLACE_FROM_VAULT"
+  REDIS_PASSWORD: "REPLACE_FROM_VAULT"
+  TFA_ENCRYPTION_KEY: "REPLACE_FROM_VAULT"
+  OAUTH_STATE_SECRET: "REPLACE_FROM_VAULT"
+  OAUTH_GOOGLE_CLIENT_SECRET: "REPLACE_FROM_VAULT"
+  OAUTH_GITHUB_CLIENT_SECRET: "REPLACE_FROM_VAULT"
+  SMTP_PASSWORD: "REPLACE_FROM_VAULT"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-jwt-keys
+  namespace: offcon-auth
+type: Opaque
+data:
+  # Base64-encoded RSA private/public key PEM
+  jwt-private.pem: "BASE64_RSA_PRIVATE_PEM"
+  jwt-public.pem: "BASE64_RSA_PUBLIC_PEM"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-config
+  namespace: offcon-auth
+data:
+  APP_ENV: "production"
+  APP_NAME: "auth"
+  HTTP_PORT: "8001"
+  GRPC_PORT: "9001"
+  DB_HOST: "postgres.databases.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "svc_auth"
+  DB_SSLMODE: "require"
+  DB_MAX_CONNS: "25"
+  REDIS_ADDR: "redis.databases.svc.cluster.local:6379"
+  REDIS_TLS: "true"
+  JWT_PRIVATE_KEY_PATH: "/secrets/jwt/jwt-private.pem"
+  JWT_PUBLIC_KEY_PATH: "/secrets/jwt/jwt-public.pem"
+  JWT_ISSUER: "https://auth.offensiveconditions.org"
+  JWT_AUDIENCE: "offcon-api"
+  JWT_ACCESS_TTL: "15m"
+  JWT_REFRESH_TTL: "168h"
+  OAUTH_CALLBACK_BASE: "https://api.offensiveconditions.org/v1/auth/oauth"
+  OAUTH_GOOGLE_ENABLED: "true"
+  OAUTH_GITHUB_ENABLED: "true"
+  OAUTH_DISCORD_ENABLED: "true"
+  SMTP_HOST: "smtp.sendgrid.net"
+  SMTP_PORT: "587"
+  SMTP_USER: "apikey"
+  SMTP_FROM: "no-reply@offensiveconditions.org"
+  SMTP_FROM_NAME: "Offensive Conditions"
+  SMTP_USE_TLS: "true"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  HTTP_CORS_ORIGINS: "https://offensiveconditions.org,https://app.offensiveconditions.org"
+  HTTP_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12"
+  GRPC_ENABLE_REFLECTION: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  namespace: offcon-auth
+  labels:
+    app: auth
+    component: backend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+        component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: auth-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: auth
+        image: registry.offensiveconditions.org/auth:VERSION_TAG
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8001
+          protocol: TCP
+        - name: grpc
+          containerPort: 9001
+          protocol: TCP
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        envFrom:
+        - configMapRef:
+            name: auth-config
+        - secretRef:
+            name: auth-secrets
+        volumeMounts:
+        - name: jwt-keys
+          mountPath: /secrets/jwt
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 0
+          periodSeconds: 2
+          timeoutSeconds: 2
+          failureThreshold: 30
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: jwt-keys
+        secret:
+          secretName: auth-jwt-keys
+          defaultMode: 0400
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+  namespace: offcon-auth
+  labels:
+    app: auth
+spec:
+  type: ClusterIP
+  selector:
+    app: auth
+  ports:
+  - name: http
+    port: 8001
+    targetPort: http
+  - name: grpc
+    port: 9001
+    targetPort: grpc
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth
+  namespace: offcon-auth
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth
+  namespace: offcon-auth
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: auth
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-default-deny
+  namespace: offcon-auth
+spec:
+  podSelector:
+    matchLabels:
+      app: auth
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow from Istio ingress gateway
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+    ports:
+    - protocol: TCP
+      port: 8001
+    - protocol: TCP
+      port: 9001
+  # Allow from other internal services for gRPC
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 9001
+  # Allow Prometheus scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8001
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  # Postgres
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: databases
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Redis
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: databases
+    ports:
+    - protocol: TCP
+      port: 6379
+  # External: OAuth providers, SMTP relay
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 587

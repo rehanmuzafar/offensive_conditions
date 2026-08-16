@@ -1,0 +1,177 @@
+# ============================================================================
+#  OFFCON — Prometheus configuration
+# ----------------------------------------------------------------------------
+#  Scrapes metrics from all 12 microservices, the Istio gateway/mesh, and the
+#  observability stack itself. Uses Kubernetes service discovery in-cluster and
+#  falls back to static targets for local docker-compose.
+#
+#  Metrics conventions (enforced across services):
+#    - HTTP:   http_requests_total, http_request_duration_seconds
+#    - gRPC:   grpc_server_handled_total, grpc_server_handling_seconds
+#    - Runtime: go_*, process_*, python_gc_*, nodejs_*
+#    - Business: offcon_* (custom — see instrumentation/)
+# ============================================================================
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: offcon-prod
+    region: eu-west
+
+# Alerting + rules
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # Prometheus self-monitoring
+  # ---------------------------------------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus
+          tier: observability
+
+  # ---------------------------------------------------------------------------
+  # OFFCON microservices — HTTP /metrics on each service's metrics port
+  # In Kubernetes these are discovered via the `offcon-services` job below;
+  # these static entries are for local docker-compose.
+  # ---------------------------------------------------------------------------
+  - job_name: offcon-services-static
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["auth-svc:8001"]
+        labels: { service: auth-svc, language: go, tier: core }
+      - targets: ["orchestrator:8000"]
+        labels: { service: orchestrator, language: go, tier: core }
+      - targets: ["scoring-svc:8003"]
+        labels: { service: scoring-svc, language: go, tier: core }
+      - targets: ["flag-verifier:8004"]
+        labels: { service: flag-verifier, language: go, tier: core }
+      - targets: ["user-svc:8002"]
+        labels: { service: user-svc, language: go, tier: core }
+      - targets: ["content-svc:8005"]
+        labels: { service: content-svc, language: python, tier: content }
+      - targets: ["ctf-svc:8006"]
+        labels: { service: ctf-svc, language: python, tier: content }
+      - targets: ["forum-svc:8007"]
+        labels: { service: forum-svc, language: python, tier: community }
+      - targets: ["writeup-svc:8008"]
+        labels: { service: writeup-svc, language: python, tier: community }
+      - targets: ["bounty-svc:8009"]
+        labels: { service: bounty-svc, language: python, tier: community }
+      - targets: ["payment-svc:8010"]
+        labels: { service: payment-svc, language: node, tier: billing }
+      - targets: ["notification-svc:8011"]
+        labels: { service: notification-svc, language: node, tier: billing }
+
+  # ---------------------------------------------------------------------------
+  # Kubernetes service discovery — pods annotated with prometheus.io/scrape
+  # ---------------------------------------------------------------------------
+  - job_name: offcon-services-k8s
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [offcon]
+    relabel_configs:
+      # Only scrape pods explicitly opted-in
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      # Use the annotated path (default /metrics)
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      # Use the annotated port
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      # Surface useful labels
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_label_tier]
+        target_label: tier
+
+  # ---------------------------------------------------------------------------
+  # Istio mesh — Envoy sidecars expose merged stats on 15020/stats/prometheus
+  # ---------------------------------------------------------------------------
+  - job_name: istio-mesh
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [offcon, istio-system]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        action: keep
+        regex: http-envoy-prom
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # Istio control plane (istiod)
+  - job_name: istiod
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [istio-system]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: istiod;http-monitoring
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure exporters
+  # ---------------------------------------------------------------------------
+  - job_name: node-exporter
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - source_labels: [__address__]
+        regex: "(.*):10250"
+        replacement: "${1}:9100"
+        target_label: __address__
+
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels: { service: postgres, tier: data }
+
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels: { service: redis, tier: data }
+
+  - job_name: nats-exporter
+    static_configs:
+      - targets: ["nats-exporter:7777"]
+        labels: { service: nats, tier: data }
+
+  # cAdvisor — container resource usage
+  - job_name: cadvisor
+    kubernetes_sd_configs:
+      - role: node
+    metrics_path: /metrics/cadvisor
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)

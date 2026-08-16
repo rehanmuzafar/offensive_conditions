@@ -1,0 +1,88 @@
+# =============================================================================
+# Telemetry — tracing, metrics dimensions, access logging
+# =============================================================================
+# Istio Telemetry API config (replaces the older EnvoyFilter-based approach).
+# Sends traces to Jaeger, custom metric dimensions to Prometheus, and access
+# logs to stdout (scraped by Loki via promtail/alloy).
+# =============================================================================
+---
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+spec:
+  # Tracing — sample 5% mesh-wide (override per-namespace below)
+  tracing:
+    - providers:
+        - name: jaeger
+      randomSamplingPercentage: 5.0
+      customTags:
+        user_id:
+          header:
+            name: x-user-id
+            defaultValue: anonymous
+        route:
+          header:
+            name: x-gateway-route
+            defaultValue: unknown
+  # Metrics — add request-level dimensions
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+          tagOverrides:
+            request_path:
+              value: "request.url_path"
+            response_code:
+              value: "response.code"
+        - match:
+            metric: REQUEST_DURATION
+          tagOverrides:
+            request_path:
+              value: "request.url_path"
+  # Access logs — JSON to stdout
+  accessLogging:
+    - providers:
+        - name: envoy
+
+---
+# Bump tracing to 100% in the gateway namespace for full edge visibility
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: gateway-full-tracing
+  namespace: gateway-system
+spec:
+  selector:
+    matchLabels:
+      istio: ingressgateway
+  tracing:
+    - providers:
+        - name: jaeger
+      randomSamplingPercentage: 100.0
+
+---
+# Define the Jaeger + Prometheus providers referenced above
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-tracing-providers
+  namespace: istio-system
+data:
+  # This is consumed by the IstioOperator meshConfig.extensionProviders in a
+  # real deploy; documented here so the provider names resolve. Already wired
+  # in operator.yaml via the zipkin/jaeger address.
+  providers.yaml: |
+    extensionProviders:
+      - name: jaeger
+        zipkin:
+          service: jaeger-collector.observability.svc.cluster.local
+          port: 9411
+      - name: prometheus
+        prometheus: {}
+      - name: envoy
+        envoyFileAccessLog:
+          path: /dev/stdout

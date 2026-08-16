@@ -1,0 +1,77 @@
+# =============================================================================
+# Istio Gateway — the L7 entry point for api.offensiveconditions.org
+# =============================================================================
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: offcon-api-gateway
+  namespace: gateway-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    # HTTP → HTTPS redirect
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - api.offensiveconditions.org
+      tls:
+        httpsRedirect: true
+
+    # HTTPS — production cert from cert-manager
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - api.offensiveconditions.org
+      tls:
+        mode: SIMPLE
+        credentialName: offcon-api-tls
+        minProtocolVersion: TLSV1_2
+        cipherSuites:
+          - ECDHE-ECDSA-AES128-GCM-SHA256
+          - ECDHE-RSA-AES128-GCM-SHA256
+          - ECDHE-ECDSA-AES256-GCM-SHA384
+          - ECDHE-RSA-AES256-GCM-SHA384
+          - ECDHE-ECDSA-CHACHA20-POLY1305
+          - ECDHE-RSA-CHACHA20-POLY1305
+
+---
+# =============================================================================
+# Gateway for the SPA itself (the marketing site / Next.js app)
+# Lives in offcon namespace, routed by the same IngressGateway.
+# =============================================================================
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: offcon-spa-gateway
+  namespace: gateway-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http-spa
+        protocol: HTTP
+      hosts:
+        - offensiveconditions.org
+        - www.offensiveconditions.org
+        - app.offensiveconditions.org
+      tls:
+        httpsRedirect: true
+    - port:
+        number: 443
+        name: https-spa
+        protocol: HTTPS
+      hosts:
+        - offensiveconditions.org
+        - www.offensiveconditions.org
+        - app.offensiveconditions.org
+      tls:
+        mode: SIMPLE
+        credentialName: offcon-spa-tls
+        minProtocolVersion: TLSV1_2

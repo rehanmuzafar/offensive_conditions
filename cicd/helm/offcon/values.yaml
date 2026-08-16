@@ -1,0 +1,179 @@
+# ============================================================================
+#  Umbrella values — production defaults for every OFFCON service. Each top-
+#  level key matches a dependency alias in Chart.yaml and is passed straight to
+#  that service's offcon-service sub-chart.
+#
+#  CI overrides image tags via --set <svc>.image.tag=<sha>. Env-specific files
+#  (helm/values/{staging,production}.yaml) override anything here.
+# ============================================================================
+
+# ---- Go core services ----
+auth-svc:
+  name: auth-svc
+  tier: core
+  language: go
+  image: { repository: ghcr.io/offcon/auth-svc }
+  ports: { http: 8001, grpc: 9001 }
+  autoscaling: { enabled: true, minReplicas: 3, maxReplicas: 15 }
+  resources:
+    requests: { cpu: 200m, memory: 192Mi }
+    limits: { cpu: "2", memory: 512Mi }
+  envFrom:
+    - secretRef: { name: auth-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+orchestrator:
+  name: orchestrator
+  tier: core
+  language: go
+  image: { repository: ghcr.io/offcon/orchestrator }
+  ports: { http: 8000, grpc: 9000 }
+  autoscaling: { enabled: true, minReplicas: 3, maxReplicas: 20 }
+  resources:
+    requests: { cpu: 300m, memory: 256Mi }
+    limits: { cpu: "2", memory: 768Mi }
+  envFrom:
+    - secretRef: { name: orchestrator-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+scoring-svc:
+  name: scoring-svc
+  tier: core
+  language: go
+  image: { repository: ghcr.io/offcon/scoring-svc }
+  ports: { http: 8003, grpc: 9003 }
+  autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 12 }
+  envFrom:
+    - secretRef: { name: scoring-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+flag-verifier:
+  name: flag-verifier
+  tier: core
+  language: go
+  image: { repository: ghcr.io/offcon/flag-verifier }
+  ports: { http: 8004, grpc: 9004 }
+  autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 10 }
+  envFrom:
+    - secretRef: { name: flag-verifier-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+user-svc:
+  name: user-svc
+  tier: core
+  language: go
+  image: { repository: ghcr.io/offcon/user-svc }
+  ports: { http: 8002, grpc: 9002 }
+  envFrom:
+    - secretRef: { name: user-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+# ---- Python content/community services ----
+content-svc:
+  name: content-svc
+  tier: content
+  language: python
+  image: { repository: ghcr.io/offcon/content-svc }
+  ports: { http: 8005, grpc: 9005 }
+  autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 10 }
+  resources:
+    requests: { cpu: 150m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  envFrom:
+    - secretRef: { name: content-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+  # Python read-only-rootfs needs a writable tmp + the security ctx relaxed for
+  # uvicorn's needs; default extraVolumes already provide /tmp.
+
+ctf-svc:
+  name: ctf-svc
+  tier: content
+  language: python
+  image: { repository: ghcr.io/offcon/ctf-svc }
+  ports: { http: 8006, grpc: 9006 }
+  autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 12 }
+  envFrom:
+    - secretRef: { name: ctf-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+forum-svc:
+  name: forum-svc
+  tier: community
+  language: python
+  image: { repository: ghcr.io/offcon/forum-svc }
+  ports: { http: 8007, grpc: 9007 }
+  envFrom:
+    - secretRef: { name: forum-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+writeup-svc:
+  name: writeup-svc
+  tier: community
+  language: python
+  image: { repository: ghcr.io/offcon/writeup-svc }
+  ports: { http: 8008, grpc: 9008 }
+  envFrom:
+    - secretRef: { name: writeup-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+bounty-svc:
+  name: bounty-svc
+  tier: community
+  language: python
+  image: { repository: ghcr.io/offcon/bounty-svc }
+  ports: { http: 8009, grpc: 9009 }
+  envFrom:
+    - secretRef: { name: bounty-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+# ---- Node billing services ----
+payment-svc:
+  name: payment-svc
+  tier: billing
+  language: node
+  image: { repository: ghcr.io/offcon/payment-svc }
+  ports: { http: 8010, grpc: 9010 }
+  autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 8 }
+  resources:
+    requests: { cpu: 150m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  envFrom:
+    - secretRef: { name: payment-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+notification-svc:
+  name: notification-svc
+  tier: billing
+  language: node
+  image: { repository: ghcr.io/offcon/notification-svc }
+  ports: { http: 8011, grpc: 9011 }
+  autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 10 }
+  envFrom:
+    - secretRef: { name: notification-svc-secrets }
+    - configMapRef: { name: offcon-common-config }
+
+# ---- Frontend (Next.js) ----
+frontend:
+  name: frontend
+  tier: core
+  language: node
+  image: { repository: ghcr.io/offcon/frontend }
+  ports: { http: 3000 }
+  autoscaling: { enabled: true, minReplicas: 3, maxReplicas: 20 }
+  probes:
+    readiness: { path: /api/health, initialDelaySeconds: 10, periodSeconds: 10 }
+    liveness: { path: /api/health, initialDelaySeconds: 20, periodSeconds: 15 }
+    startup: { path: /api/health, failureThreshold: 30, periodSeconds: 5 }
+  resources:
+    requests: { cpu: 150m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  # Next.js writes a cache; allow it via the default /tmp mount + .next dir
+  extraVolumeMounts:
+    - { name: tmp, mountPath: /tmp }
+    - { name: cache, mountPath: /app/.next/cache }
+  extraVolumes:
+    - { name: tmp, emptyDir: {} }
+    - { name: cache, emptyDir: {} }
+  env:
+    NEXT_PUBLIC_API_BASE_URL: "https://api.offensiveconditions.org"
+  metrics: { enabled: false }

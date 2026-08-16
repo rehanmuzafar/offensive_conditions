@@ -1,0 +1,39 @@
+# --- secrets: never commit these ---------------------------------------------
+# deploy/.env holds database and service passwords; deploy/secrets holds the
+# JWT signing keypair. Anyone with the private key can mint valid tokens for
+# every service, so it stays out of version control even in a private repo.
+.env
+.env.*
+!.env.example
+deploy/secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+
+# --- dependencies ------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+vendor/
+
+# --- build output ------------------------------------------------------------
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# --- local state -------------------------------------------------------------
+.DS_Store
+*.log
+coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tmp/

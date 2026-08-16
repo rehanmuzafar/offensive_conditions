@@ -1,0 +1,360 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions — Writeup Service
+  version: 0.1.0
+  description: |
+    Long-form solution writeups with moderation queue, gating, voting,
+    bookmarks, and threaded comments.
+  contact:
+    name: Offensive Conditions Platform Team
+    email: platform@offensiveconditions.org
+
+servers:
+  - { url: https://api.offensiveconditions.org, description: Production }
+  - { url: http://localhost:8006, description: Local dev }
+
+security:
+  - BearerAuth: []
+
+tags:
+  - { name: writeups }
+  - { name: health }
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: alive }
+
+  /readyz:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: ready }
+        "503": { description: not ready }
+
+  /v1/writeups:
+    get:
+      tags: [writeups]
+      security: []
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 25 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+        - { in: query, name: content_type, schema: { type: string, enum: [machine, challenge, dojo_level, pro_lab] } }
+        - { in: query, name: content_id, schema: { type: string, format: uuid } }
+        - { in: query, name: language, schema: { type: string } }
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: sort, schema: { type: string, enum: [recent, top, featured] } }
+        - { in: query, name: author_id, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WriteupList" }
+    post:
+      tags: [writeups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WriteupCreate" }
+      responses:
+        "201":
+          description: Submitted (status=pending)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Writeup" }
+
+  /v1/writeups/{writeup_id}:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [writeups]
+      security: []
+      responses:
+        "200":
+          description: OK (gated)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WriteupDetail" }
+        "403":
+          description: Solve required to read
+    patch:
+      tags: [writeups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WriteupUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Writeup" }
+    delete:
+      tags: [writeups]
+      responses:
+        "204": { description: Archived }
+
+  /v1/writeups/{writeup_id}/publish:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [writeups]
+      responses:
+        "200": { description: Approved }
+
+  /v1/writeups/{writeup_id}/reject:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [writeups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: Rejected }
+
+  /v1/writeups/{writeup_id}/feature:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [writeups]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                featured: { type: boolean }
+      responses:
+        "200": { description: Featured }
+
+  /v1/writeups/{writeup_id}/vote:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [writeups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction: { type: string, enum: [up, down, clear] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoteResult" }
+
+  /v1/writeups/{writeup_id}/bookmark:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [writeups]
+      responses:
+        "200": { description: Bookmarked }
+    delete:
+      tags: [writeups]
+      responses:
+        "204": { description: Removed }
+
+  /v1/writeups/{writeup_id}/comments:
+    parameters:
+      - { in: path, name: writeup_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [writeups]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommentList" }
+    post:
+      tags: [writeups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_markdown]
+              properties:
+                content_markdown: { type: string }
+                parent_comment_id: { type: string, format: uuid, nullable: true }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+
+  /v1/comments/{comment_id}:
+    parameters:
+      - { in: path, name: comment_id, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [writeups]
+      responses:
+        "200": { description: OK }
+    delete:
+      tags: [writeups]
+      responses:
+        "204": { description: Deleted }
+
+  /v1/comments/{comment_id}/vote:
+    parameters:
+      - { in: path, name: comment_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [writeups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction: { type: string, enum: [up, down, clear] }
+      responses:
+        "200": { description: OK }
+
+  /v1/mod/writeups/pending:
+    get:
+      tags: [writeups]
+      responses:
+        "200": { description: OK }
+
+  /v1/me/bookmarks:
+    get:
+      tags: [writeups]
+      responses:
+        "200": { description: OK }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    WriteupCreate:
+      type: object
+      required: [content_type, content_id, title, content_markdown]
+      properties:
+        content_type: { type: string, enum: [machine, challenge, dojo_level, pro_lab] }
+        content_id: { type: string, format: uuid }
+        title: { type: string, minLength: 3, maxLength: 200 }
+        summary: { type: string, maxLength: 500, nullable: true }
+        content_markdown: { type: string, minLength: 100, maxLength: 200000 }
+        language: { type: string, default: en }
+        video_url: { type: string, nullable: true }
+        cover_image_url: { type: string, nullable: true }
+        tags:
+          type: array
+          items: { type: string }
+        techniques_used:
+          type: array
+          items: { type: string }
+        tools_used:
+          type: array
+          items: { type: string }
+        contains_full_solution: { type: boolean }
+        spoiler_warning_shown: { type: boolean }
+
+    WriteupUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        summary: { type: string, nullable: true }
+        content_markdown: { type: string }
+        tags: { type: array, items: { type: string } }
+
+    Writeup:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        author_id: { type: string, format: uuid }
+        content_type: { type: string }
+        content_id: { type: string, format: uuid }
+        title: { type: string }
+        slug: { type: string }
+        summary: { type: string, nullable: true }
+        language: { type: string }
+        word_count: { type: integer, nullable: true }
+        read_time_minutes: { type: integer, nullable: true }
+        tags: { type: array, items: { type: string } }
+        techniques_used: { type: array, items: { type: string } }
+        tools_used: { type: array, items: { type: string } }
+        status: { type: string }
+        is_featured: { type: boolean }
+        view_count: { type: integer }
+        score: { type: integer }
+        comment_count: { type: integer }
+        published_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    WriteupDetail:
+      allOf:
+        - { $ref: "#/components/schemas/Writeup" }
+        - type: object
+          properties:
+            content_markdown: { type: string }
+            content_html: { type: string, nullable: true }
+
+    WriteupList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Writeup" }
+        meta:
+          type: object
+
+    Comment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        writeup_id: { type: string, format: uuid }
+        author_id: { type: string, format: uuid }
+        parent_comment_id: { type: string, format: uuid, nullable: true }
+        content_markdown: { type: string }
+        content_html: { type: string, nullable: true }
+        upvote_count: { type: integer }
+        downvote_count: { type: integer }
+        score: { type: integer }
+        is_edited: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    CommentList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Comment" }
+        meta: { type: object }
+
+    VoteResult:
+      type: object
+      properties:
+        target_id: { type: string, format: uuid }
+        upvote_count: { type: integer }
+        downvote_count: { type: integer }
+        score: { type: integer }
+        my_vote: { type: integer }

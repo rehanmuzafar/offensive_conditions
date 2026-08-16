@@ -1,0 +1,17 @@
+# ============================================================================
+#  Grafana dashboard provider — loads all JSON dashboards from disk on startup
+#  and keeps them in sync. Dashboards live in /var/lib/grafana/dashboards.
+# ============================================================================
+apiVersion: 1
+
+providers:
+  - name: offcon-dashboards
+    orgId: 1
+    folder: OFFCON
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

@@ -1,0 +1,318 @@
+# ============================================================================
+#  OFFCON — full-stack local deployment.
+#
+#    cd deploy
+#    ./setup.sh          # one-time: generate JWT keys
+#    docker compose up   # builds + starts the whole platform
+#
+#  Brings up: Postgres, Redis, Kafka, MinIO, Mailpit + all 12 services +
+#  the Next.js frontend + an nginx edge that fronts the API on :8080.
+#
+#  Ports are remapped here (via HTTP_PORT/GRPC_PORT env) to remove the
+#  collisions that exist between the services' default ports.
+#
+#  NOTE: first run will surface build/integration issues — that's expected
+#  for a stack this size. Fix iteratively.
+# ============================================================================
+name: offcon
+
+x-svc-defaults: &svc-defaults
+  env_file: [.env]
+  restart: unless-stopped
+  networks: [offcon]
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    kafka: { condition: service_started }
+    migrator: { condition: service_completed_successfully }
+
+services:
+  # ==========================================================================
+  # Infrastructure
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: offcon_admin
+      POSTGRES_PASSWORD: dev_only_change_in_prod
+      POSTGRES_DB: offcon
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../database/scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U offcon_admin -d offcon"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [offcon]
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [offcon]
+
+  # Kafka in KRaft mode — no Zookeeper needed (official Apache image)
+  kafka:
+    image: apache/kafka:3.9.0
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+    volumes: [kafka_data:/var/lib/kafka/data]
+    networks: [offcon]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: offcon_dev
+      MINIO_ROOT_PASSWORD: dev_only_change_in_prod
+    ports: ["9000:9000", "9101:9001"]
+    volumes: [minio_data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [offcon]
+
+  # Catches all outbound email locally — UI at http://localhost:8025
+  # One-shot: applies database/migrations/<schema> in dependency order.
+  # init.sql only CREATEs the empty schemas — the tables live here. Every
+  # app service waits for this to exit 0 (see x-svc-defaults.depends_on).
+  migrator:
+    image: migrate/migrate:v4.18.1
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ../database/migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        DSN="postgres://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}?sslmode=$${DB_SSLMODE}"
+        for s in public auth users content lab scoring ctf forum writeup payment bounty notification audit; do
+          [ -d "/migrations/$$s" ] || { echo "  skip $$s (no migrations)"; continue; }
+          echo "==> $$s"
+          migrate -path="/migrations/$$s" \
+                  -database "$${DSN}&x-migrations-table=schema_migrations_$$s" up
+        done
+        echo "==> migrations complete"
+    env_file: [.env]
+    restart: "no"
+    networks: [offcon]
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["8025:8025", "1025:1025"]
+    networks: [offcon]
+
+  # ==========================================================================
+  # Go core services
+  # ==========================================================================
+  auth:
+    <<: *svc-defaults
+    build: { context: ../services/auth }
+    environment:
+      HTTP_PORT: "8001"
+      GRPC_PORT: "9001"
+    ports: ["8001:8001", "9001:9001"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  orchestrator:
+    <<: *svc-defaults
+    build:
+      context: ../services/orchestrator
+      target: server
+    environment:
+      HTTP_PORT: "8002"
+      GRPC_PORT: "9002"
+      AUTH_GRPC_ENDPOINT: "auth:9001"
+      AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
+      # No k8s/proxmox locally — run with the mock provisioning backend.
+      ORCHESTRATOR_ALLOW_MOCK_BACKEND: "true"
+      # Real container spawning. DOCKER_PUBLIC_HOST is the address players
+      # connect to — the daemon cannot know it. Setting it switches the
+      # orchestrator off the mock backend.
+      DOCKER_HOST_ADDR: "unix:///var/run/docker.sock"
+      DOCKER_PUBLIC_HOST: "${DOCKER_PUBLIC_HOST:-127.0.0.1}"
+      DOCKER_NETWORK: "offcon"
+      DOCKER_ALLOW_EGRESS: "false"
+    ports: ["8002:8002", "9002:9002"]
+    volumes:
+      - "./secrets:/secrets:ro"
+      # Mounting the daemon socket gives this container control of the host's
+      # Docker. Acceptable for a single-host dev/event box; in production the
+      # lab host must be separate from the platform host and reached over TLS.
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+  scoring:
+    <<: *svc-defaults
+    build: { context: ../services/scoring, target: server }
+    environment:
+      HTTP_PORT: "8003"
+      GRPC_PORT: "9003"
+      AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
+    ports: ["8003:8003", "9003:9003"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  ctf-svc:
+    <<: *svc-defaults
+    build: { context: ../services/ctf-svc }
+    environment:
+      HTTP_PORT: "8004"
+      GRPC_PORT: "9004"
+    ports: ["8004:8004", "9004:9004"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  # ctf-svc ships a Celery beat schedule that drives the event state machine
+  # (published -> registration -> live -> ended) off the event timestamps, plus
+  # rank recomputation. Without these two the lifecycle never advances: publish
+  # leaves an event in "published" and POST /start rejects the transition,
+  # so no event could ever go live.
+  ctf-worker:
+    <<: *svc-defaults
+    build: { context: ../services/ctf-svc }
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  ctf-beat:
+    <<: *svc-defaults
+    build: { context: ../services/ctf-svc }
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  flag-verifier:
+    <<: *svc-defaults
+    build: { context: ../services/flag-verifier }
+    environment:
+      HTTP_PORT: "8005"
+      ORCHESTRATOR_GRPC_ADDR: "orchestrator:9002"
+      AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
+    ports: ["8005:8005"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  forum-svc:
+    <<: *svc-defaults
+    build: { context: ../services/forum-svc }
+    environment:
+      HTTP_PORT: "8006"
+      GRPC_PORT: "9006"
+    ports: ["8006:8006", "9006:9006"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  payment-svc:
+    <<: *svc-defaults
+    build: { context: ../services/payment-svc }
+    environment:
+      HTTP_PORT: "8007"
+      GRPC_PORT: "9007"
+    ports: ["8007:8007", "9007:9007"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  notification-svc:
+    <<: *svc-defaults
+    build: { context: ../services/notification-svc }
+    environment:
+      HTTP_PORT: "8008"
+      GRPC_PORT: "9008"
+    ports: ["8008:8008", "9008:9008"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  bounty-svc:
+    <<: *svc-defaults
+    build: { context: ../services/bounty-svc }
+    environment:
+      HTTP_PORT: "8009"
+      GRPC_PORT: "9009"
+    ports: ["8009:8009", "9009:9009"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  content-svc:
+    <<: *svc-defaults
+    build: { context: ../services/content-svc }
+    environment:
+      HTTP_PORT: "8010"
+      GRPC_PORT: "9010"
+    ports: ["8010:8010", "9010:9010"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  writeup-svc:
+    <<: *svc-defaults
+    build: { context: ../services/writeup-svc }
+    environment:
+      HTTP_PORT: "8011"
+      GRPC_PORT: "9011"
+    ports: ["8011:8011", "9011:9011"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  user-svc:
+    <<: *svc-defaults
+    build: { context: ../services/user-svc }
+    environment:
+      HTTP_PORT: "8012"
+      GRPC_PORT: "9012"
+      AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
+    ports: ["8012:8012", "9012:9012"]
+    volumes: ["./secrets:/secrets:ro"]
+
+  # ==========================================================================
+  # Edge — nginx fronts all services under one origin on :8080 (the gateway
+  # stand-in for local dev; production uses the Istio gateway from Phase 14).
+  # ==========================================================================
+  edge:
+    image: nginx:1.27-alpine
+    ports: ["8080:8080"]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [auth, orchestrator, scoring, ctf-svc, forum-svc, content-svc, user-svc]
+    networks: [offcon]
+
+  # ==========================================================================
+  # Frontend (Next.js)
+  # ==========================================================================
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # Use the Docker-internal service name so the Next.js server-side
+        # proxy reaches the edge container (localhost inside the container
+        # is the container's own loopback, not the host machine).
+        NEXT_PUBLIC_API_BASE_URL: http://edge:8080
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://edge:8080
+      PORT: "3000"
+    ports: ["3000:3000"]
+    depends_on: [edge]
+    restart: unless-stopped
+    networks: [offcon]
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  minio_data:
+
+networks:
+  offcon:
+    name: offcon

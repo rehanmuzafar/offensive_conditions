@@ -1,0 +1,302 @@
+# Payment service Kubernetes manifests
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: payment-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: payment-svc
+    app.kubernetes.io/part-of: offcon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-svc-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "payment-svc"
+  HTTP_PORT: "8007"
+  HTTP_HOST: "0.0.0.0"
+  HTTP_CORS_ORIGINS: "https://app.offensiveconditions.org,https://offensiveconditions.org"
+  GRPC_PORT: "9007"
+  DB_HOST: "pg-primary.data.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "payment_svc"
+  DB_SSL: "true"
+  DB_POOL_MAX: "10"
+  REDIS_HOST: "redis-primary.data.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "6"
+  REDIS_TLS: "true"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/auth/jwt.pub"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  STRIPE_API_VERSION: "2024-11-20.acacia"
+  STRIPE_RETURN_URL: "https://app.offensiveconditions.org/billing/return"
+  STRIPE_CANCEL_URL: "https://app.offensiveconditions.org/billing/cancel"
+  STRIPE_PORTAL_RETURN_URL: "https://app.offensiveconditions.org/settings/billing"
+  KAFKA_BROKERS: "kafka-0.kafka.data.svc.cluster.local:9093,kafka-1.kafka.data.svc.cluster.local:9093,kafka-2.kafka.data.svc.cluster.local:9093"
+  KAFKA_TOPIC_PAYMENT_EVENTS: "payment.events"
+  KAFKA_TOPIC_AUTH_EVENTS: "auth.events"
+  KAFKA_USE_TLS: "true"
+  WEBHOOK_DEDUP_TTL_DAYS: "7"
+  RISK_BLOCK_SCORE_THRESHOLD: "80"
+  DEFAULT_TRIAL_DAYS: "7"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-svc
+  namespace: offcon
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: payment-svc
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8007
+      targetPort: http
+    - name: grpc
+      port: 9007
+      targetPort: grpc
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-svc-server
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: payment-svc
+    app.kubernetes.io/component: server
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-svc
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-svc
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8007"
+    spec:
+      serviceAccountName: payment-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: payment-svc
+              app.kubernetes.io/component: server
+      containers:
+        - name: payment-svc
+          image: harbor.offensiveconditions.org/services/payment-svc:v0.1.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: payment-svc-config }
+            - secretRef: { name: payment-svc-secrets }
+          ports:
+            - { name: http, containerPort: 8007, protocol: TCP }
+            - { name: grpc, containerPort: 9007, protocol: TCP }
+          resources:
+            requests: { cpu: "300m", memory: "384Mi" }
+            limits: { cpu: "1500m", memory: "768Mi" }
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: auth-jwt
+              mountPath: /etc/auth
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: auth-jwt
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - key: jwt.pub
+                path: jwt.pub
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-svc-worker
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: payment-svc
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-svc
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-svc
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: payment-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: harbor.offensiveconditions.org/services/payment-svc:v0.1.0
+          command: ["node", "dist/worker.js"]
+          envFrom:
+            - configMapRef: { name: payment-svc-config }
+            - secretRef: { name: payment-svc-secrets }
+          resources:
+            requests: { cpu: "200m", memory: "384Mi" }
+            limits: { cpu: "1000m", memory: "768Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      terminationGracePeriodSeconds: 60
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-svc-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-svc-server
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 75 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-svc-server
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-svc
+      app.kubernetes.io/component: server
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-svc-worker
+  namespace: offcon
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-svc
+      app.kubernetes.io/component: worker
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: payment-svc
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: payment-svc
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { name: ingress-system } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: api-gateway } }
+      ports:
+        - { protocol: TCP, port: 8007 }
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/part-of: offcon } }
+      ports:
+        - { protocol: TCP, port: 9007 }
+    - from:
+        - namespaceSelector: { matchLabels: { name: observability } }
+          podSelector: { matchLabels: { app: prometheus } }
+      ports:
+        - { protocol: TCP, port: 8007 }
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: postgres } }
+      ports:
+        - { protocol: TCP, port: 5432 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: redis } }
+      ports:
+        - { protocol: TCP, port: 6379 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: kafka } }
+      ports:
+        - { protocol: TCP, port: 9093 }
+    # Egress to Stripe (api.stripe.com via proper egress proxy)
+    - to:
+        - namespaceSelector: { matchLabels: { name: egress } }
+      ports:
+        - { protocol: TCP, port: 443 }

@@ -1,0 +1,145 @@
+# =============================================================================
+# Security hardening at the edge
+# =============================================================================
+# - Inject security response headers on every response
+# - Strip client-supplied trust headers (x-user-id, x-jwt-payload) on ingress
+#   so clients can't spoof identity
+# - Enforce request size limits + header count limits
+# - Local-rate-limit fallback (per-connection) as a cheap DoS guard
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: security-headers
+  namespace: gateway-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inline_code: |
+              -- Strip any client-supplied identity/trust headers on the way IN.
+              -- Only the JWT validation filter is allowed to set these.
+              function envoy_on_request(handle)
+                handle:headers():remove("x-user-id")
+                handle:headers():remove("x-user-roles")
+                handle:headers():remove("x-user-tier")
+                handle:headers():remove("x-jwt-payload")
+                handle:headers():remove("x-internal-call")
+              end
+
+              -- Add security headers on the way OUT.
+              function envoy_on_response(handle)
+                local h = handle:headers()
+                h:replace("x-content-type-options", "nosniff")
+                h:replace("x-frame-options", "DENY")
+                h:replace("referrer-policy", "strict-origin-when-cross-origin")
+                h:replace("strict-transport-security", "max-age=63072000; includeSubDomains; preload")
+                h:replace("permissions-policy", "geolocation=(), microphone=(), camera=()")
+                h:replace("cross-origin-opener-policy", "same-origin")
+                -- Remove fingerprinting headers
+                h:remove("server")
+                h:remove("x-powered-by")
+                h:remove("x-envoy-upstream-service-time")
+              end
+
+---
+# Connection + request hardening on the HTTP connection manager
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: request-hardening
+  namespace: gateway-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: NETWORK_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: MERGE
+        value:
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+            common_http_protocol_options:
+              idle_timeout: 300s
+              max_connection_duration: 0s
+              max_headers_count: 100
+              max_stream_duration: 0s
+              headers_with_underscores_action: REJECT_REQUEST
+            http2_protocol_options:
+              max_concurrent_streams: 100
+              initial_stream_window_size: 65536
+              initial_connection_window_size: 1048576
+            stream_idle_timeout: 300s
+            request_timeout: 0s          # set per-route via VirtualService instead
+            request_headers_timeout: 10s
+            max_request_headers_kb: 64
+            normalize_path: true
+            merge_slashes: true
+            path_with_escaped_slashes_action: REJECT_REQUEST
+
+---
+# Per-connection local rate limit as a cheap first-line DoS guard. This kicks
+# in BEFORE the global RLS, protecting against connection floods.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: local-rate-limit
+  namespace: gateway-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            stat_prefix: edge_local_rl
+            token_bucket:
+              max_tokens: 2000
+              tokens_per_fill: 2000
+              fill_interval: 1s
+            filter_enabled:
+              runtime_key: local_rl_enabled
+              default_value: { numerator: 100, denominator: HUNDRED }
+            filter_enforced:
+              runtime_key: local_rl_enforced
+              default_value: { numerator: 100, denominator: HUNDRED }
+            response_headers_to_add:
+              - append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                header: { key: x-local-rate-limited, value: "true" }

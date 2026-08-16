@@ -1,0 +1,91 @@
+# =============================================================================
+# cert-manager — automated TLS for api.offensiveconditions.org + the SPA hosts
+# =============================================================================
+# Uses Let's Encrypt with the DNS-01 challenge (Route53) so we can issue
+# wildcard certs and certs for hosts not yet publicly routable.
+# =============================================================================
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: platform@offensiveconditions.org
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: us-east-1
+            # IRSA — the cert-manager SA assumes an IAM role with Route53 access
+        selector:
+          dnsZones:
+            - offensiveconditions.org
+
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: platform@offensiveconditions.org
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: us-east-1
+        selector:
+          dnsZones:
+            - offensiveconditions.org
+
+---
+# Certificate for the API gateway. cert-manager writes the cert into the
+# `offcon-api-tls` secret in istio-system (where the IngressGateway reads it).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: offcon-api-tls
+  namespace: istio-system
+spec:
+  secretName: offcon-api-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: api.offensiveconditions.org
+  dnsNames:
+    - api.offensiveconditions.org
+  duration: 2160h       # 90 days
+  renewBefore: 360h     # renew 15 days before expiry
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+
+---
+# Certificate for the SPA + apex
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: offcon-spa-tls
+  namespace: istio-system
+spec:
+  secretName: offcon-spa-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: offensiveconditions.org
+  dnsNames:
+    - offensiveconditions.org
+    - www.offensiveconditions.org
+    - app.offensiveconditions.org
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

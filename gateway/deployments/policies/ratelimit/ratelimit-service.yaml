@@ -1,0 +1,170 @@
+# =============================================================================
+# Rate Limit Service (Envoy RLS, the Lyft reference implementation)
+# =============================================================================
+# A Redis-backed gRPC service the ingressgateway calls to make rate-limit
+# decisions. The descriptors + limits are defined in the ConfigMap below.
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ratelimit
+  namespace: gateway-system
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ratelimit-config
+  namespace: gateway-system
+data:
+  config.yaml: |
+    domain: offcon-edge
+    descriptors:
+      # ---- per-IP login protection ----
+      - key: PATH
+        value: "/v1/auth/login"
+        descriptors:
+          - key: REMOTE_IP
+            rate_limit:
+              unit: minute
+              requests_per_unit: 10
+      - key: PATH
+        value: "/v1/auth/register"
+        descriptors:
+          - key: REMOTE_IP
+            rate_limit:
+              unit: hour
+              requests_per_unit: 5
+      - key: PATH
+        value: "/v1/auth/password-reset"
+        descriptors:
+          - key: REMOTE_IP
+            rate_limit:
+              unit: hour
+              requests_per_unit: 3
+
+      # ---- per-user general API ----
+      - key: USER_ID
+        rate_limit:
+          unit: minute
+          requests_per_unit: 600        # global ceiling per user across all routes
+
+      # ---- per-user instance spawns (expensive) ----
+      - key: PATH
+        value: "/v1/instances"
+        descriptors:
+          - key: USER_ID
+            rate_limit:
+              unit: minute
+              requests_per_unit: 10
+
+      # ---- per-user flag submits (anti-bruteforce) ----
+      - key: PATH
+        value: "/v1/flag/submit"
+        descriptors:
+          - key: USER_ID
+            rate_limit:
+              unit: minute
+              requests_per_unit: 20
+
+      # ---- per-IP public reads ----
+      - key: REMOTE_IP
+        rate_limit:
+          unit: minute
+          requests_per_unit: 300        # global per-IP ceiling for anonymous
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratelimit
+  namespace: gateway-system
+  labels:
+    app: ratelimit
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ratelimit
+  template:
+    metadata:
+      labels:
+        app: ratelimit
+      annotations:
+        # The RLS itself doesn't need a sidecar — it's infra. But we keep it in
+        # the mesh for mTLS to the gateway.
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: ratelimit
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: ratelimit
+          image: envoyproxy/ratelimit:master
+          command: ["/bin/ratelimit"]
+          env:
+            - { name: USE_STATSD, value: "false" }
+            - { name: LOG_LEVEL, value: "warn" }
+            - { name: REDIS_SOCKET_TYPE, value: "tcp" }
+            - { name: REDIS_URL, value: "redis-ratelimit.data.svc.cluster.local:6379" }
+            - { name: REDIS_TLS, value: "true" }
+            - { name: RUNTIME_ROOT, value: "/data" }
+            - { name: RUNTIME_SUBDIRECTORY, value: "ratelimit" }
+            - { name: RUNTIME_WATCH_ROOT, value: "false" }
+            - { name: RUNTIME_IGNOREDOTFILES, value: "true" }
+          ports:
+            - { name: grpc, containerPort: 8081 }
+            - { name: http-debug, containerPort: 6070 }
+          volumeMounts:
+            - name: config
+              mountPath: /data/ratelimit/config
+              readOnly: true
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          livenessProbe:
+            httpGet: { path: /healthcheck, port: 6070 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /healthcheck, port: 6070 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: config
+          configMap:
+            name: ratelimit-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratelimit
+  namespace: gateway-system
+  labels:
+    app: ratelimit
+spec:
+  selector:
+    app: ratelimit
+  ports:
+    - { name: grpc, port: 8081, targetPort: 8081 }
+    - { name: http-debug, port: 6070, targetPort: 6070 }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ratelimit
+  namespace: gateway-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ratelimit

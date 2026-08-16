@@ -1,0 +1,49 @@
+# =============================================================================
+# PeerAuthentication — enforce STRICT mTLS for all east-west traffic
+# =============================================================================
+# Every pod-to-pod call inside the mesh must use mutual TLS. Istio issues +
+# rotates the certs automatically. The data namespace (postgres/redis/kafka)
+# is excluded because those aren't mesh-injected; they're reached via
+# ServiceEntry + DestinationRule with their own TLS.
+# =============================================================================
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: mesh-default-mtls
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# offcon workloads — explicit STRICT (defense in depth)
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: offcon-mtls
+  namespace: offcon
+spec:
+  mtls:
+    mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: gateway-system-mtls
+  namespace: gateway-system
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# The ingressgateway receives PLAINTEXT/TLS from the internet (terminated by
+# the Gateway resource), then speaks mTLS to upstreams. No special override
+# needed — the sidecar handles the upgrade. But health probes from kubelet
+# arrive plaintext on 15021, which Istio permits by default.
+
+# Exception: the payment webhook path. Stripe calls us over public TLS; the
+# ingressgateway terminates it. Internally it's mTLS like everything else.
+# No PERMISSIVE exception required because the external hop terminates at the
+# gateway, not at the pod.

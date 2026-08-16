@@ -1,0 +1,200 @@
+# ============================================================================
+#  Infrastructure + business alerting rules
+# ============================================================================
+groups:
+  # --------------------------------------------------------------------------
+  # Data stores
+  # --------------------------------------------------------------------------
+  - name: offcon-datastores
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "The postgres-exporter cannot reach the database."
+
+      - alert: PostgresTooManyConnections
+        expr: |
+          sum by (instance) (pg_stat_activity_count)
+          /
+          on(instance) pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL connection pool nearly exhausted"
+          description: "Using {{ $value | humanizePercentage }} of max connections."
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replication lag high"
+          description: "Replica is {{ $value | humanizeDuration }} behind primary."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redis is down"
+          description: "The redis-exporter cannot reach Redis — sessions, rate-limits, and caches affected."
+
+      - alert: RedisHighMemory
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis is using {{ $value | humanizePercentage }} of maxmemory — evictions imminent."
+
+      - alert: NatsSlowConsumers
+        expr: nats_consumer_num_pending > 10000
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "NATS consumer backlog growing"
+          description: "{{ $labels.consumer }} has {{ $value }} pending messages."
+
+  # --------------------------------------------------------------------------
+  # Gateway / mesh
+  # --------------------------------------------------------------------------
+  - name: offcon-gateway
+    rules:
+      - alert: GatewayHigh5xx
+        expr: |
+          sum(rate(istio_requests_total{response_code=~"5.."}[5m]))
+          /
+          sum(rate(istio_requests_total[5m])) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Gateway returning elevated 5xx"
+          description: "Mesh-wide 5xx ratio is {{ $value | humanizePercentage }} (threshold 2%)."
+
+      - alert: RateLimitSaturation
+        expr: sum(rate(envoy_http_local_rate_limit_rate_limited[5m])) > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High rate-limit rejections at the edge"
+          description: "{{ $value }} req/s are being rate-limited — possible abuse or a misconfigured client."
+
+      - alert: CircuitBreakerOpen
+        expr: envoy_cluster_outlier_detection_ejections_active > 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Circuit breaker open for {{ $labels.cluster_name }}"
+          description: "Outlier detection has ejected hosts from {{ $labels.cluster_name }}."
+
+      - alert: MtlsCertExpiringSoon
+        expr: |
+          (istio_cert_expiry_seconds - time()) / 86400 < 7
+        for: 30m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "mTLS certificate expiring soon"
+          description: "A workload certificate expires in less than 7 days."
+
+  # --------------------------------------------------------------------------
+  # Business / product KPIs — alert when product behaviour looks wrong
+  # --------------------------------------------------------------------------
+  - name: offcon-business
+    rules:
+      - alert: InstanceSpawnFailureSpike
+        expr: |
+          (
+            sum(rate(offcon_instance_spawn_total{result="error"}[10m]))
+            /
+            sum(rate(offcon_instance_spawn_total[10m]))
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Lab spawn failures spiking"
+          description: "{{ $value | humanizePercentage }} of machine spawns are failing — orchestrator or node capacity issue."
+
+      - alert: FlagVerificationErrors
+        expr: rate(offcon_flag_verify_errors_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Flag verification erroring"
+          description: "flag-verifier is throwing errors — users may be unable to submit flags."
+
+      - alert: PaymentFailureSpike
+        expr: |
+          (
+            sum(rate(offcon_payment_attempts_total{result="failed"}[15m]))
+            /
+            sum(rate(offcon_payment_attempts_total[15m]))
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: critical
+          team: billing
+        annotations:
+          summary: "Payment failure rate high"
+          description: "{{ $value | humanizePercentage }} of payment attempts are failing — check the payment provider."
+
+      - alert: NotificationDeliveryBacklog
+        expr: offcon_notification_queue_depth > 50000
+        for: 15m
+        labels:
+          severity: warning
+          team: billing
+        annotations:
+          summary: "Notification delivery backlog"
+          description: "{{ $value }} notifications are queued — delivery workers may be stuck."
+
+      - alert: NoNewSignups
+        expr: |
+          sum(increase(offcon_signups_total[1h])) == 0
+          and on() hour() > 6 < 23
+        for: 2h
+        labels:
+          severity: warning
+          team: growth
+        annotations:
+          summary: "No new signups in the last hour"
+          description: "Zero signups during daytime hours — registration flow may be broken."
+
+      - alert: CtfScoringStalled
+        expr: |
+          rate(offcon_ctf_solves_total[10m]) == 0
+          and on(event_id) offcon_ctf_event_active == 1
+        for: 15m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "CTF scoring appears stalled"
+          description: "An active CTF event has recorded no solves in 15 minutes — scoring pipeline issue."

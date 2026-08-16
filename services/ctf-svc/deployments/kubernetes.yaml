@@ -1,0 +1,582 @@
+# =============================================================================
+# CTF Service — Kubernetes manifests
+# Namespace: offcon
+# Four deployments: server (HTTP+gRPC+WebSocket), worker, beat, kafka-consumer
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ctf-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: ctf-svc
+    app.kubernetes.io/part-of: offcon
+automountServiceAccountToken: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ctf-svc-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "ctf-svc"
+  HTTP_PORT: "8004"
+  HTTP_HOST: "0.0.0.0"
+  HTTP_WORKERS: "2"
+  HTTP_CORS_ORIGINS: '["https://app.offensiveconditions.org","https://offensiveconditions.org"]'
+  GRPC_PORT: "9004"
+  GRPC_ENABLE_REFLECTION: "false"
+  DB_HOST: "pg-primary.data.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "ctf_svc"
+  DB_SSLMODE: "require"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+  REDIS_HOST: "redis-primary.data.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "3"
+  REDIS_TLS: "true"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/auth/jwt.pub"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  KAFKA_BROKERS: '["kafka-0.kafka.data.svc.cluster.local:9093","kafka-1.kafka.data.svc.cluster.local:9093","kafka-2.kafka.data.svc.cluster.local:9093"]'
+  KAFKA_TOPIC_CTF_EVENTS: "ctf.events"
+  KAFKA_TOPIC_FLAGVERIFY_EVENTS: "flagverify.events"
+  KAFKA_USE_TLS: "true"
+  KAFKA_ACKS: "all"
+  FLAG_VERIFIER_ADDR: "flag-verifier.offcon.svc.cluster.local:9002"
+  USER_SVC_ADDR: "user-svc.offcon.svc.cluster.local:9001"
+  DYNAMIC_SCORING_DECAY_FACTOR: "0.012"
+  DYNAMIC_SCORING_DECAY_POWER: "4"
+  FIRST_BLOOD_BONUS_PERCENTAGES: "[0.05, 0.03, 0.01]"
+  DEFAULT_FREEZE_MINUTES_BEFORE_END: "60"
+  WS_MAX_CONNECTIONS_PER_EVENT: "5000"
+  WS_HEARTBEAT_SECONDS: "30"
+  WS_IDLE_TIMEOUT_SECONDS: "300"
+  LIMIT_SUBMIT_PER_MINUTE: "30"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ctf-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: ctf-svc
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ctf-svc
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8004
+      targetPort: http
+    - name: grpc
+      port: 9004
+      targetPort: grpc
+
+---
+# =============================================================================
+# Server Deployment — HTTP API + gRPC + WebSocket
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ctf-svc-server
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: ctf-svc
+    app.kubernetes.io/component: server
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ctf-svc
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ctf-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ctf-svc
+              app.kubernetes.io/component: server
+      containers:
+        - name: ctf-svc
+          image: harbor.offensiveconditions.org/services/ctf-svc:v0.1.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ctf-svc-config
+            - secretRef:
+                name: ctf-svc-secrets
+          ports:
+            - name: http
+              containerPort: 8004
+              protocol: TCP
+            - name: grpc
+              containerPort: 9004
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "400m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1.5Gi"
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          volumeMounts:
+            - name: auth-jwt
+              mountPath: /etc/auth
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: auth-jwt
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - key: jwt.pub
+                path: jwt.pub
+      terminationGracePeriodSeconds: 30
+
+---
+# =============================================================================
+# Celery Worker
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ctf-svc-worker
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: ctf-svc
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ctf-svc
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: ctf-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: harbor.offensiveconditions.org/services/ctf-svc:v0.1.0
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - worker
+            - --loglevel=info
+            - --concurrency=4
+            - --max-tasks-per-child=1000
+          envFrom:
+            - configMapRef:
+                name: ctf-svc-config
+            - secretRef:
+                name: ctf-svc-secrets
+          resources:
+            requests:
+              cpu: "300m"
+              memory: "512Mi"
+            limits:
+              cpu: "1500m"
+              memory: "1Gi"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 60
+
+---
+# =============================================================================
+# Celery Beat
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ctf-svc-beat
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: ctf-svc
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+      app.kubernetes.io/component: beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ctf-svc
+        app.kubernetes.io/component: beat
+    spec:
+      serviceAccountName: ctf-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: beat
+          image: harbor.offensiveconditions.org/services/ctf-svc:v0.1.0
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - beat
+            - --loglevel=info
+            - --schedule=/tmp/celerybeat-schedule
+          envFrom:
+            - configMapRef:
+                name: ctf-svc-config
+            - secretRef:
+                name: ctf-svc-secrets
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: beat-schedule
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: beat-schedule
+          emptyDir: {}
+
+---
+# =============================================================================
+# Kafka consumer — listens for flag-verifier accepts/rejects for audit
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ctf-svc-kafka-consumer
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: ctf-svc
+    app.kubernetes.io/component: kafka-consumer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+      app.kubernetes.io/component: kafka-consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ctf-svc
+        app.kubernetes.io/component: kafka-consumer
+    spec:
+      serviceAccountName: ctf-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kafka-consumer
+          image: harbor.offensiveconditions.org/services/ctf-svc:v0.1.0
+          command: ["python", "-m", "app.workers.kafka_consumer"]
+          envFrom:
+            - configMapRef:
+                name: ctf-svc-config
+            - secretRef:
+                name: ctf-svc-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+---
+# =============================================================================
+# HPA — server
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ctf-svc-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ctf-svc-server
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # be cautious - WebSocket connections
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+      selectPolicy: Max
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ctf-svc-worker
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ctf-svc-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+
+---
+# =============================================================================
+# PDB
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ctf-svc-server
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+      app.kubernetes.io/component: server
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ctf-svc-worker
+  namespace: offcon
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+      app.kubernetes.io/component: worker
+
+---
+# =============================================================================
+# NetworkPolicy
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ctf-svc
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-system
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8004
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: offcon
+      ports:
+        - protocol: TCP
+          port: 9004
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: observability
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8004
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka
+      ports:
+        - protocol: TCP
+          port: 9093
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: flag-verifier
+      ports:
+        - protocol: TCP
+          port: 9002
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: user-svc
+      ports:
+        - protocol: TCP
+          port: 9001

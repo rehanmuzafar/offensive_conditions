@@ -1,0 +1,17 @@
+apiVersion: v2
+name: offcon-service
+description: >-
+  Reusable chart for an OFFCON microservice. Renders a Deployment, Service,
+  HPA, PodDisruptionBudget, ServiceAccount, and (optionally) an Istio
+  VirtualService + DestinationRule. Every OFFCON service is deployed by setting
+  values against this single chart, so there is one source of truth for how a
+  service runs in the cluster.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: OFFCON Platform Team
+    email: platform@offensiveconditions.org
+keywords:
+  - microservice
+  - offcon

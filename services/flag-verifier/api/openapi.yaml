@@ -1,0 +1,192 @@
+openapi: 3.1.0
+info:
+  title: Offensive Conditions Flag Verifier API
+  description: |
+    The Flag Verifier validates HMAC-signed flags submitted by users, rate-limits
+    brute-force attempts, persists every submission for audit, and emits Kafka
+    events for the scoring service.
+  version: 0.1.0
+  contact:
+    name: Offensive Conditions Engineering
+    email: engineering@offensiveconditions.org
+servers:
+  - url: https://api.offensiveconditions.org/flags
+    description: Production
+  - url: http://localhost:8005
+    description: Local
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+  /readyz:
+    get:
+      summary: Readiness (db + redis)
+      security: []
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: Dependency down
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: text/plain
+  /v1/flags/submit:
+    post:
+      summary: Submit a flag for verification
+      tags: [flags]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitRequest' }
+      responses:
+        "200":
+          description: Submission processed (accepted or rejected; check body)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmitResponse' }
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          description: Instance not owned by caller
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "404":
+          description: Instance or content not found
+        "429":
+          description: Rate limited (see Retry-After header)
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds to wait before retrying
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "503":
+          description: HMAC secret unavailable
+  /v1/flags/history:
+    get:
+      summary: List caller's submission history
+      tags: [flags]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  submissions:
+                    type: array
+                    items: { $ref: '#/components/schemas/HistoryItem' }
+                  limit:  { type: integer }
+                  offset: { type: integer }
+  /v1/flags/stats/{content_id}:
+    get:
+      summary: Aggregate stats for a content item
+      tags: [flags]
+      parameters:
+        - in: path
+          name: content_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+components:
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+    Offset:
+      in: query
+      name: offset
+      schema: { type: integer, default: 0, minimum: 0 }
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    BadRequest:
+      description: Malformed request body or flag
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:    { type: string, example: WRONG_FLAG }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+            retry_after_seconds: { type: integer }
+    SubmitRequest:
+      type: object
+      required: [flag, content_type, content_id]
+      properties:
+        flag:
+          type: string
+          minLength: 10
+          maxLength: 256
+          example: "OFFCON{lame_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}"
+        content_type:
+          type: string
+          enum: [machine, challenge, ctf_challenge, dojo_level, prolab_flag]
+        content_id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          format: uuid
+          description: Required for instance-based content (machines, prolabs)
+    SubmitResponse:
+      type: object
+      properties:
+        accepted:          { type: boolean }
+        submission_id:     { type: string, format: uuid }
+        flag_type:         { type: string, example: root }
+        is_first_blood:    { type: boolean }
+        blood_rank:        { type: integer, minimum: 0, maximum: 3 }
+        rejection_reason:  { type: string }
+        seconds_to_solve:  { type: integer }
+        message:           { type: string }
+        from_cache:        { type: boolean }
+        submitted_at:      { type: string, format: date-time }
+    HistoryItem:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        content_type:     { type: string }
+        content_id:       { type: string, format: uuid }
+        flag_type:        { type: string }
+        accepted:         { type: boolean }
+        rejection_reason: { type: string }
+        is_first_blood:   { type: boolean }
+        blood_rank:       { type: integer }
+        submitted_at:     { type: string, format: date-time }

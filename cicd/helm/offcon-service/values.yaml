@@ -1,0 +1,135 @@
+# ============================================================================
+#  Default values for the reusable offcon-service chart. Per-service value
+#  files (helm/values/<service>.yaml) override these.
+# ============================================================================
+
+# Service identity — REQUIRED per service
+name: ""           # e.g. auth-svc
+tier: core         # core | content | community | billing
+language: go       # go | python | node — used only for labels
+
+image:
+  repository: ghcr.io/offcon/auth-svc
+  tag: ""          # set by CI to the git SHA; falls back to .Chart.appVersion
+  pullPolicy: IfNotPresent
+
+# Replica + autoscaling
+replicaCount: 2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Rollout strategy
+strategy:
+  type: RollingUpdate
+  maxSurge: 1
+  maxUnavailable: 0
+
+# Container ports
+ports:
+  http: 8000       # HTTP / health / metrics
+  grpc: 0          # 0 = no gRPC port
+  metrics: 0       # 0 = metrics served on the http port at /metrics
+
+# Health probes (paths served by the observability lib)
+probes:
+  readiness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 20
+    periodSeconds: 15
+  startup:
+    path: /healthz
+    failureThreshold: 30
+    periodSeconds: 5
+
+# Resource requests/limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# Environment — plain values + secret/configmap refs
+env: {}            # { KEY: value }
+envFrom: []        # [ { secretRef: { name: x } }, { configMapRef: { name: y } } ]
+
+# Prometheus scraping
+metrics:
+  enabled: true
+  path: /metrics
+
+# Istio
+istio:
+  enabled: true
+  # The VirtualService/DestinationRule for this service live in the gateway
+  # repo (Phase 14); here we only toggle sidecar injection + a DestinationRule
+  # for connection pooling.
+  destinationRule:
+    enabled: true
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 10
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+
+# PodDisruptionBudget
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# Pod scheduling
+nodeSelector: {}
+tolerations: []
+affinity:
+  # Spread replicas across nodes by default
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+
+# Security context — non-root, read-only root fs by default
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Extra volumes (e.g. tmp for read-only-rootfs services)
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Common OTLP/observability env injected into every service
+observability:
+  enabled: true
+  otlpEndpoint: "otel-collector.observability:4317"
+  deployEnv: production

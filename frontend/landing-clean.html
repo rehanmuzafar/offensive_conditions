@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OFFCON — Offensive Conditions · Modern Clean</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.2.3/css/flag-icons.min.css">
+<style>
+  :root{
+    --purple:#7C3AED; --purple-d:#6D28D9; --purple-l:#EDE9FE;
+    --blue:#2563EB; --blue-d:#1D4ED8; --blue-l:#DBEAFE;
+    --grad:linear-gradient(120deg,#7C3AED,#2563EB);
+    --ink:#16131F; --ink-2:#433D55; --ink-3:#7A7390;
+    --bg:#FBFAFF; --surface:#FFFFFF; --tint:#F4F1FE;
+    --line:#EAE6F5; --line-2:#DED8EE;
+    --shadow:0 4px 24px -8px rgba(76,29,149,.16); --shadow-lg:0 24px 60px -20px rgba(76,29,149,.28);
+    --radius:18px;
+    --disp:'Outfit',sans-serif; --body:'Plus Jakarta Sans',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:var(--body);background:var(--bg);color:var(--ink);line-height:1.65;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+  .atmos{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .blob{position:absolute;border-radius:50%;filter:blur(80px)}
+  .blob.a{width:480px;height:480px;background:radial-gradient(circle,rgba(124,58,237,.22),transparent 65%);top:-160px;right:-80px}
+  .blob.b{width:420px;height:420px;background:radial-gradient(circle,rgba(37,99,235,.18),transparent 65%);top:60px;left:-140px}
+  .blob.c{width:520px;height:520px;background:radial-gradient(circle,rgba(124,58,237,.1),transparent 70%);top:900px;right:10%}
+  .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 24px}
+
+  /* logo */
+  .logo{display:flex;align-items:center;gap:11px;text-decoration:none}
+  .shield{width:34px;height:auto;flex-shrink:0;filter:drop-shadow(0 6px 14px rgba(109,40,217,.25))}
+  .wordmark{display:flex;flex-direction:column;line-height:1}
+  .wordmark .name{font-family:var(--disp);font-weight:800;font-size:23px;letter-spacing:.3px}
+  .wordmark .off{background:linear-gradient(120deg,#8B5CF6,#6D28D9);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .wordmark .con{background:linear-gradient(120deg,#3B82F6,#1D4ED8);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .wordmark .sub{font-size:8.5px;letter-spacing:4px;color:var(--ink-3);font-weight:700;margin-top:3px}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:50;background:rgba(251,250,255,.8);backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:74px;max-width:1180px;margin:0 auto;padding:0 24px}
+  .nav-links{display:flex;gap:32px;align-items:center}
+  .nav-links a{color:var(--ink-2);text-decoration:none;font-size:15px;font-weight:600;transition:color .2s}
+  .nav-links a:hover{color:var(--purple)}
+  .nav-cta{display:flex;gap:12px;align-items:center}
+  .btn{font-family:var(--body);font-weight:700;font-size:15px;border:none;border-radius:12px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:transform .2s,box-shadow .2s,background .2s}
+  .btn-ghost{background:transparent;color:var(--ink);padding:10px 18px;border:1.5px solid var(--line-2)}
+  .btn-ghost:hover{border-color:var(--purple);color:var(--purple)}
+  .btn-grad{background:var(--grad);color:#fff;padding:11px 22px;box-shadow:0 10px 24px -8px rgba(109,40,217,.5)}
+  .btn-grad:hover{transform:translateY(-2px);box-shadow:0 16px 32px -8px rgba(109,40,217,.6)}
+  .btn-lg{padding:16px 30px;font-size:16.5px;border-radius:14px}
+  .menu-btn{display:none;background:none;border:1.5px solid var(--line-2);border-radius:10px;padding:8px;cursor:pointer}
+  .menu-btn svg{width:22px;height:22px;stroke:var(--ink)}
+
+  /* hero */
+  .hero{padding:80px 0 60px;display:grid;grid-template-columns:1.02fr .98fr;gap:50px;align-items:center}
+  .badge{display:inline-flex;align-items:center;gap:9px;background:var(--surface);border:1.5px solid var(--line-2);color:var(--purple-d);padding:8px 16px;border-radius:30px;font-size:13.5px;font-weight:700;margin-bottom:26px;box-shadow:var(--shadow)}
+  .badge .dot{width:8px;height:8px;border-radius:50%;background:#22C55E;box-shadow:0 0 0 4px rgba(34,197,94,.18)}
+  h1{font-family:var(--disp);font-weight:800;font-size:clamp(40px,5.6vw,64px);line-height:1.03;letter-spacing:-1.8px;margin-bottom:22px;color:var(--ink)}
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.lead{font-size:19px;color:var(--ink-2);max-width:530px;margin-bottom:34px}
+  .hero-cta{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:30px}
+  .checks{display:flex;gap:22px;flex-wrap:wrap;color:var(--ink-2);font-size:14.5px;font-weight:500}
+  .checks span{display:inline-flex;align-items:center;gap:8px}
+  .checks svg{width:18px;height:18px;color:#22C55E}
+
+  /* hero card */
+  .hero-card{background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-lg);overflow:hidden;animation:rise .8s cubic-bezier(.2,.7,.3,1) both}
+  @keyframes rise{from{opacity:0;transform:translateY(24px)}}
+  .hc-top{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .hc-top .t{font-family:var(--disp);font-weight:700;font-size:15px}
+  .hc-top .live{font-size:12px;font-weight:700;color:#16A34A;background:#DCFCE7;padding:4px 10px;border-radius:20px}
+  .hc-body{padding:20px}
+  .progress-card{background:var(--tint);border-radius:14px;padding:16px;margin-bottom:14px}
+  .pc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .pc-head .nm{font-family:var(--disp);font-weight:700;font-size:15px}
+  .pc-head .pct{font-weight:700;color:var(--purple)}
+  .track{height:10px;background:#E4DEF5;border-radius:10px;overflow:hidden}
+  .track i{display:block;height:100%;background:var(--grad);border-radius:10px;animation:fill 2s ease both}
+  @keyframes fill{from{width:0}}
+  .mini-row{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
+  .mini-row:last-child{margin-bottom:0}
+  .mini-ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;flex-shrink:0}
+  .mini-ic.p{background:var(--purple-l)}.mini-ic.b{background:var(--blue-l)}
+  .mini-ic svg{width:21px;height:21px;fill:none;stroke-width:2}
+  .mini-ic.p svg{stroke:var(--purple-d)}.mini-ic.b svg{stroke:var(--blue-d)}
+  .mini-row .info{flex:1}
+  .mini-row .info .a{font-family:var(--disp);font-weight:600;font-size:14.5px}
+  .mini-row .info .b{font-size:12.5px;color:var(--ink-3)}
+  .mini-row .pts{font-family:var(--disp);font-weight:700;color:var(--purple);font-size:14px}
+
+  /* stats */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:10px 0 64px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px 18px;text-align:center;box-shadow:var(--shadow);transition:transform .25s}
+  .stat:hover{transform:translateY(-4px)}
+  .stat .n{font-family:var(--disp);font-weight:800;font-size:38px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1}
+  .stat .l{color:var(--ink-2);font-size:14.5px;margin-top:9px;font-weight:600}
+
+  /* sections */
+  .sec{padding:60px 0}
+  .sec-head{text-align:center;max-width:660px;margin:0 auto 50px}
+  .eyebrow{display:inline-block;color:var(--purple-d);font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;background:var(--purple-l);padding:6px 14px;border-radius:20px;margin-bottom:18px}
+  .sec-head h2{font-family:var(--disp);font-weight:800;font-size:clamp(30px,3.8vw,44px);letter-spacing:-1.2px;line-height:1.1;color:var(--ink)}
+  .sec-head p{color:var(--ink-2);font-size:17.5px;margin-top:16px}
+
+  /* features */
+  .feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  .feat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:30px 26px;box-shadow:var(--shadow);transition:transform .28s,box-shadow .28s}
+  .feat:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
+  .ic{width:56px;height:56px;border-radius:15px;display:grid;place-items:center;margin-bottom:20px}
+  .ic svg{width:28px;height:28px;fill:none;stroke-width:1.9}
+  .ic.c1{background:var(--purple-l)}.ic.c1 svg{stroke:var(--purple-d)}
+  .ic.c2{background:var(--blue-l)}.ic.c2 svg{stroke:var(--blue-d)}
+  .ic.c3{background:#E0E7FF}.ic.c3 svg{stroke:#4338CA}
+  .ic.c4{background:#FCE7F3}.ic.c4 svg{stroke:#BE185D}
+  .ic.c5{background:#D1FAE5}.ic.c5 svg{stroke:#047857}
+  .ic.c6{background:#FEF3C7}.ic.c6 svg{stroke:#B45309}
+  .feat h3{font-family:var(--disp);font-weight:700;font-size:20px;margin-bottom:10px}
+  .feat p{color:var(--ink-2);font-size:15px}
+  .feat .more{display:inline-flex;align-items:center;gap:6px;color:var(--purple-d);font-size:14.5px;font-weight:700;margin-top:16px}
+  .feat .more svg{width:16px;height:16px;transition:transform .2s}
+  .feat:hover .more svg{transform:translateX(4px)}
+
+  /* hall of fame */
+  .hof{background:var(--surface);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow-lg);overflow:hidden}
+  .hof-top{display:flex;align-items:center;justify-content:space-between;padding:24px 28px;background:var(--grad)}
+  .hof-top h3{font-family:var(--disp);font-weight:800;font-size:20px;color:#fff;display:flex;align-items:center;gap:10px}
+  .hof-top .tag{font-size:13px;font-weight:700;color:#fff;background:rgba(255,255,255,.2);padding:6px 14px;border-radius:20px}
+  .hof-table{width:100%;border-collapse:collapse}
+  .hof-table th{text-align:left;padding:16px 28px;color:var(--ink-3);font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--line)}
+  .hof-table th.r{text-align:right}
+  .hof-table td{padding:15px 28px;border-bottom:1px solid var(--line);font-size:15px}
+  .hof-table tr:last-child td{border-bottom:none}
+  .hof-table tbody tr{transition:background .18s}
+  .hof-table tbody tr:hover{background:var(--tint)}
+  .rank{font-family:var(--disp);font-weight:800;font-size:17px;color:var(--ink-3);width:54px}
+  tr.top .rank{font-size:20px}
+  .medal{font-size:18px;margin-right:5px}
+  .hacker{display:flex;align-items:center;gap:13px}
+  .av{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-family:var(--disp);font-weight:700;font-size:14px;color:#fff;flex-shrink:0;background:var(--grad)}
+  .av.b{background:linear-gradient(120deg,#3B82F6,#1D4ED8)}.av.c{background:linear-gradient(120deg,#A78BFA,#7C3AED)}
+  .handle{font-family:var(--disp);font-weight:700}
+  .tier{font-size:12.5px;color:var(--ink-3)}
+  .ctry{display:flex;align-items:center;gap:10px;color:var(--ink-2);font-size:14.5px;font-weight:500}
+  .ctry .fi{width:24px;height:17px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  .pts{text-align:right;font-family:var(--disp);font-weight:800;font-size:16px;color:var(--ink)}
+  tr.top .pts{color:var(--purple-d)}
+
+  /* cta */
+  .cta-band{margin-top:30px;border-radius:28px;background:var(--grad);padding:64px 40px;text-align:center;position:relative;overflow:hidden;box-shadow:var(--shadow-lg)}
+  .cta-band::after{content:"";position:absolute;width:300px;height:300px;border-radius:50%;background:rgba(255,255,255,.12);top:-120px;right:-60px}
+  .cta-band::before{content:"";position:absolute;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.1);bottom:-100px;left:40px}
+  .cta-band>*{position:relative;z-index:1}
+  .cta-band h2{font-family:var(--disp);font-weight:800;font-size:clamp(30px,4vw,46px);color:#fff;letter-spacing:-1px;margin-bottom:16px}
+  .cta-band p{color:rgba(255,255,255,.9);font-size:18.5px;max-width:520px;margin:0 auto 30px}
+  .btn-white{background:#fff;color:var(--purple-d);padding:16px 34px;font-size:16.5px;border-radius:14px}
+  .btn-white:hover{transform:translateY(-2px);box-shadow:0 16px 34px -8px rgba(0,0,0,.3)}
+
+  /* footer */
+  footer{margin-top:80px;padding:56px 0 36px;border-top:1px solid var(--line)}
+  .foot-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:40px;margin-bottom:44px}
+  .foot-about p{color:var(--ink-2);font-size:14.5px;max-width:280px;margin:16px 0 18px}
+  .foot-col h4{font-family:var(--disp);font-size:15px;font-weight:700;margin-bottom:18px}
+  .foot-col a{display:block;color:var(--ink-2);text-decoration:none;font-size:14.5px;margin-bottom:11px;transition:color .2s}
+  .foot-col a:hover{color:var(--purple-d)}
+  .socials{display:flex;gap:10px}
+  .socials a{width:40px;height:40px;border-radius:11px;border:1.5px solid var(--line-2);display:grid;place-items:center;transition:.2s}
+  .socials a:hover{background:var(--grad);border-color:transparent}
+  .socials svg{width:18px;height:18px;stroke:var(--ink-2);fill:none;stroke-width:1.8}
+  .socials a:hover svg{stroke:#fff}
+  .foot-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:26px;border-top:1px solid var(--line);color:var(--ink-3);font-size:13.5px;flex-wrap:wrap;gap:14px}
+
+  @media(max-width:900px){
+    .nav-links{display:none}.menu-btn{display:block}
+    .hero{grid-template-columns:1fr;gap:40px;padding:50px 0}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .feat-grid{grid-template-columns:1fr}
+    .foot-grid{grid-template-columns:1fr 1fr}
+    .hof-table th:nth-child(4),.hof-table td:nth-child(4){display:none}
+  }
+  @media(max-width:560px){
+    .stats{grid-template-columns:1fr 1fr}.foot-grid{grid-template-columns:1fr}
+    .hof-table th,.hof-table td{padding:13px 16px}.tier{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="atmos"><div class="blob a"></div><div class="blob b"></div><div class="blob c"></div></div>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#6D28D9"/></linearGradient>
+  <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3B82F6"/><stop offset="1" stop-color="#1D4ED8"/></linearGradient>
+  <clipPath id="sh"><path d="M50 6 L86 17 Q90 18 90 23 L90 60 Q90 89 54 108 Q50 110 46 108 Q10 89 10 60 L10 23 Q10 18 14 17 Z"/></clipPath>
+</defs></svg>
+
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="logo">
+      <svg class="shield" viewBox="0 0 100 116">
+        <g clip-path="url(#sh)"><rect x="0" y="0" width="50" height="116" fill="url(#pg)"/><rect x="50" y="0" width="50" height="116" fill="url(#bg2)"/></g>
+        <line x1="50" y1="9" x2="50" y2="106" stroke="#fff" stroke-width="1" opacity=".55"/>
+        <g stroke="#fff" stroke-width="1.7" fill="#fff" stroke-linecap="round" opacity=".92"><path d="M30 94 L30 54 L22 46" fill="none"/><path d="M30 65 L40 55" fill="none"/><circle cx="30" cy="94" r="2.3" fill="none" stroke-width="1.7"/><circle cx="22" cy="44" r="2.6"/><circle cx="41" cy="54" r="2.6"/></g>
+        <g stroke="#fff" stroke-width="1.7" fill="#fff" stroke-linecap="round" opacity=".92"><path d="M62 92 L62 62" fill="none"/><path d="M62 70 L72 57" fill="none"/><path d="M62 78 L55 67" fill="none"/><circle cx="62" cy="92" r="2.3" fill="none" stroke-width="1.7"/><circle cx="73" cy="55" r="2.6"/><circle cx="54" cy="65" r="2.6"/></g>
+      </svg>
+      <span class="wordmark"><span class="name"><span class="off">OFF</span><span class="con">CON</span></span><span class="sub">OFFENSIVE CONDITIONS</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Machines</a><a href="#features">CTF</a><a href="#features">Tracks</a><a href="#hof">Leaderboard</a><a href="#">Pricing</a>
+    </div>
+    <div class="nav-cta">
+      <a href="#" class="btn btn-ghost">Log in</a>
+      <a href="#" class="btn btn-grad">Get started</a>
+      <button class="menu-btn"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    </div>
+  </div>
+</nav>
+
+<header class="wrap hero">
+  <div>
+    <span class="badge"><span class="dot"></span>New season is live — join 128k+ learners</span>
+    <h1>Learn to hack, <span class="g">the hands-on way</span>.</h1>
+    <p class="lead">Friendly guided paths, real vulnerable machines, and live CTF events. Start from zero and grow into a confident security pro — no setup, all in your browser.</p>
+    <div class="hero-cta">
+      <a href="#" class="btn btn-grad btn-lg">Start learning free<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      <a href="#features" class="btn btn-ghost btn-lg">Browse machines</a>
+    </div>
+    <div class="checks">
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>No credit card</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>Browser-based labs</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>Beginner friendly</span>
+    </div>
+  </div>
+  <div class="hero-card">
+    <div class="hc-top"><span class="t">Your dashboard</span><span class="live">● 4 boxes live</span></div>
+    <div class="hc-body">
+      <div class="progress-card">
+        <div class="pc-head"><span class="nm">Beginner track</span><span class="pct">68%</span></div>
+        <div class="track"><i style="width:68%"></i></div>
+      </div>
+      <div class="mini-row"><div class="mini-ic p"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="8" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg></div><div class="info"><div class="a">Sentinel</div><div class="b">Linux · Easy · rooted</div></div><span class="pts">+25</span></div>
+      <div class="mini-row"><div class="mini-ic b"><svg viewBox="0 0 24 24"><path d="M5 21V4l11 4-11 4"/><path d="M5 4v17"/></svg></div><div class="info"><div class="a">Weekly CTF</div><div class="b">Jeopardy · 12 solves</div></div><span class="pts">+340</span></div>
+      <div class="mini-row"><div class="mini-ic p"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg></div><div class="info"><div class="a">Global rank</div><div class="b">Climbed 1,204 spots this week</div></div><span class="pts">#842</span></div>
+    </div>
+  </div>
+</header>
+
+<section class="wrap stats">
+  <div class="stat"><div class="n">540+</div><div class="l">Machines &amp; challenges</div></div>
+  <div class="stat"><div class="n">128K</div><div class="l">Active learners</div></div>
+  <div class="stat"><div class="n">86</div><div class="l">Live CTF events</div></div>
+  <div class="stat"><div class="n">195</div><div class="l">Countries</div></div>
+</section>
+
+<section class="wrap sec" id="features">
+  <div class="sec-head">
+    <span class="eyebrow">Everything in one place</span>
+    <h2>The friendliest way to master offensive security</h2>
+    <p>Guided when you need it, challenging when you're ready. Learn by doing — on real systems.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat"><div class="ic c1"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="8" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><circle cx="7" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="1" fill="currentColor" stroke="none"/></svg></div><h3>Vulnerable machines</h3><p>Spin up isolated boxes in your browser and root real targets — safe, sandboxed, one click.</p><span class="more">Browse boxes<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="feat"><div class="ic c2"><svg viewBox="0 0 24 24"><path d="M5 21V4l11 4-11 4"/><path d="M5 4v17"/></svg></div><h3>Live CTF arena</h3><p>Compete in friendly jeopardy and attack-defense events with real-time scoring.</p><span class="more">See events<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="feat"><div class="ic c3"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="19" cy="14" r="2.4"/></svg></div><h3>Guided tracks</h3><p>Step-by-step paths from absolute beginner to advanced, with hands-on modules.</p><span class="more">View tracks<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="feat"><div class="ic c4"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg></div><h3>Community forum</h3><p>Stuck on a box? A welcoming global community is always ready to help you out.</p><span class="more">Join in<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="feat"><div class="ic c5"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M14 2v6h6"/></svg></div><h3>Writeups</h3><p>Read and publish clear walkthroughs — unlocked once you've rooted the box yourself.</p><span class="more">Read writeups<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+    <div class="feat"><div class="ic c6"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg></div><h3>Bug bounties</h3><p>Ready for the real world? Hunt live vulnerabilities and earn your first bounty.</p><span class="more">Find programs<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>
+  </div>
+</section>
+
+<section class="wrap sec" id="hof">
+  <div class="sec-head">
+    <span class="eyebrow">Hall of fame</span>
+    <h2>Meet the global leaderboard</h2>
+    <p>The top learners this season, ranked across machines, challenges, and CTFs.</p>
+  </div>
+  <div class="hof">
+    <div class="hof-top">
+      <h3><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M6 9H4a2 2 0 0 1-2-2V5h4M18 9h2a2 2 0 0 0 2-2V5h-4M6 5h12v6a6 6 0 0 1-12 0z"/><path d="M9 17h6M10 21h4M12 17v4"/></svg>Top operators</h3>
+      <span class="tag">Season 7</span>
+    </div>
+    <table class="hof-table">
+      <thead><tr><th>Rank</th><th>Hacker</th><th>Country</th><th class="r">Points</th></tr></thead>
+      <tbody>
+        <tr class="top"><td class="rank"><span class="medal">🥇</span>1</td><td><div class="hacker"><div class="av">ZK</div><div><div class="handle">zer0Kelvin</div><div class="tier">Elite operator</div></div></div></td><td><span class="ctry"><span class="fi fi-de"></span>Germany</span></td><td class="pts">142,850</td></tr>
+        <tr class="top"><td class="rank"><span class="medal">🥈</span>2</td><td><div class="hacker"><div class="av b">SB</div><div><div class="handle">sh4dowByte</div><div class="tier">Elite operator</div></div></div></td><td><span class="ctry"><span class="fi fi-pk"></span>Pakistan</span></td><td class="pts">138,200</td></tr>
+        <tr class="top"><td class="rank"><span class="medal">🥉</span>3</td><td><div class="hacker"><div class="av c">NP</div><div><div class="handle">nullptr_</div><div class="tier">Guru</div></div></div></td><td><span class="ctry"><span class="fi fi-us"></span>United States</span></td><td class="pts">131,940</td></tr>
+        <tr><td class="rank">4</td><td><div class="hacker"><div class="av">KR</div><div><div class="handle">kr4ken</div><div class="tier">Guru</div></div></div></td><td><span class="ctry"><span class="fi fi-jp"></span>Japan</span></td><td class="pts">128,500</td></tr>
+        <tr><td class="rank">5</td><td><div class="hacker"><div class="av b">HQ</div><div><div class="handle">h3xqueen</div><div class="tier">Pro hacker</div></div></div></td><td><span class="ctry"><span class="fi fi-br"></span>Brazil</span></td><td class="pts">121,300</td></tr>
+        <tr><td class="rank">6</td><td><div class="hacker"><div class="av c">GS</div><div><div class="handle">ghostshell</div><div class="tier">Pro hacker</div></div></div></td><td><span class="ctry"><span class="fi fi-in"></span>India</span></td><td class="pts">117,600</td></tr>
+        <tr><td class="rank">7</td><td><div class="hacker"><div class="av">BF</div><div><div class="handle">bin4ryFox</div><div class="tier">Hacker</div></div></div></td><td><span class="ctry"><span class="fi fi-gb"></span>United Kingdom</span></td><td class="pts">109,450</td></tr>
+        <tr><td class="rank">8</td><td><div class="hacker"><div class="av b">SF</div><div><div class="handle">seg.fault</div><div class="tier">Hacker</div></div></div></td><td><span class="ctry"><span class="fi fi-fr"></span>France</span></td><td class="pts">104,200</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="cta-band">
+    <h2>Ready to root your first box?</h2>
+    <p>Join free, pick a beginner track, and capture your first flag today — right from your browser.</p>
+    <a href="#" class="btn btn-white">Create your free account</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-about">
+        <a href="#" class="logo">
+          <svg class="shield" viewBox="0 0 100 116" style="width:30px"><g clip-path="url(#sh)"><rect x="0" y="0" width="50" height="116" fill="url(#pg)"/><rect x="50" y="0" width="50" height="116" fill="url(#bg2)"/></g><line x1="50" y1="9" x2="50" y2="106" stroke="#fff" stroke-width="1" opacity=".55"/></svg>
+          <span class="wordmark"><span class="name"><span class="off">OFF</span><span class="con">CON</span></span></span>
+        </a>
+        <p>The friendliest arena to learn offensive security. Hands-on training for everyone, from your first box to black-badge.</p>
+        <div class="socials">
+          <a href="#"><svg viewBox="0 0 24 24"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg></a>
+          <a href="#"><svg viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.9a3.4 3.4 0 0 0-1-2.6c3-.3 6-1.5 6-6.5a5 5 0 0 0-1.4-3.5 4.7 4.7 0 0 0-.1-3.5s-1.1-.3-3.5 1.3a12 12 0 0 0-6 0C6.6 1.7 5.5 2 5.5 2a4.7 4.7 0 0 0-.1 3.5A5 5 0 0 0 4 9c0 5 3 6.2 6 6.5a3.4 3.4 0 0 0-1 2.6V22"/></svg></a>
+          <a href="#"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-1 4 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-4-1L3 21l1.9-5.4a8.4 8.4 0 0 1-1-4 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 4-1h.5a8.5 8.5 0 0 1 8 8z"/></svg></a>
+        </div>
+      </div>
+      <div class="foot-col"><h4>Platform</h4><a href="#">Machines</a><a href="#">Challenges</a><a href="#">CTF events</a><a href="#">Tracks</a><a href="#">Leaderboard</a></div>
+      <div class="foot-col"><h4>Community</h4><a href="#">Forum</a><a href="#">Writeups</a><a href="#">Bug bounties</a><a href="#">Discord</a><a href="#">Hall of fame</a></div>
+      <div class="foot-col"><h4>Company</h4><a href="#">About</a><a href="#">Pricing</a><a href="#">Careers</a><a href="#">Blog</a><a href="#">Contact</a></div>
+    </div>
+    <div class="foot-bottom"><span>© 2026 Offensive Conditions. All rights reserved.</span><span>Terms · Privacy · Responsible disclosure</span></div>
+  </div>
+</footer>
+</body>
+</html>

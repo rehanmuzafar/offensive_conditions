@@ -1,0 +1,159 @@
+# =============================================================================
+# Admin sub-path routing + health + SPA
+# =============================================================================
+# Admin endpoints are sharded across services. We route by the sub-path after
+# /v1/admin/. The auth filter (RequestAuthentication + AuthorizationPolicy)
+# enforces that the JWT carries an admin-tier role BEFORE these routes are hit.
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: admin-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: admin-bounty-programs
+      match:
+        - uri: { prefix: /v1/admin/programs }
+        - uri: { prefix: /v1/admin/reports }
+      route:
+        - destination:
+            host: bounty-svc.offcon.svc.cluster.local
+            port: { number: 8009 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-notification
+      match:
+        - uri: { prefix: /v1/admin/broadcast }
+        - uri: { prefix: /v1/admin/templates }
+        - uri: { prefix: /v1/admin/deliveries }
+      route:
+        - destination:
+            host: notification-svc.offcon.svc.cluster.local
+            port: { number: 8008 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-content
+      match:
+        - uri: { prefix: /v1/admin/machines }
+        - uri: { prefix: /v1/admin/challenges }
+        - uri: { prefix: /v1/admin/tracks }
+      route:
+        - destination:
+            host: content-svc.offcon.svc.cluster.local
+            port: { number: 8003 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-ctf
+      match:
+        - uri: { prefix: /v1/admin/ctf }
+      route:
+        - destination:
+            host: ctf-svc.offcon.svc.cluster.local
+            port: { number: 8004 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-forum
+      match:
+        - uri: { prefix: /v1/admin/forum }
+      route:
+        - destination:
+            host: forum-svc.offcon.svc.cluster.local
+            port: { number: 8005 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-writeups
+      match:
+        - uri: { prefix: /v1/admin/writeups }
+      route:
+        - destination:
+            host: writeup-svc.offcon.svc.cluster.local
+            port: { number: 8006 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-payments
+      match:
+        - uri: { prefix: /v1/admin/payments }
+      route:
+        - destination:
+            host: payment-svc.offcon.svc.cluster.local
+            port: { number: 8007 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-users
+      match:
+        - uri: { prefix: /v1/admin/users }
+      route:
+        - destination:
+            host: user-svc.offcon.svc.cluster.local
+            port: { number: 8002 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+    - name: admin-seasons
+      match:
+        - uri: { prefix: /v1/admin/seasons }
+      route:
+        - destination:
+            host: scoring.offcon.svc.cluster.local
+            port: { number: 8004 }
+      timeout: 15s
+      retries: { attempts: 1, perTryTimeout: 8s }
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: health-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: healthz
+      match:
+        - uri: { prefix: /healthz }
+        - uri: { prefix: /readyz }
+      route:
+        - destination:
+            host: gateway-healthcheck.gateway-system.svc.cluster.local
+            port: { number: 8080 }
+      timeout: 5s
+      retries: { attempts: 0 }
+
+---
+# SPA routing — everything that isn't /v1/* or /healthz goes to the Next.js app
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: spa-routes
+  namespace: gateway-system
+spec:
+  hosts:
+    - offensiveconditions.org
+    - www.offensiveconditions.org
+    - app.offensiveconditions.org
+  gateways: [gateway-system/offcon-spa-gateway]
+  http:
+    - name: spa
+      match:
+        - uri: { prefix: / }
+      route:
+        - destination:
+            host: frontend.offcon.svc.cluster.local
+            port: { number: 3000 }
+      timeout: 30s
+      retries:
+        attempts: 2
+        perTryTimeout: 10s
+        retryOn: 5xx,connect-failure

@@ -1,0 +1,359 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions — Forum Service
+  version: 0.1.0
+  description: |
+    Forum API: categories, threads, posts, votes, subscriptions, reputation,
+    moderation reports.
+  contact:
+    name: Offensive Conditions Platform Team
+    email: platform@offensiveconditions.org
+
+servers:
+  - { url: https://api.offensiveconditions.org, description: Production }
+  - { url: http://localhost:8005, description: Local dev }
+
+security:
+  - BearerAuth: []
+
+tags:
+  - { name: forum }
+  - { name: health }
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: alive }
+
+  /readyz:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: ready }
+        "503": { description: not ready }
+
+  /v1/categories:
+    get:
+      tags: [forum]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Category" }
+
+  /v1/threads:
+    get:
+      tags: [forum]
+      security: []
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 25 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+        - { in: query, name: category_id, schema: { type: string, format: uuid } }
+        - { in: query, name: tag, schema: { type: string } }
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: sort, schema: { type: string, enum: [recent, hot, top] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThreadList" }
+    post:
+      tags: [forum]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThreadCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Thread" }
+
+  /v1/threads/{thread_id}:
+    parameters:
+      - { in: path, name: thread_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [forum]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Thread" }
+    patch:
+      tags: [forum]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThreadUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Thread" }
+    delete:
+      tags: [forum]
+      responses:
+        "204": { description: Deleted }
+
+  /v1/threads/{thread_id}/posts:
+    parameters:
+      - { in: path, name: thread_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [forum]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PostList" }
+    post:
+      tags: [forum]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PostCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Post" }
+
+  /v1/posts/{post_id}:
+    parameters:
+      - { in: path, name: post_id, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [forum]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_markdown]
+              properties:
+                content_markdown: { type: string }
+                contains_spoilers: { type: boolean, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Post" }
+    delete:
+      tags: [forum]
+      responses:
+        "204": { description: Deleted }
+
+  /v1/posts/{post_id}/vote:
+    parameters:
+      - { in: path, name: post_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [forum]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction: { type: string, enum: [up, down, clear] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upvote_count: { type: integer }
+                  downvote_count: { type: integer }
+                  score: { type: integer }
+                  my_vote: { type: integer }
+
+  /v1/threads/{thread_id}/subscribe:
+    parameters:
+      - { in: path, name: thread_id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [forum]
+      responses:
+        "200": { description: Subscribed }
+    delete:
+      tags: [forum]
+      responses:
+        "204": { description: Unsubscribed }
+
+  /v1/users/{user_id}/reputation:
+    parameters:
+      - { in: path, name: user_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [forum]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reputation" }
+
+  /v1/reports:
+    post:
+      tags: [forum]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportCreate" }
+      responses:
+        "201": { description: Filed }
+
+  /v1/mod/reports:
+    get:
+      tags: [forum]
+      responses:
+        "200": { description: OK }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        parent_id: { type: string, format: uuid, nullable: true }
+        sort_order: { type: integer }
+        is_locked: { type: boolean }
+        thread_count: { type: integer }
+
+    ThreadCreate:
+      type: object
+      required: [category_id, title, body_markdown]
+      properties:
+        category_id: { type: string, format: uuid }
+        title: { type: string, minLength: 3, maxLength: 200 }
+        body_markdown: { type: string, minLength: 1, maxLength: 60000 }
+        tags:
+          type: array
+          items: { type: string }
+        related_machine_id: { type: string, format: uuid, nullable: true }
+        related_challenge_id: { type: string, format: uuid, nullable: true }
+        contains_spoilers: { type: boolean }
+
+    ThreadUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+
+    Thread:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        category_id: { type: string, format: uuid }
+        author_id: { type: string, format: uuid }
+        title: { type: string }
+        slug: { type: string }
+        status: { type: string }
+        is_pinned: { type: boolean }
+        is_solved: { type: boolean }
+        reply_count: { type: integer }
+        view_count: { type: integer }
+        tags: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+
+    ThreadList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Thread" }
+        meta:
+          type: object
+          properties:
+            total: { type: integer }
+            limit: { type: integer }
+            offset: { type: integer }
+            has_more: { type: boolean }
+
+    PostCreate:
+      type: object
+      required: [content_markdown]
+      properties:
+        content_markdown: { type: string, minLength: 1, maxLength: 60000 }
+        parent_post_id: { type: string, format: uuid, nullable: true }
+        contains_spoilers: { type: boolean }
+
+    Post:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        thread_id: { type: string, format: uuid }
+        author_id: { type: string, format: uuid }
+        parent_post_id: { type: string, format: uuid, nullable: true }
+        content_markdown: { type: string }
+        content_html: { type: string, nullable: true }
+        is_first_post: { type: boolean }
+        is_edited: { type: boolean }
+        upvote_count: { type: integer }
+        downvote_count: { type: integer }
+        score: { type: integer }
+        contains_spoilers: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    PostList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Post" }
+        meta:
+          type: object
+
+    Reputation:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        reputation: { type: integer }
+        upvotes_received: { type: integer }
+        downvotes_received: { type: integer }
+        posts_count: { type: integer }
+        threads_count: { type: integer }
+        solutions_accepted: { type: integer }
+
+    ReportCreate:
+      type: object
+      required: [target_type, target_id, reason]
+      properties:
+        target_type: { type: string, enum: [post, thread, user] }
+        target_id: { type: string, format: uuid }
+        reason: { type: string }
+        details: { type: string, nullable: true }

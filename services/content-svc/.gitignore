@@ -1,0 +1,41 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+.env
+.env.*
+!.env.example
+
+dist/
+build/
+*.egg-info/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Migrations cache
+migrations/__pycache__/
+
+# Generated proto stubs
+app/grpc/generated/
+
+# Testdata secrets
+testdata/jwt
+testdata/*.pem
+!testdata/jwt.pub.example

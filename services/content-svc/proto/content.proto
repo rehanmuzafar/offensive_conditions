@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package offcon.content.v1;
+
+option go_package = "github.com/offcon/proto/content/v1;contentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// ContentService — internal-only gRPC interface for scoring + orchestrator.
+service ContentService {
+  // Single-item lookups
+  rpc GetMachineMetadata(GetMachineMetadataRequest) returns (MachineMetadata);
+  rpc GetChallengeMetadata(GetChallengeMetadataRequest) returns (ChallengeMetadata);
+
+  // Batched lookup for leaderboard recompute
+  rpc BatchGetMachineMetadata(BatchGetMachineMetadataRequest) returns (BatchGetMachineMetadataResponse);
+
+  // Slug → id resolution
+  rpc ResolveContentBySlug(ResolveContentBySlugRequest) returns (ResolveContentBySlugResponse);
+
+  // List active content (paginated streaming for very large catalogs)
+  rpc ListActiveContent(ListActiveContentRequest) returns (stream ContentSummary);
+}
+
+// =============================================================================
+// Messages
+// =============================================================================
+
+message GetMachineMetadataRequest {
+  string machine_id = 1;  // UUID
+}
+
+message MachineMetadata {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string os = 4;
+  string difficulty = 5;
+  string status = 6;
+  string required_tier = 7;
+  int32  base_user_points = 8;
+  int32  base_root_points = 9;
+  int32  base_challenge_points = 10;
+  bool   has_user_flag = 11;
+  bool   has_root_flag = 12;
+  google.protobuf.Timestamp released_at = 13;
+  google.protobuf.Timestamp retired_at = 14;
+}
+
+message GetChallengeMetadataRequest {
+  string challenge_id = 1;
+}
+
+message ChallengeMetadata {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string difficulty = 4;
+  string status = 5;
+  string required_tier = 6;
+  int32  points = 7;
+  bool   requires_instance = 8;
+  google.protobuf.Timestamp released_at = 9;
+  google.protobuf.Timestamp retired_at = 10;
+}
+
+message BatchGetMachineMetadataRequest {
+  repeated string machine_ids = 1;
+}
+
+message BatchGetMachineMetadataResponse {
+  repeated MachineMetadata machines = 1;
+  repeated string not_found_ids = 2;
+}
+
+message ResolveContentBySlugRequest {
+  string slug = 1;
+  string type = 2;  // machine|challenge|path
+}
+
+message ResolveContentBySlugResponse {
+  string id = 1;
+  string type = 2;
+  bool   found = 3;
+}
+
+message ListActiveContentRequest {
+  string type = 1;  // machine|challenge|path|all
+  string difficulty = 2;
+  string required_tier = 3;
+}
+
+message ContentSummary {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string type = 4;
+  string difficulty = 5;
+  int32  points = 6;
+  string status = 7;
+}

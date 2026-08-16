@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions — Notification Service
+  version: 0.1.0
+  description: |
+    Multi-channel notification delivery: in-app, email, outbound webhooks.
+    Consumes domain events from Kafka, applies per-user preferences,
+    delivers via channel adapters.
+  contact:
+    name: Offensive Conditions Platform Team
+    email: platform@offensiveconditions.org
+
+servers:
+  - { url: https://api.offensiveconditions.org, description: Production }
+  - { url: http://localhost:8008, description: Local dev }
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: notifications
+  - name: preferences
+  - name: webhooks
+  - name: admin
+  - name: health
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      security: []
+      responses: { "200": { description: alive } }
+
+  /readyz:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: ready }
+        "503": { description: not ready }
+
+  /v1/me/notifications:
+    get:
+      tags: [notifications]
+      parameters:
+        - { in: query, name: cursor, schema: { type: string, format: date-time } }
+        - { in: query, name: limit, schema: { type: integer, default: 25 } }
+        - { in: query, name: unread_only, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Notification" }
+                  meta:
+                    type: object
+                    properties:
+                      next_cursor: { type: string, nullable: true }
+                      has_more: { type: boolean }
+
+  /v1/me/notifications/unread-count:
+    get:
+      tags: [notifications]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { count: { type: integer } } }
+
+  /v1/me/notifications/mark-read:
+    post:
+      tags: [notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+                all: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { marked: { type: integer } } }
+
+  /v1/me/notifications/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [notifications]
+      responses: { "204": { description: Removed } }
+
+  /v1/me/preferences:
+    get:
+      tags: [preferences]
+      responses: { "200": { description: OK } }
+    put:
+      tags: [preferences]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PreferencesBulkUpdate" }
+      responses: { "200": { description: Updated } }
+
+  /v1/me/webhooks:
+    get:
+      tags: [webhooks]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Webhook" }
+    post:
+      tags: [webhooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url, event_types]
+              properties:
+                name: { type: string }
+                url: { type: string, format: uri }
+                event_types: { type: array, items: { type: string } }
+      responses:
+        "201":
+          description: Created — secret returned ONCE
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Webhook" }
+                  - type: object
+                    properties:
+                      secret: { type: string }
+
+  /v1/me/webhooks/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [webhooks]
+      responses: { "200": { description: Updated } }
+    delete:
+      tags: [webhooks]
+      responses: { "204": { description: Deleted } }
+
+  /v1/me/webhooks/{id}/rotate-secret:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [webhooks]
+      responses:
+        "200":
+          description: New secret
+          content:
+            application/json:
+              schema: { type: object, properties: { secret: { type: string } } }
+
+  /v1/me/webhooks/{id}/test:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [webhooks]
+      responses: { "200": { description: Test event dispatched } }
+
+  /v1/admin/templates:
+    get:
+      tags: [admin]
+      responses: { "200": { description: OK } }
+    post:
+      tags: [admin]
+      responses: { "201": { description: Created } }
+
+  /v1/admin/templates/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [admin]
+      responses: { "200": { description: Updated } }
+
+  /v1/admin/broadcast:
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Broadcast" }
+      responses: { "202": { description: Accepted; deliveries enqueued } }
+
+  /v1/admin/deliveries:
+    get:
+      tags: [admin]
+      parameters:
+        - { in: query, name: user_id, schema: { type: string, format: uuid } }
+        - { in: query, name: event_id, schema: { type: string } }
+        - { in: query, name: channel, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string } }
+      responses: { "200": { description: OK } }
+
+  /v1/ws/notifications:
+    get:
+      tags: [notifications]
+      security: []
+      summary: WebSocket upgrade — pass JWT in `?token=`
+      description: |
+        Browsers can't set Authorization on WS handshake; we accept the JWT
+        via the `token` query parameter and validate it before subscribing.
+      parameters:
+        - { in: query, name: token, required: true, schema: { type: string } }
+      responses:
+        "101": { description: Switching Protocols → WS established }
+        "1008": { description: Bad / expired token (WS close code) }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Notification:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        event_type: { type: string }
+        priority: { type: string, enum: [low, normal, high, urgent] }
+        title: { type: string }
+        body: { type: string }
+        action_url: { type: string, nullable: true }
+        icon: { type: string, nullable: true }
+        metadata: { type: object }
+        read_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Preference:
+      type: object
+      required: [event_type, email_enabled, in_app_enabled, push_enabled, sms_enabled, digest_enabled, digest_frequency]
+      properties:
+        event_type: { type: string }
+        email_enabled: { type: boolean }
+        in_app_enabled: { type: boolean }
+        push_enabled: { type: boolean }
+        sms_enabled: { type: boolean }
+        digest_enabled: { type: boolean }
+        digest_frequency: { type: string, enum: [daily, weekly, never] }
+
+    PreferencesBulkUpdate:
+      type: object
+      properties:
+        preferences:
+          type: array
+          items: { $ref: "#/components/schemas/Preference" }
+        master_unsubscribe: { type: boolean }
+        timezone: { type: string }
+        quiet_hours_start: { type: integer, minimum: 0, maximum: 23 }
+        quiet_hours_end: { type: integer, minimum: 0, maximum: 23 }
+        respect_quiet: { type: boolean }
+
+    Webhook:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        url: { type: string, format: uri }
+        event_types: { type: array, items: { type: string } }
+        is_active: { type: boolean }
+        failure_count: { type: integer }
+        last_success_at: { type: string, format: date-time, nullable: true }
+        last_failure_at: { type: string, format: date-time, nullable: true }
+        last_failure_msg: { type: string, nullable: true }
+        disabled_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Broadcast:
+      type: object
+      required: [title, body, target]
+      properties:
+        event_type: { type: string, default: system.announcement }
+        title: { type: string }
+        body: { type: string }
+        channels:
+          type: array
+          items: { type: string, enum: [email, in_app] }
+        priority: { type: string, enum: [low, normal, high, urgent], default: normal }
+        action_url: { type: string, format: uri }
+        target:
+          type: object
+          properties:
+            all_users: { type: boolean }
+            tier: { type: string, enum: [free, vip, vip_plus, team, enterprise] }
+            user_ids:
+              type: array
+              items: { type: string, format: uuid }

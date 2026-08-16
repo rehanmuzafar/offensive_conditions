@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package offcon.writeup.v1;
+
+option go_package = "github.com/offcon/proto/writeup/v1;writeupv1";
+
+service WriteupService {
+  rpc GetWriteupMetadata(GetWriteupMetadataRequest) returns (WriteupMetadata);
+  rpc BatchGetWriteupsByTarget(BatchGetWriteupsByTargetRequest) returns (BatchGetWriteupsByTargetResponse);
+  rpc CheckReadAccess(CheckReadAccessRequest) returns (CheckReadAccessResponse);
+}
+
+message GetWriteupMetadataRequest {
+  string writeup_id = 1;
+}
+
+message WriteupMetadata {
+  string id = 1;
+  string author_id = 2;
+  string content_type = 3;
+  string content_id = 4;
+  string title = 5;
+  string slug = 6;
+  string language = 7;
+  string status = 8;
+  bool   is_featured = 9;
+  int32  view_count = 10;
+  int32  score = 11;
+  int32  comment_count = 12;
+  string published_at = 13;
+}
+
+message BatchGetWriteupsByTargetRequest {
+  string content_type = 1;
+  repeated string content_ids = 2;
+}
+
+message BatchGetWriteupsByTargetResponse {
+  repeated WriteupMetadata writeups = 1;
+}
+
+message CheckReadAccessRequest {
+  string writeup_id = 1;
+  string user_id = 2;
+}
+
+message CheckReadAccessResponse {
+  bool   can_read = 1;
+  string reason = 2;
+}

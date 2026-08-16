@@ -1,0 +1,128 @@
+# =============================================================================
+# Content, orchestrator, scoring, flag-verifier
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: content-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: machines
+      match:
+        - uri: { prefix: /v1/machines }
+      route:
+        - destination:
+            host: content-svc.offcon.svc.cluster.local
+            port: { number: 8003 }
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure
+    - name: challenges
+      match:
+        - uri: { prefix: /v1/challenges }
+      route:
+        - destination:
+            host: content-svc.offcon.svc.cluster.local
+            port: { number: 8003 }
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure
+    - name: tracks
+      match:
+        - uri: { prefix: /v1/tracks }
+      route:
+        - destination:
+            host: content-svc.offcon.svc.cluster.local
+            port: { number: 8003 }
+      timeout: 10s
+      retries: { attempts: 2, perTryTimeout: 5s }
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: orchestrator-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: instances
+      match:
+        - uri: { prefix: /v1/instances }
+      route:
+        - destination:
+            host: orchestrator.offcon.svc.cluster.local
+            port: { number: 8000 }
+      timeout: 30s   # spawning a container/VM is slow
+      retries:
+        attempts: 0  # mutations: never retry
+    - name: vpn
+      match:
+        - uri: { prefix: /v1/vpn }
+      route:
+        - destination:
+            host: orchestrator.offcon.svc.cluster.local
+            port: { number: 8000 }
+      timeout: 20s
+      retries: { attempts: 0 }
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: scoring-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: leaderboards
+      match:
+        - uri: { prefix: /v1/leaderboards }
+      route:
+        - destination:
+            host: scoring.offcon.svc.cluster.local
+            port: { number: 8004 }
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        retryOn: 5xx,connect-failure
+    - name: seasons
+      match:
+        - uri: { prefix: /v1/seasons }
+      route:
+        - destination:
+            host: scoring.offcon.svc.cluster.local
+            port: { number: 8004 }
+      timeout: 10s
+      retries: { attempts: 2, perTryTimeout: 5s }
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: flag-verifier-routes
+  namespace: gateway-system
+spec:
+  hosts: [api.offensiveconditions.org]
+  gateways: [gateway-system/offcon-api-gateway]
+  http:
+    - name: flag-submit
+      match:
+        - uri: { prefix: /v1/flag/submit }
+      route:
+        - destination:
+            host: flag-verifier.offcon.svc.cluster.local
+            port: { number: 8005 }
+      timeout: 5s
+      retries: { attempts: 0 }   # never retry a flag submit

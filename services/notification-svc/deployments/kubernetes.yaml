@@ -1,0 +1,356 @@
+# Notification service Kubernetes manifests
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-svc
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: notification-svc
+    app.kubernetes.io/part-of: offcon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notification-svc-config
+  namespace: offcon
+data:
+  APP_ENV: "production"
+  APP_NAME: "notification-svc"
+  HTTP_PORT: "8008"
+  HTTP_HOST: "0.0.0.0"
+  HTTP_CORS_ORIGINS: "https://app.offensiveconditions.org,https://offensiveconditions.org"
+  GRPC_PORT: "9008"
+  DB_HOST: "pg-primary.data.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "offcon"
+  DB_USER: "notification_svc"
+  DB_SSL: "true"
+  DB_POOL_MAX: "10"
+  REDIS_HOST: "redis-primary.data.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "7"
+  REDIS_TLS: "true"
+  AUTH_JWT_PUBLIC_KEY_PATH: "/etc/auth/jwt.pub"
+  AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
+  AUTH_JWT_AUDIENCE: "offcon-api"
+  EMAIL_FROM_ADDRESS: "noreply@offensiveconditions.org"
+  EMAIL_FROM_NAME: "Offensive Conditions"
+  EMAIL_REPLY_TO: "support@offensiveconditions.org"
+  EMAIL_PROVIDER_PRIMARY: "resend"
+  EMAIL_PROVIDER_FAILOVER: "sendgrid"
+  KAFKA_BROKERS: "kafka-0.kafka.data.svc.cluster.local:9093,kafka-1.kafka.data.svc.cluster.local:9093,kafka-2.kafka.data.svc.cluster.local:9093"
+  KAFKA_CONSUMER_GROUP: "notification-svc"
+  KAFKA_USE_TLS: "true"
+  KAFKA_TOPIC_AUTH_EVENTS: "auth.events"
+  KAFKA_TOPIC_SCORING_EVENTS: "scoring.events"
+  KAFKA_TOPIC_PAYMENT_EVENTS: "payment.events"
+  KAFKA_TOPIC_FORUM_EVENTS: "forum.events"
+  KAFKA_TOPIC_WRITEUP_EVENTS: "writeup.events"
+  KAFKA_TOPIC_CTF_EVENTS: "ctf.events"
+  WEBHOOK_MAX_ATTEMPTS: "5"
+  WEBHOOK_TIMEOUT_MS: "10000"
+  USER_SVC_ADDR: "user-svc.offcon.svc.cluster.local:9001"
+  DEFAULT_QUIET_HOURS_START: "22"
+  DEFAULT_QUIET_HOURS_END: "7"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-svc
+  namespace: offcon
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: notification-svc
+    app.kubernetes.io/component: server
+  ports:
+    - { name: http, port: 8008, targetPort: http }
+    - { name: grpc, port: 9008, targetPort: grpc }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-svc-server
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: notification-svc
+    app.kubernetes.io/component: server
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notification-svc
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8008"
+    spec:
+      serviceAccountName: notification-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: notification-svc
+              app.kubernetes.io/component: server
+      containers:
+        - name: notification-svc
+          image: harbor.offensiveconditions.org/services/notification-svc:v0.1.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: notification-svc-config }
+            - secretRef: { name: notification-svc-secrets }
+          ports:
+            - { name: http, containerPort: 8008, protocol: TCP }
+            - { name: grpc, containerPort: 9008, protocol: TCP }
+          resources:
+            requests: { cpu: "300m", memory: "384Mi" }
+            limits: { cpu: "1500m", memory: "768Mi" }
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - { name: auth-jwt, mountPath: /etc/auth, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: auth-jwt
+          secret:
+            secretName: auth-jwt-public-key
+            items:
+              - { key: jwt.pub, path: jwt.pub }
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-svc-worker
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: notification-svc
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notification-svc
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: notification-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: harbor.offensiveconditions.org/services/notification-svc:v0.1.0
+          command: ["node", "dist/worker.js"]
+          envFrom:
+            - configMapRef: { name: notification-svc-config }
+            - secretRef: { name: notification-svc-secrets }
+          resources:
+            requests: { cpu: "200m", memory: "384Mi" }
+            limits: { cpu: "1000m", memory: "768Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      terminationGracePeriodSeconds: 60
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-svc-consumer
+  namespace: offcon
+  labels:
+    app.kubernetes.io/name: notification-svc
+    app.kubernetes.io/component: consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+      app.kubernetes.io/component: consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notification-svc
+        app.kubernetes.io/component: consumer
+    spec:
+      serviceAccountName: notification-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: consumer
+          image: harbor.offensiveconditions.org/services/notification-svc:v0.1.0
+          command: ["node", "dist/consumer.js"]
+          envFrom:
+            - configMapRef: { name: notification-svc-config }
+            - secretRef: { name: notification-svc-secrets }
+          resources:
+            requests: { cpu: "200m", memory: "384Mi" }
+            limits: { cpu: "1000m", memory: "768Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: notification-svc-server
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notification-svc-server
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: notification-svc-worker
+  namespace: offcon
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notification-svc-worker
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-svc-server
+  namespace: offcon
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+      app.kubernetes.io/component: server
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-svc-consumer
+  namespace: offcon
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+      app.kubernetes.io/component: consumer
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notification-svc
+  namespace: offcon
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { name: ingress-system } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: api-gateway } }
+      ports:
+        - { protocol: TCP, port: 8008 }
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/part-of: offcon } }
+      ports:
+        - { protocol: TCP, port: 9008 }
+    - from:
+        - namespaceSelector: { matchLabels: { name: observability } }
+          podSelector: { matchLabels: { app: prometheus } }
+      ports:
+        - { protocol: TCP, port: 8008 }
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: postgres } }
+      ports: [ { protocol: TCP, port: 5432 } ]
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: redis } }
+      ports: [ { protocol: TCP, port: 6379 } ]
+    - to:
+        - namespaceSelector: { matchLabels: { name: data } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: kafka } }
+      ports: [ { protocol: TCP, port: 9093 } ]
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: user-svc } }
+      ports: [ { protocol: TCP, port: 9001 } ]
+    # Egress to email providers via egress namespace
+    - to:
+        - namespaceSelector: { matchLabels: { name: egress } }
+      ports: [ { protocol: TCP, port: 443 } ]
+    # Outbound webhooks (general internet) — restricted by egress proxy in production
+    - to:
+        - namespaceSelector: { matchLabels: { name: egress } }
+      ports: [ { protocol: TCP, port: 443 } ]

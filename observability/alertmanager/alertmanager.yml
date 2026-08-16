@@ -1,0 +1,129 @@
+# ============================================================================
+#  AlertManager — routing, grouping, inhibition, and receivers.
+#  Routes by team + severity to the right channel (Slack/PagerDuty/email).
+#  Secrets (webhook URLs, keys) are injected from env / sealed secrets — the
+#  $VARS here are placeholders resolved at deploy time.
+# ============================================================================
+global:
+  resolve_timeout: 5m
+  slack_api_url: "${SLACK_WEBHOOK_URL}"
+
+# ----------------------------------------------------------------------------
+# Templated notification bodies
+# ----------------------------------------------------------------------------
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+# ----------------------------------------------------------------------------
+# Routing tree
+# ----------------------------------------------------------------------------
+route:
+  receiver: default-slack
+  group_by: ["alertname", "service", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Critical → page on-call immediately
+    - matchers:
+        - severity = "critical"
+      receiver: pagerduty-critical
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true # also post to Slack
+
+    # Security alerts → security channel
+    - matchers:
+        - team = "security"
+      receiver: security-slack
+      group_wait: 30s
+
+    # Billing alerts → billing channel
+    - matchers:
+        - team = "billing"
+      receiver: billing-slack
+
+    # Growth alerts → growth channel (non-urgent)
+    - matchers:
+        - team = "growth"
+      receiver: growth-slack
+      repeat_interval: 12h
+
+    # Platform warnings → platform channel
+    - matchers:
+        - team = "platform"
+        - severity = "warning"
+      receiver: platform-slack
+
+# ----------------------------------------------------------------------------
+# Inhibition — silence noise when a bigger problem is firing
+# ----------------------------------------------------------------------------
+inhibit_rules:
+  # If a service is down, don't also alert on its latency/errors
+  - source_matchers:
+      - alertname = "ServiceDown"
+    target_matchers:
+      - severity =~ "warning|critical"
+    equal: ["service"]
+
+  # If Postgres is down, suppress connection/replication warnings
+  - source_matchers:
+      - alertname = "PostgresDown"
+    target_matchers:
+      - alertname =~ "PostgresTooManyConnections|PostgresReplicationLag"
+
+  # A critical alert suppresses the matching warning for the same service
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ["alertname", "service"]
+
+# ----------------------------------------------------------------------------
+# Receivers
+# ----------------------------------------------------------------------------
+receivers:
+  - name: default-slack
+    slack_configs:
+      - channel: "#offcon-alerts"
+        send_resolved: true
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+  - name: platform-slack
+    slack_configs:
+      - channel: "#offcon-platform"
+        send_resolved: true
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+  - name: security-slack
+    slack_configs:
+      - channel: "#offcon-security"
+        send_resolved: true
+        title: '🔐 {{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+  - name: billing-slack
+    slack_configs:
+      - channel: "#offcon-billing"
+        send_resolved: true
+        title: '💳 {{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+  - name: growth-slack
+    slack_configs:
+      - channel: "#offcon-growth"
+        send_resolved: true
+        title: '📈 {{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_ROUTING_KEY}"
+        severity: critical
+        description: '{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        details:
+          service: '{{ .CommonLabels.service }}'
+          description: '{{ .CommonAnnotations.description }}'
+          runbook: '{{ .CommonAnnotations.runbook }}'

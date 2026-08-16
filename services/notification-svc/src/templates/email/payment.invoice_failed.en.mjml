@@ -1,0 +1,34 @@
+<mjml>
+  <mj-head>
+    <mj-title>We couldn't process your payment</mj-title>
+    <mj-attributes>
+      <mj-all font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" />
+      <mj-text color="#1a1a1a" font-size="15px" line-height="1.5" />
+      <mj-button background-color="#1d4ed8" color="#ffffff" font-weight="600" border-radius="6px" />
+    </mj-attributes>
+  </mj-head>
+  <mj-body background-color="#f6f7fb">
+    <mj-section background-color="#fff7ed" padding="16px 24px">
+      <mj-column>
+        <mj-text color="#9a3412" font-weight="600">Action required: update your payment method</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#ffffff" padding="24px">
+      <mj-column>
+        <mj-text font-size="20px" font-weight="700">Payment failed</mj-text>
+        <mj-text>
+          Hi {{username}}, we tried to charge your card for
+          {{formatCents amount_due_cents currency}} but the charge didn't go through.
+          To keep your access uninterrupted, please update your card.
+        </mj-text>
+        <mj-button href="{{billing_portal_url}}" padding="20px 0 4px">
+          Update payment method
+        </mj-button>
+        <mj-text padding-top="20px">
+          We'll retry automatically over the next few days. If the second retry
+          fails your subscription will pause until you fix it.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

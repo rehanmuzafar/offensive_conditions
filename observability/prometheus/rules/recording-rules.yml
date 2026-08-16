@@ -1,0 +1,78 @@
+# ============================================================================
+#  Recording rules — pre-aggregate expensive queries for dashboards + SLOs.
+#  Recorded series are cheaper to query than computing histograms on the fly.
+# ============================================================================
+groups:
+  - name: offcon-slo-recordings
+    interval: 30s
+    rules:
+      # Per-service request rate
+      - record: service:http_requests:rate5m
+        expr: sum by (service) (rate(http_requests_total[5m]))
+
+      # Per-service error rate (5xx ratio)
+      - record: service:http_errors:ratio5m
+        expr: |
+          sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum by (service) (rate(http_requests_total[5m]))
+
+      # Per-service availability (success ratio) — the SLI
+      - record: service:http_availability:ratio5m
+        expr: |
+          1 - (
+            sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum by (service) (rate(http_requests_total[5m]))
+          )
+
+      # Latency quantiles
+      - record: service:http_latency:p50_5m
+        expr: |
+          histogram_quantile(0.50,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+      - record: service:http_latency:p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+      - record: service:http_latency:p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+
+  - name: offcon-slo-burnrate
+    interval: 30s
+    rules:
+      # Error-budget burn rate for a 99.9% availability SLO.
+      # burn_rate = error_ratio / (1 - target). target = 0.999 → budget = 0.001
+      - record: service:error_budget_burn:1h
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status=~"5.."}[1h]))
+            /
+            sum by (service) (rate(http_requests_total[1h]))
+          ) / 0.001
+      - record: service:error_budget_burn:6h
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status=~"5.."}[6h]))
+            /
+            sum by (service) (rate(http_requests_total[6h]))
+          ) / 0.001
+
+  - name: offcon-business-recordings
+    interval: 60s
+    rules:
+      - record: offcon:active_instances:total
+        expr: sum(offcon_instances_active)
+      - record: offcon:spawn_success:ratio5m
+        expr: |
+          sum(rate(offcon_instance_spawn_total{result="success"}[5m]))
+          /
+          sum(rate(offcon_instance_spawn_total[5m]))
+      - record: offcon:flags_submitted:rate5m
+        expr: sum(rate(offcon_flag_submissions_total[5m]))
+      - record: offcon:signups:rate1h
+        expr: sum(rate(offcon_signups_total[1h]))
+      - record: offcon:mrr:cents
+        expr: sum(offcon_subscription_mrr_cents)

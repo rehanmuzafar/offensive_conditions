@@ -1,0 +1,289 @@
+# =============================================================================
+# East-West AuthorizationPolicy — service-to-service zero-trust
+# =============================================================================
+# Each service only accepts gRPC/HTTP from the specific callers that legitimately
+# need it. Identity is the SPIFFE principal Istio assigns each workload:
+#   cluster.local/ns/offcon/sa/<service-account>
+# A blanket default-deny is set first, then per-service allow rules.
+# =============================================================================
+---
+# Default deny-all inside offcon. Nothing talks to anything unless explicitly
+# allowed below. The ingressgateway principal is allowed broadly (it's the
+# front door and already passed edge authz).
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny-all
+  namespace: offcon
+spec:
+  {}   # empty spec = deny all by default for this namespace
+
+---
+# Allow the ingressgateway to reach every service (it's the public entry).
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-from-ingressgateway
+  namespace: offcon
+spec:
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+
+---
+# auth-svc: callable by ingressgateway (login) + ext_authz from gateway.
+# Also called by every service for token validation via gRPC.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: auth-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/user-svc
+              - cluster.local/ns/offcon/sa/content-svc
+              - cluster.local/ns/offcon/sa/ctf-svc
+              - cluster.local/ns/offcon/sa/forum-svc
+              - cluster.local/ns/offcon/sa/writeup-svc
+              - cluster.local/ns/offcon/sa/payment-svc
+              - cluster.local/ns/offcon/sa/notification-svc
+              - cluster.local/ns/offcon/sa/bounty-svc
+              - cluster.local/ns/offcon/sa/orchestrator
+              - cluster.local/ns/offcon/sa/scoring
+              - cluster.local/ns/offcon/sa/flag-verifier
+
+---
+# user-svc: HTTP from gateway + gRPC from services needing profile/tier lookups
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: user-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: user-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/scoring
+              - cluster.local/ns/offcon/sa/notification-svc
+              - cluster.local/ns/offcon/sa/forum-svc
+              - cluster.local/ns/offcon/sa/payment-svc
+              - cluster.local/ns/offcon/sa/bounty-svc
+              - cluster.local/ns/offcon/sa/ctf-svc
+
+---
+# scoring: gateway + flag-verifier (records solves) + ctf-svc
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: scoring-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scoring
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/flag-verifier
+              - cluster.local/ns/offcon/sa/ctf-svc
+              - cluster.local/ns/offcon/sa/content-svc
+
+---
+# flag-verifier: gateway + ctf-svc (challenge flag checks)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: flag-verifier-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flag-verifier
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/ctf-svc
+              - cluster.local/ns/offcon/sa/orchestrator
+
+---
+# orchestrator: gateway + content-svc (resolves machine specs)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: orchestrator-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/content-svc
+              - cluster.local/ns/offcon/sa/ctf-svc
+
+---
+# payment-svc: gateway + bounty-svc (payout requests)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: payment-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/bounty-svc
+              - cluster.local/ns/offcon/sa/user-svc
+
+---
+# notification-svc: gateway + every service that emits user notifications
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: notification-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/auth
+              - cluster.local/ns/offcon/sa/scoring
+              - cluster.local/ns/offcon/sa/payment-svc
+              - cluster.local/ns/offcon/sa/forum-svc
+              - cluster.local/ns/offcon/sa/writeup-svc
+              - cluster.local/ns/offcon/sa/ctf-svc
+              - cluster.local/ns/offcon/sa/bounty-svc
+
+---
+# bounty-svc: gateway + payment-svc (payout settlement callback via gRPC)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: bounty-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bounty-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/payment-svc
+              - cluster.local/ns/offcon/sa/content-svc
+
+---
+# content-svc, ctf-svc, forum-svc, writeup-svc: primarily gateway-fronted, plus
+# cross-references. Grouped allow for the simpler ones.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: content-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: content-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/orchestrator
+              - cluster.local/ns/offcon/sa/scoring
+              - cluster.local/ns/offcon/sa/bounty-svc
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ctf-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ctf-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/scoring
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: forum-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forum-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: writeup-svc-callers
+  namespace: offcon
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: writeup-svc
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/gateway-system/sa/istio-ingressgateway-service-account
+              - cluster.local/ns/offcon/sa/content-svc

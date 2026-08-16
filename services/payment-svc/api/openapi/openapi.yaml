@@ -1,0 +1,433 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions — Payment Service
+  version: 0.1.0
+  description: |
+    Stripe-backed billing: plans, subscriptions, invoices, refunds, coupons,
+    and webhook receivers. JWT-protected except for `/v1/plans*` and the
+    Stripe webhook endpoint.
+  contact:
+    name: Offensive Conditions Platform Team
+    email: platform@offensiveconditions.org
+
+servers:
+  - { url: https://api.offensiveconditions.org, description: Production }
+  - { url: http://localhost:8007, description: Local dev }
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: plans
+  - name: checkout
+  - name: me
+  - name: admin
+  - name: webhooks
+  - name: health
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: alive }
+
+  /readyz:
+    get:
+      tags: [health]
+      security: []
+      responses:
+        "200": { description: ready }
+        "503": { description: not ready }
+
+  /v1/plans:
+    get:
+      tags: [plans]
+      security: []
+      parameters:
+        - in: query
+          name: region
+          schema: { type: string, minLength: 2, maxLength: 2 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Plan" }
+
+  /v1/plans/{code}:
+    parameters:
+      - in: path
+        name: code
+        required: true
+        schema: { type: string }
+    get:
+      tags: [plans]
+      security: []
+      parameters:
+        - in: query
+          name: region
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+
+  /v1/checkout/session:
+    post:
+      tags: [checkout]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_code]
+              properties:
+                plan_code: { type: string }
+                coupon_code: { type: string, nullable: true }
+                return_url: { type: string, format: uri }
+                cancel_url: { type: string, format: uri }
+                provider:
+                  type: string
+                  enum: [stripe, jazzcash, easypaisa]
+                  default: stripe
+      responses:
+        "200":
+          description: Checkout session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id: { type: string }
+                  checkout_url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+
+  /v1/portal/session:
+    post:
+      tags: [checkout]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                return_url: { type: string, format: uri }
+      responses:
+        "200":
+          description: Portal URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  portal_url: { type: string, format: uri }
+
+  /v1/me/subscription:
+    get:
+      tags: [me]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: "#/components/schemas/Subscription" }
+                  - { type: "null" }
+
+  /v1/me/subscription/cancel:
+    post:
+      tags: [me]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cancellation_reason: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Cancellation scheduled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+
+  /v1/me/subscription/resume:
+    post:
+      tags: [me]
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+
+  /v1/me/invoices:
+    get:
+      tags: [me]
+      parameters:
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: limit, schema: { type: integer, default: 25 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Invoice" }
+                  meta:
+                    $ref: "#/components/schemas/PageMeta"
+
+  /v1/me/invoices/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [me]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+
+  /v1/coupons/redeem:
+    post:
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+                plan_code: { type: string }
+      responses:
+        "200":
+          description: Validation result (does not actually redeem yet — that happens on checkout)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  code: { type: string }
+                  discount_type: { type: string, nullable: true, enum: [percent, fixed, null] }
+                  discount_value: { type: number, nullable: true }
+                  message: { type: string }
+
+  /v1/admin/plans:
+    get:
+      tags: [admin]
+      parameters:
+        - { in: query, name: include_inactive, schema: { type: boolean, default: false } }
+        - { in: query, name: include_legacy, schema: { type: boolean, default: false } }
+      responses:
+        "200": { description: OK }
+    post:
+      tags: [admin]
+      responses:
+        "201": { description: Created }
+
+  /v1/admin/plans/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [admin]
+      responses:
+        "200": { description: Updated }
+
+  /v1/admin/subscriptions/{id}/cancel:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: Canceled immediately }
+
+  /v1/admin/refunds:
+    post:
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                transaction_id: { type: string, format: uuid }
+                invoice_id: { type: string, format: uuid }
+                amount_cents: { type: integer, minimum: 1 }
+                reason:
+                  type: string
+                  enum: [requested_by_customer, duplicate, fraudulent, service_issue]
+                notes: { type: string }
+      responses:
+        "201": { description: Refund issued }
+        "422": { description: Refund amount exceeds refundable balance }
+
+  /v1/admin/transactions:
+    get:
+      tags: [admin]
+      parameters:
+        - { in: query, name: user_id, schema: { type: string, format: uuid } }
+        - { in: query, name: provider_txn_id, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: type, schema: { type: string } }
+        - { in: query, name: from, schema: { type: string, format: date-time } }
+        - { in: query, name: to, schema: { type: string, format: date-time } }
+        - { in: query, name: limit, schema: { type: integer, default: 25 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+      responses:
+        "200": { description: OK }
+
+  /v1/admin/users/{userId}/revenue:
+    parameters:
+      - { in: path, name: userId, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      responses:
+        "200":
+          description: Lifetime revenue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_charges_cents: { type: integer }
+                  total_refunds_cents: { type: integer }
+                  net_cents: { type: integer }
+                  currency: { type: string }
+
+  /v1/admin/coupons:
+    post:
+      tags: [admin]
+      responses:
+        "201": { description: Coupon created (in Stripe + local) }
+
+  /webhooks/stripe:
+    post:
+      tags: [webhooks]
+      security: []
+      description: |
+        Stripe webhook endpoint. The body must be the raw bytes Stripe sent —
+        do not re-serialize. Signature header `Stripe-Signature` is required.
+      parameters:
+        - in: header
+          name: Stripe-Signature
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Stripe event envelope (verbatim).
+      responses:
+        "200": { description: Received }
+        "400": { description: Invalid signature or duplicate }
+        "500": { description: Processing failure (Stripe will retry) }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Plan:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        tier: { type: string }
+        billing_cycle: { type: string }
+        base_price_cents: { type: integer }
+        currency: { type: string }
+        regional_price_cents: { type: integer, nullable: true }
+        regional_currency: { type: string, nullable: true }
+        features:
+          type: array
+          items: { type: string }
+        max_concurrent_instances: { type: integer, nullable: true }
+        max_daily_spawns: { type: integer, nullable: true }
+        is_active: { type: boolean }
+        is_legacy: { type: boolean }
+
+    Subscription:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        plan_id: { type: string, format: uuid }
+        plan_code: { type: string }
+        provider: { type: string }
+        status: { type: string }
+        trial_start_at: { type: string, format: date-time, nullable: true }
+        trial_end_at: { type: string, format: date-time, nullable: true }
+        current_period_start: { type: string, format: date-time }
+        current_period_end: { type: string, format: date-time }
+        cancel_at_period_end: { type: boolean }
+        canceled_at: { type: string, format: date-time, nullable: true }
+        cancellation_reason: { type: string, nullable: true }
+        ended_at: { type: string, format: date-time, nullable: true }
+        price_cents_at_signup: { type: integer }
+        currency_at_signup: { type: string }
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        subscription_id: { type: string, format: uuid, nullable: true }
+        number: { type: string, nullable: true }
+        status: { type: string }
+        amount_due_cents: { type: integer }
+        amount_paid_cents: { type: integer }
+        total_cents: { type: integer }
+        currency: { type: string }
+        period_start: { type: string, format: date-time, nullable: true }
+        period_end: { type: string, format: date-time, nullable: true }
+        due_at: { type: string, format: date-time, nullable: true }
+        paid_at: { type: string, format: date-time, nullable: true }
+        hosted_invoice_url: { type: string, format: uri, nullable: true }
+        invoice_pdf_url: { type: string, format: uri, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    PageMeta:
+      type: object
+      properties:
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }

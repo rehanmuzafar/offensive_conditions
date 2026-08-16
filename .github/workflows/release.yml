@@ -1,0 +1,165 @@
+# ============================================================================
+#  Build & Release — on push to main (and tags), build the changed services'
+#  images, scan them, push to GHCR, then bump the image tags in the GitOps
+#  values so ArgoCD picks up the new versions. This is the CD half: CI proves
+#  correctness, this ships artifacts + updates desired state.
+# ============================================================================
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # to commit the GitOps tag bump
+  packages: write   # to push images to GHCR
+  id-token: write   # for keyless signing (cosign)
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/offcon
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+      any: ${{ steps.set.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            auth: [ 'services/auth/**' ]
+            orchestrator: [ 'services/orchestrator/**' ]
+            scoring: [ 'services/scoring/**' ]
+            flag-verifier: [ 'services/flag-verifier/**' ]
+            user-svc: [ 'services/user-svc/**' ]
+            content-svc: [ 'services/content-svc/**' ]
+            ctf-svc: [ 'services/ctf-svc/**' ]
+            forum-svc: [ 'services/forum-svc/**' ]
+            writeup-svc: [ 'services/writeup-svc/**' ]
+            bounty-svc: [ 'services/bounty-svc/**' ]
+            payment-svc: [ 'services/payment-svc/**' ]
+            notification-svc: [ 'services/notification-svc/**' ]
+            frontend: [ 'frontend/**' ]
+      - name: Build matrix from changed services
+        id: set
+        run: |
+          # On a tag, build everything; otherwise only changed services.
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            svcs='["auth","orchestrator","scoring","flag-verifier","user-svc","content-svc","ctf-svc","forum-svc","writeup-svc","bounty-svc","payment-svc","notification-svc","frontend"]'
+          else
+            svcs='[]'
+            for s in auth orchestrator scoring flag-verifier user-svc content-svc ctf-svc forum-svc writeup-svc bounty-svc payment-svc notification-svc frontend; do
+              if [[ "${{ steps.filter.outputs[s] }}" == "true" ]]; then
+                svcs=$(echo "$svcs" | jq -c ". + [\"$s\"]")
+              fi
+            done
+          fi
+          echo "matrix=$(jq -c -n --argjson s "$svcs" '{service:$s}')" >> "$GITHUB_OUTPUT"
+          echo "any=$([ "$svcs" != "[]" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.changes.outputs.matrix) }}
+    outputs:
+      sha: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # frontend lives at repo root; services under services/
+      - name: Resolve build context
+        id: ctx
+        run: |
+          if [[ "${{ matrix.service }}" == "frontend" ]]; then
+            echo "context=frontend" >> "$GITHUB_OUTPUT"
+          else
+            echo "context=services/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build & push
+        id: bp
+        uses: ./cicd/github/actions/build-push
+        with:
+          service: ${{ matrix.service }}
+          context: ${{ steps.ctx.outputs.context }}
+          image-name: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          push: "true"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan pushed image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.bp.outputs.digest }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload image scan
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: image-${{ matrix.service }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        run: |
+          cosign sign --yes \
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.bp.outputs.digest }}
+
+  # --------------------------------------------------------------------------
+  # Bump image tags in the GitOps repo so ArgoCD deploys the new SHAs.
+  # On main → staging values. On a vX.Y.Z tag → production values.
+  # --------------------------------------------------------------------------
+  bump-gitops:
+    needs: [changes, build]
+    if: needs.changes.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Determine target env file
+        id: target
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "file=cicd/helm/values/production.yaml" >> "$GITHUB_OUTPUT"
+          else
+            echo "file=cicd/helm/values/staging.yaml" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Bump tags for changed services
+        run: |
+          SHA="${{ github.sha }}"
+          FILE="${{ steps.target.outputs.file }}"
+          for s in $(echo '${{ needs.changes.outputs.matrix }}' | jq -r '.service[]'); do
+            echo "Setting $s.image.tag = sha-$SHA in $FILE"
+            yq -i ".\"$s\".image.tag = \"sha-$SHA\"" "$FILE"
+          done
+      - name: Commit & push
+        run: |
+          git config user.name  "offcon-ci[bot]"
+          git config user.email "ci@offensiveconditions.org"
+          git add cicd/helm/values/*.yaml
+          if git diff --cached --quiet; then
+            echo "No tag changes to commit."
+          else
+            git commit -m "ci: bump image tags to ${{ github.sha }} [skip ci]"
+            git push
+          fi

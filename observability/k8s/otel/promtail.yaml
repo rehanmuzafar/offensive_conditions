@@ -1,0 +1,49 @@
+# ============================================================================
+#  Promtail — DaemonSet tailing pod logs on every node → Loki.
+# ============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: observability
+spec:
+  selector:
+    matchLabels: { app: promtail }
+  template:
+    metadata:
+      labels: { app: promtail, tier: observability }
+    spec:
+      serviceAccountName: promtail
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      containers:
+        - name: promtail
+          image: grafana/promtail:3.3.2
+          args: ["-config.file=/etc/promtail/promtail-config.yml"]
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+          ports:
+            - { name: http, containerPort: 9080 }
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "200m", memory: "256Mi" }
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsUser: 0
+          volumeMounts:
+            - { name: config, mountPath: /etc/promtail }
+            - { name: run, mountPath: /run/promtail }
+            - { name: pods, mountPath: /var/log/pods, readOnly: true }
+            - { name: journal, mountPath: /var/log/journal, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: promtail-config }
+        - name: run
+          hostPath: { path: /run/promtail }
+        - name: pods
+          hostPath: { path: /var/log/pods }
+        - name: journal
+          hostPath: { path: /var/log/journal }

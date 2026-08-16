@@ -1,0 +1,284 @@
+openapi: 3.0.3
+info:
+  title: Offensive Conditions Lab Orchestrator
+  description: |
+    Spawns, manages, and tears down lab instances for cybersecurity training.
+    Backends: Kubernetes (Linux containers) and Proxmox (KVM VMs).
+  version: 0.1.0
+  contact:
+    name: Offensive Conditions
+servers:
+  - url: https://orchestrator.offensiveconditions.org
+    description: Production
+  - url: http://localhost:8002
+    description: Local development
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: QUOTA_EXCEEDED
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    SpawnRequest:
+      type: object
+      required: [machine_slug]
+      properties:
+        machine_slug:
+          type: string
+          example: lame
+        ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+    SpawnResponse:
+      type: object
+      properties:
+        instance_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [pending, spawning, running, failed, terminating, terminated, expired]
+        expires_at:
+          type: string
+          format: date-time
+        ip_address:
+          type: string
+        subnet:
+          type: string
+    Instance:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        machine_id: { type: string, format: uuid }
+        machine_slug: { type: string }
+        backend: { type: string, enum: [kubernetes, proxmox] }
+        state:
+          type: string
+          enum: [pending, spawning, running, failed, terminating, terminated, expired]
+        ip_address: { type: string }
+        subnet: { type: string }
+        health_status: { type: string, enum: [ok, unhealthy, unknown] }
+        started_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time }
+        extensions_used: { type: integer }
+        failure_reason: { type: string }
+        created_at: { type: string, format: date-time }
+    FlagSubmitRequest:
+      type: object
+      required: [machine_slug, flag_type, flag]
+      properties:
+        machine_slug: { type: string }
+        instance_id: { type: string, format: uuid, nullable: true }
+        flag_type: { type: string, enum: [user, root] }
+        flag:
+          type: string
+          example: "OFFCON{ABCDEFGHIJKLMNOPQRSTUVWXYZ}"
+    FlagSubmitResponse:
+      type: object
+      properties:
+        correct: { type: boolean }
+        already_solved: { type: boolean }
+        points_awarded: { type: integer }
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { $ref: '#/components/schemas/Error' }
+    QuotaExceeded:
+      description: User exceeded quota
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { $ref: '#/components/schemas/Error' }
+
+security:
+  - BearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        '200': { description: Alive }
+  /readyz:
+    get:
+      summary: Readiness probe
+      security: []
+      responses:
+        '200': { description: Ready }
+        '503': { description: Degraded }
+  /v1/instances:
+    post:
+      summary: Spawn a new lab instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpawnRequest' }
+      responses:
+        '202':
+          description: Spawn accepted; poll GET /v1/instances/{id}
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SpawnResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402': { $ref: '#/components/responses/QuotaExceeded' }
+        '403':
+          description: Tier insufficient
+        '404':
+          description: Machine not found
+        '503':
+          description: Capacity exhausted
+  /v1/instances/active:
+    get:
+      summary: List the caller's active instances
+      responses:
+        '200':
+          description: List of active instances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instances:
+                    type: array
+                    items: { $ref: '#/components/schemas/Instance' }
+  /v1/instances/{id}:
+    get:
+      summary: Get an instance
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Instance details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Instance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Terminate an instance
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202':
+          description: Terminating
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/instances/{id}/extend:
+    post:
+      summary: Extend instance TTL
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: New expiration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expires_at: { type: string, format: date-time }
+        '402':
+          description: Max extensions reached
+  /v1/instances/{id}/reset:
+    post:
+      summary: Reset instance to clean state (Proxmox only; K8s returns 409)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Resetting }
+        '409': { description: Backend does not support reset }
+  /v1/instances/{id}/logs:
+    get:
+      summary: Get recent stdout/stderr from the instance
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: tail, in: query, required: false, schema: { type: integer, default: 200, maximum: 2000 } }
+      responses:
+        '200':
+          description: Log lines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items: { type: string }
+  /v1/flags/submit:
+    post:
+      summary: Submit a flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FlagSubmitRequest' }
+      responses:
+        '200':
+          description: Flag verification result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlagSubmitResponse' }
+  /v1/admin/capacity:
+    get:
+      summary: Get cluster capacity snapshot (admin only)
+      responses:
+        '200':
+          description: Capacity per backend+node
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  capacity:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        backend: { type: string }
+                        node: { type: string }
+                        total_cpu_millis: { type: integer }
+                        used_cpu_millis: { type: integer }
+                        total_mem_mb: { type: integer }
+                        used_mem_mb: { type: integer }
+                        instances_running: { type: integer }
+                        instances_max: { type: integer }
+                        updated_at: { type: string, format: date-time }
+        '403':
+          description: Admin role required
+  /v1/admin/instances/{id}/force-kill:
+    post:
+      summary: Bypass ownership check and forcibly terminate (admin only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Terminating }

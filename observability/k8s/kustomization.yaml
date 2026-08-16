@@ -1,0 +1,76 @@
+# ============================================================================
+#  Kustomize entrypoint for the entire observability stack.
+#
+#  Deploy:  kubectl apply -k k8s/
+#
+#  ConfigMaps are generated from the real config files (single source of truth —
+#  no copy-paste drift between the docker-compose config and the K8s config).
+#  Secrets are referenced but NOT created here; create them out-of-band or via
+#  sealed-secrets / external-secrets (see docs/SECRETS.md).
+# ============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - namespace-rbac.yaml
+  - prometheus/prometheus.yaml
+  - grafana/grafana.yaml
+  - loki/loki.yaml
+  - tempo/tempo.yaml
+  - alertmanager/alertmanager.yaml
+  - otel/otel-collector.yaml
+  - otel/promtail.yaml
+
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus.yml=../prometheus/prometheus.yml
+  - name: prometheus-rules
+    files:
+      - ../prometheus/rules/service-alerts.yml
+      - ../prometheus/rules/infra-business-alerts.yml
+      - ../prometheus/rules/recording-rules.yml
+  - name: grafana-datasources
+    files:
+      - datasources.yml=../grafana/provisioning/datasources/datasources.yml
+  - name: grafana-dashboard-provider
+    files:
+      - dashboards.yml=../grafana/provisioning/dashboards/dashboards.yml
+  - name: grafana-dashboards
+    files:
+      - ../grafana/dashboards/platform-overview.json
+      - ../grafana/dashboards/service-red.json
+      - ../grafana/dashboards/business-kpis.json
+  - name: loki-config
+    files:
+      - loki-config.yml=../loki/loki-config.yml
+  - name: tempo-config
+    files:
+      - tempo-config.yml=../tempo/tempo-config.yml
+  - name: alertmanager-config
+    files:
+      - alertmanager.yml=../alertmanager/alertmanager.yml
+  - name: alertmanager-templates
+    files:
+      - slack.tmpl=../alertmanager/templates/slack.tmpl
+  - name: otel-collector-config
+    files:
+      - otel-collector-config.yml=../otel-collector/otel-collector-config.yml
+  - name: promtail-config
+    files:
+      - promtail-config.yml=../promtail/promtail-config.yml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: prom/prometheus
+    newTag: v3.0.1
+  - name: grafana/grafana
+    newTag: 11.4.0
+  - name: grafana/loki
+    newTag: 3.3.2
+  - name: grafana/tempo
+    newTag: 2.6.1

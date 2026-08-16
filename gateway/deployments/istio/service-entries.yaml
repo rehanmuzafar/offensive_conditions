@@ -1,0 +1,115 @@
+# =============================================================================
+# ServiceEntry — register out-of-mesh + external dependencies
+# =============================================================================
+# The data namespace (postgres, redis, kafka, minio) isn't mesh-injected, and
+# external SaaS (Stripe, Resend, SendGrid) lives off-cluster. We register them
+# as ServiceEntries so sidecars know how to route + apply egress policy.
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: data-plane-postgres
+  namespace: offcon
+spec:
+  hosts:
+    - pg-primary.data.svc.cluster.local
+    - pg-replica.data.svc.cluster.local
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 5432, name: postgres, protocol: TCP }
+  resolution: DNS
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: data-plane-redis
+  namespace: offcon
+spec:
+  hosts:
+    - redis-primary.data.svc.cluster.local
+    - redis-ratelimit.data.svc.cluster.local
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 6379, name: redis, protocol: TCP }
+  resolution: DNS
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: data-plane-kafka
+  namespace: offcon
+spec:
+  hosts:
+    - kafka-0.kafka.data.svc.cluster.local
+    - kafka-1.kafka.data.svc.cluster.local
+    - kafka-2.kafka.data.svc.cluster.local
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 9093, name: kafka-tls, protocol: TCP }
+  resolution: DNS
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: data-plane-minio
+  namespace: offcon
+spec:
+  hosts:
+    - minio.data.svc.cluster.local
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 9000, name: minio, protocol: TCP }
+  resolution: DNS
+
+---
+# External SaaS — Stripe API (payment-svc egress)
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: ext-stripe
+  namespace: offcon
+spec:
+  hosts:
+    - api.stripe.com
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 443, name: https, protocol: TLS }
+  resolution: DNS
+
+---
+# External SaaS — email providers (notification-svc egress)
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: ext-email-providers
+  namespace: offcon
+spec:
+  hosts:
+    - api.resend.com
+    - api.sendgrid.com
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 443, name: https, protocol: TLS }
+  resolution: DNS
+
+---
+# Outbound webhook delivery (notification-svc) — wildcard egress is risky, so
+# we route it through a dedicated egress gateway with its own policy. The
+# ServiceEntry here just permits HTTPS broadly; the egress gateway + the
+# service's own SSRF guard (validateWebhookUrl) constrain destinations.
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: ext-customer-webhooks
+  namespace: offcon
+spec:
+  hosts:
+    - "*.webhook-targets.offcon-egress.io"   # placeholder; in prod use a real allowlist
+  location: MESH_EXTERNAL
+  ports:
+    - { number: 443, name: https, protocol: TLS }
+  resolution: DNS
