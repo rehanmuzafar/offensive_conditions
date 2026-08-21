@@ -14,6 +14,11 @@ observability, and CI/CD — all in one monorepo.
 
 ## Quick start
 
+> **New here? Read [`SETUP.md`](SETUP.md).** It covers the whole workflow —
+> first run, what to do after every pull, how secrets are handled, and the two
+> rules (migration numbering, and always building the frontend through compose)
+> that stop us breaking each other's checkouts.
+
 One command, from a fresh clone:
 
 ```bash
