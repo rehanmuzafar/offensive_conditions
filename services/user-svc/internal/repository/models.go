@@ -31,6 +31,11 @@ type Profile struct {
 	PersonalSiteURL    string
 	Privacy            PrivacySettings
 	OnboardingComplete bool
+	// Which audience this account belongs to: "hacker", "company", or "" when
+	// the onboarding question has not been asked yet. See users/0007.
+	AccountType        string
+	CompanyName        string
+	CompanyWebsite     string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	LastSeenAt         *time.Time
@@ -76,11 +81,19 @@ type Team struct {
 }
 
 type TeamMembership struct {
-	TeamID   uuid.UUID  `json:"team_id"`
-	UserID   uuid.UUID  `json:"user_id"`
-	Role     string     `json:"role"` // captain | member
-	JoinedAt time.Time  `json:"joined_at"`
-	LeftAt   *time.Time `json:"left_at"`
+	TeamID uuid.UUID `json:"team_id"`
+	UserID uuid.UUID `json:"user_id"`
+	Role   string    `json:"role"` // captain | member
+	// Joined from users.profiles. Membership stores only ids, so every caller
+	// that wanted to show a roster was left printing a uuid — the CTF roster
+	// screen showed "07addb04" where a name belonged. One join here fixes it
+	// for all of them; the alternative was a lookup per row in each caller.
+	Username    string     `json:"username"`
+	DisplayName string     `json:"display_name"`
+	AvatarURL   string     `json:"avatar_url"`
+	CountryCode string     `json:"country_code"`
+	JoinedAt    time.Time  `json:"joined_at"`
+	LeftAt      *time.Time `json:"left_at"`
 }
 
 type TeamInvitation struct {

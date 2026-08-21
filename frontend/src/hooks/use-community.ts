@@ -79,6 +79,42 @@ export function useCtfRegister(slug: string) {
       toast.error(err instanceof Error ? err.message : "Couldn't register. Try again."),
   });
 }
+/**
+ * Unlock a hint — for real.
+ *
+ * The board revealed hints locally, which meant no point deduction was ever
+ * charged and nothing was recorded. Worse, when the server had not sent the
+ * text (it withholds it until unlock, by design) the UI substituted a canned
+ * sentence, so players were shown an invented hint as though it were the
+ * author's. This goes to the endpoint and shows only what comes back.
+ */
+export function useUnlockHint(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ challengeId, hintId }: { challengeId: string; hintId: string }) =>
+      ctfApi.unlockHint(slug, challengeId, hintId),
+    onSuccess: (res, { challengeId }) => {
+      void challengeId;
+      // The deduction lands on the scoreboard and on the challenge's points.
+      qc.invalidateQueries({ queryKey: ["ctf-challenges", slug] });
+      qc.invalidateQueries({ queryKey: ["ctf-scoreboard", slug] });
+      toast.info(`Hint unlocked — ${res.point_deduction} pts deducted.`);
+    },
+    onError: (err: unknown) => {
+      /* 409 means this participant already paid for it. Now that the challenge
+         payload carries the text of unlocked hints, refetching is the fix — the
+         hint opens instead of reporting a failure the player cannot act on. */
+      const status = (err as { status?: number } | null)?.status;
+      if (status === 409) {
+        qc.invalidateQueries({ queryKey: ["ctf-challenges", slug] });
+        toast.info("Already unlocked — reloading it.");
+        return;
+      }
+      toast.error("Could not unlock that hint.");
+    },
+  });
+}
+
 export function useSubmitChallengeFlag(slug: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -178,5 +214,42 @@ export function useMyParticipation(eventId: string | undefined) {
     enabled: Boolean(eventId),
     retry: false,
     queryFn: () => ctfApi.myParticipation(eventId as string),
+  });
+}
+
+/* ---- per-team challenge instances ---------------------------------------
+   Keyed on the challenge alone, not on the viewer: the instance belongs to the
+   team, so every teammate reads and writes the same cache entry — which is
+   also what lets the socket invalidate it for all of them at once.
+   ------------------------------------------------------------------------ */
+
+export function useChallengeInstance(slug: string, challengeId: string | undefined) {
+  return useQuery({
+    queryKey: ["ctf-instance", challengeId],
+    enabled: Boolean(slug && challengeId),
+    retry: false,
+    queryFn: () => ctfApi.getInstance(slug, challengeId as string),
+  });
+}
+
+export function useSpawnInstance(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (challengeId: string) => ctfApi.spawnInstance(slug, challengeId),
+    onSuccess: (inst) => {
+      // Seed the cache from the response rather than refetching: the address is
+      // the one thing the player is waiting for.
+      qc.setQueryData(["ctf-instance", inst.challengeId], inst);
+    },
+  });
+}
+
+export function useStopInstance(slug: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (challengeId: string) => ctfApi.stopInstance(slug, challengeId),
+    onSuccess: (_res, challengeId) => {
+      qc.setQueryData(["ctf-instance", challengeId], null);
+    },
   });
 }

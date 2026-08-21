@@ -345,8 +345,16 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         </div>
 
         <div>
-          <label className={label}>Rules (markdown)</label>
-          <textarea className={`${field} h-24 py-2`} value={rules} onChange={(e) => setRules(e.target.value)} placeholder={"1. No attacking the platform.\n2. No flag sharing."} />
+          {/* Stored as `rules_markdown` — the column predates this use and
+              renaming it needs a migration. Every human-facing label says
+              "About", which is what it actually holds. */}
+          <label className={label}>About this event (markdown)</label>
+          <textarea
+            className={`${field} h-40 py-2`}
+            value={rules}
+            onChange={(e) => setRules(e.target.value)}
+            placeholder={"What the event is, who it is for, how scoring works, any rules players need to know."}
+          />
         </div>
 
         <div className="flex justify-end gap-2">

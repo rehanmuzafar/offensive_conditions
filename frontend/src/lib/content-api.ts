@@ -44,6 +44,12 @@ interface ApiTag {
 }
 
 interface ApiMachine {
+  delivery?: "spawn" | "static_host" | "download";
+  static_host?: string | null;
+  download_url?: string | null;
+  download_sha256?: string | null;
+  download_size_bytes?: number | null;
+  download_format?: string | null;
   id: string;
   slug: string;
   name: string;
@@ -165,6 +171,12 @@ function mapMachine(m: ApiMachine): Machine {
     isFree: m.required_tier === "free",
     releasedAt: m.released_at,
     retiresAt: m.retired_at ?? null,
+    delivery: m.delivery ?? "spawn",
+    staticHost: m.static_host ?? null,
+    downloadUrl: m.download_url ?? null,
+    downloadSha256: m.download_sha256 ?? null,
+    downloadSizeBytes: m.download_size_bytes ?? null,
+    downloadFormat: m.download_format ?? null,
     tags: (m.tags ?? []).map((t) => t.name),
     makers: [],
     thumbnailColor: m.tags?.[0]?.color ?? colorFromSlug(m.slug),
@@ -243,8 +255,15 @@ function mapPage<R, T>(p: ApiPage<R>, fn: (r: R) => T): Paginated<T> {
 /* ---------------------------------- api ----------------------------------- */
 
 export const contentApi = {
-  listMachines: async (query: MachineQuery = {}): Promise<Paginated<Machine>> =>
-    mapPage(await api.get<ApiPage<ApiMachine>>("/v1/machines", { params: { ...query } }), mapMachine),
+  /* content-svc calls the text filter `search`; sending `q` meant it was
+     silently ignored and every "search" returned the unfiltered first page. */
+  listMachines: async ({ q, ...query }: MachineQuery = {}): Promise<Paginated<Machine>> =>
+    mapPage(
+      await api.get<ApiPage<ApiMachine>>("/v1/machines", {
+        params: { ...query, search: q || undefined },
+      }),
+      mapMachine,
+    ),
 
   getMachine: async (slug: string): Promise<MachineDetail> =>
     mapMachineDetail(await api.get<ApiMachine>(`/v1/machines/by-slug/${slug}`)),
@@ -312,21 +331,65 @@ export const trackApi = {
   enroll: (slug: string) => api.post<void>(`/v1/paths/by-slug/${slug}/enroll`),
 };
 
+/** The orchestrator's wire shape. Snake case, and its own field names. */
+interface ApiInstance {
+  id: string;
+  machine_id: string;
+  machine_slug: string;
+  state: string;
+  ip_address?: string | null;
+  started_at?: string | null;
+  expires_at?: string | null;
+  health_status?: string | null;
+  failure_reason?: string | null;
+}
+
+function mapInstance(i: ApiInstance): Instance {
+  return {
+    id: i.id,
+    machineId: i.machine_id,
+    machineName: i.machine_slug,
+    state: (i.state as Instance["state"]) ?? "queued",
+    ipAddress: i.ip_address ?? null,
+    spawnedAt: i.started_at ?? null,
+    expiresAt: i.expires_at ?? null,
+    // The orchestrator reports a state, not a percentage; the bar is a
+    // stand-in for "still coming up" rather than real progress.
+    provisionProgress: i.state === "running" ? 100 : i.state === "provisioning" ? 60 : 0,
+  };
+}
+
 export const labApi = {
-  // The orchestrator exposes the caller's running instances at
-  // /v1/instances/active; a bare GET /v1/instances is not a route.
-  listInstances: () => api.get<Instance[]>("/v1/instances/active"),
+  /**
+   * The caller's running instances.
+   *
+   * Two mismatches lived here and together they crashed every machine page.
+   * The orchestrator answers `{ "instances": [...] }`, not a bare array, so
+   * `instances.find(...)` in the launcher ran against an object and threw. And
+   * the payload is snake_case with its own names — `machine_id`, `started_at` —
+   * so even unwrapped, every field read as undefined.
+   */
+  listInstances: async (): Promise<Instance[]> => {
+    const res = await api.get<{ instances: ApiInstance[] | null }>("/v1/instances/active");
+    return (res.instances ?? []).map(mapInstance);
+  },
 
-  spawn: (machineId: string) =>
-    api.post<Instance>("/v1/instances", { body: { machineId } }),
+  /** Spawning is by slug: `POST /instances` binds `machine_slug`, not an id. */
+  spawn: async (machineSlug: string): Promise<Instance> =>
+    mapInstance(
+      await api.post<ApiInstance>("/v1/instances", { body: { machine_slug: machineSlug } }),
+    ),
 
-  getInstance: (id: string) => api.get<Instance>(`/v1/instances/${id}`),
+  getInstance: async (id: string): Promise<Instance> =>
+    mapInstance(await api.get<ApiInstance>(`/v1/instances/${id}`)),
 
   stop: (id: string) => api.delete<void>(`/v1/instances/${id}`),
 
-  extend: (id: string) => api.post<Instance>(`/v1/instances/${id}/extend`),
+  extend: async (id: string): Promise<Instance> =>
+    mapInstance(await api.post<ApiInstance>(`/v1/instances/${id}/extend`)),
 
-  reset: (id: string) => api.post<Instance>(`/v1/instances/${id}/reset`),
+  reset: async (id: string): Promise<Instance> =>
+    mapInstance(await api.post<ApiInstance>(`/v1/instances/${id}/reset`)),
 
   submitFlag: (machineId: string, flag: string, kind: FlagKind) =>
     api.post<FlagSubmitResult>("/v1/flag/submit", {

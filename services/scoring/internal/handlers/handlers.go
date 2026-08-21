@@ -205,6 +205,15 @@ func NewLeaderboardHandler(m *leaderboard.Manager, pool *pgxpool.Pool, log zerol
 // by joining the user's identity (auth.users), profile (users.profiles) and
 // score metadata (scoring.user_scores). One query for the whole page — no N+1.
 func (h *LeaderboardHandler) enrich(ctx context.Context, entries []leaderboard.Entry) []gin.H {
+	return h.enrichForSeason(ctx, entries, "")
+}
+
+// enrichForSeason is enrich, scoped to one season when seasonID is set.
+//
+// The all-time board reads scoring.user_scores; a season board has to read
+// scoring.season_user_scores, or the Season tab shows career totals beside
+// season points and quietly contradicts itself.
+func (h *LeaderboardHandler) enrichForSeason(ctx context.Context, entries []leaderboard.Entry, seasonID string) []gin.H {
 	out := make([]gin.H, 0, len(entries))
 	if len(entries) == 0 {
 		return out
@@ -216,22 +225,51 @@ func (h *LeaderboardHandler) enrich(ctx context.Context, entries []leaderboard.E
 	type disp struct {
 		username, displayName, avatarURL, country, tier string
 		ownedMachines, solvedChallenges                 int
+		// The landing ladder shows firsts and streak beside the points; both
+		// already sit on user_scores, so they cost nothing to carry here and
+		// would otherwise need a second round trip per row.
+		firstBloods, streakDays int
+		// Validated bug reports. Counted here rather than fetched per row: the
+		// alternative is one request per player on the most-read page.
+		acceptedBugs int
 	}
 	info := make(map[uuid.UUID]disp, len(ids))
 	if h.pool != nil {
+		// Season boards take their counters from the season row; the all-time
+		// board takes them from the career row. $2 is empty for all-time.
 		const q = `
 			SELECT u.id, u.username,
 			       COALESCE(p.display_name, u.username) AS display_name,
 			       COALESCE(p.avatar_url, '')           AS avatar_url,
-			       COALESCE(s.country_code, '')         AS country,
+			       -- The profile is where a player actually sets this; scoring
+			       -- keeps its own copy for country boards and nothing fills it
+			       -- in, so reading only that showed every row as unknown.
+			       COALESCE(NULLIF(s.country_code, ''), NULLIF(p.country_code, ''), '') AS country,
 			       COALESCE(s.rank_tier, '')            AS tier,
-			       COALESCE(s.machines_owned, 0)        AS owned_machines,
-			       COALESCE(s.challenges_solved, 0)     AS solved_challenges
+			       COALESCE(CASE WHEN $2 <> '' THEN ss.machines_owned    ELSE s.machines_owned    END, 0) AS owned_machines,
+			       COALESCE(CASE WHEN $2 <> '' THEN ss.challenges_solved ELSE s.challenges_solved END, 0) AS solved_challenges,
+			       COALESCE(CASE WHEN $2 <> '' THEN ss.first_bloods      ELSE s.first_bloods      END, 0) AS first_bloods,
+			       COALESCE(s.current_streak_days, 0)   AS streak_days,
+			       -- Bugs that were actually taken, at a severity that means
+			       -- something. submitted and triaging have not been judged
+			       -- yet; rejected, duplicate and closed were not taken; and an
+			       -- informational finding is a note, not a bug — a board that
+			       -- counted those would reward volume over signal.
+			       -- (No backticks in here: this whole query is a Go raw string,
+			       -- and one would close it mid-comment.)
+			       (SELECT COUNT(*) FROM bounty.reports r
+			         WHERE r.researcher_id = u.id
+			           AND r.state IN ('accepted', 'resolved', 'paid')
+			           AND r.severity IN ('low', 'medium', 'high', 'critical')
+			       )                                    AS accepted_bugs
 			FROM auth.users u
 			LEFT JOIN users.profiles p     ON p.user_id = u.id
 			LEFT JOIN scoring.user_scores s ON s.user_id = u.id
+			LEFT JOIN scoring.season_user_scores ss
+			       ON ss.user_id = u.id
+			      AND $2 <> '' AND ss.season_id = NULLIF($2, '')::uuid
 			WHERE u.id = ANY($1)`
-		rows, err := h.pool.Query(ctx, q, ids)
+		rows, err := h.pool.Query(ctx, q, ids, seasonID)
 		if err != nil {
 			h.log.Warn().Err(err).Msg("leaderboard enrich query failed")
 		} else {
@@ -239,7 +277,11 @@ func (h *LeaderboardHandler) enrich(ctx context.Context, entries []leaderboard.E
 			for rows.Next() {
 				var id uuid.UUID
 				var d disp
-				if err := rows.Scan(&id, &d.username, &d.displayName, &d.avatarURL, &d.country, &d.tier, &d.ownedMachines, &d.solvedChallenges); err == nil {
+				if err := rows.Scan(
+					&id, &d.username, &d.displayName, &d.avatarURL, &d.country, &d.tier,
+					&d.ownedMachines, &d.solvedChallenges, &d.firstBloods, &d.streakDays,
+					&d.acceptedBugs,
+				); err == nil {
 					info[id] = d
 				}
 			}
@@ -264,6 +306,9 @@ func (h *LeaderboardHandler) enrich(ctx context.Context, entries []leaderboard.E
 			"tier":              emptyToNil(d.tier),
 			"owned_machines":    d.ownedMachines,
 			"solved_challenges": d.solvedChallenges,
+			"first_bloods":      d.firstBloods,
+			"streak_days":       d.streakDays,
+			"accepted_bugs":     d.acceptedBugs,
 		})
 	}
 	return out
@@ -323,7 +368,7 @@ func (h *LeaderboardHandler) season(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"scope":   "season",
 		"season_id": id,
-		"entries": h.enrich(c.Request.Context(), entries),
+		"entries": h.enrichForSeason(c.Request.Context(), entries, id),
 		"limit":   limit,
 		"offset":  offset,
 	})

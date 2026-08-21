@@ -13,10 +13,18 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useAuthStore } from "@/stores/auth-store";
+import { useLiveFeedStore } from "@/stores/live-feed-store";
 
 type LiveMessage = {
   type: string;
   challenge_id?: string;
+  challenge_name?: string;
+  // The server resolves the player's name before broadcasting, so the feed
+  // never has to turn a uuid into something readable.
+  player_name?: string;
+  team_name?: string | null;
+  is_first_blood?: boolean;
+  points_awarded?: number;
 };
 
 /** Same-origin ws:///wss:// URL — /api is proxied to the gateway. */
@@ -64,6 +72,29 @@ export function useEventLive(eventId: string | undefined, slug: string) {
           case "solve":
             qc.invalidateQueries({ queryKey: ["ctf-scoreboard", slug] });
             qc.invalidateQueries({ queryKey: ["ctf-challenges", slug] });
+            if (msg.player_name && msg.challenge_name) {
+              useLiveFeedStore.getState().push({
+                kind: "pwned",
+                playerName: msg.player_name,
+                challengeName: msg.challenge_name,
+                teamName: msg.team_name,
+                firstBlood: msg.is_first_blood,
+                points: msg.points_awarded,
+              });
+            }
+            break;
+          case "instance_spawned":
+            // Someone's box came up. Their own teammates additionally get the
+            // address, through the instance query this invalidates.
+            qc.invalidateQueries({ queryKey: ["ctf-instance", msg.challenge_id] });
+            if (msg.player_name && msg.challenge_name) {
+              useLiveFeedStore.getState().push({
+                kind: "spawned",
+                playerName: msg.player_name,
+                challengeName: msg.challenge_name,
+                teamName: msg.team_name,
+              });
+            }
             break;
           case "announcement":
           case "event.started":

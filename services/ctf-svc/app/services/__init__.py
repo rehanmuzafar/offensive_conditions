@@ -3,6 +3,7 @@
 from app.services.announcements import AnnouncementService
 from app.services.challenges import ChallengeService
 from app.services.events import EventService
+from app.services.instances import InstanceService
 from app.services.kafka import CtfEventPublisher, EventType
 from app.services.registration import RegistrationService
 from app.services.scoring import compute_dynamic_points, first_blood_bonus
@@ -14,6 +15,7 @@ __all__ = [
     "CtfEventPublisher",
     "EventService",
     "EventType",
+    "InstanceService",
     "RegistrationService",
     "SubmissionService",
     "compute_dynamic_points",

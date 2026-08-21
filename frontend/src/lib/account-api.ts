@@ -5,14 +5,6 @@
 import { api } from "@/lib/api";
 import type { Paginated } from "@/types";
 import type {
-  BountyProgram,
-  BountyProgramDetail,
-  BountyReport,
-  BountyReportDetail,
-  Payout,
-  ReportCreate,
-} from "@/types/bounty";
-import type {
   Subscription,
   PaymentMethod,
   Invoice,
@@ -25,19 +17,11 @@ import type {
   ApiKey,
 } from "@/types/account";
 
-export const bountyApi = {
-  listPrograms: (q?: string) =>
-    api.get<Paginated<BountyProgram>>("/v1/programs", { params: { q } }),
-  getProgram: (slug: string) => api.get<BountyProgramDetail>(`/v1/programs/${slug}`),
-  submitReport: (slug: string, body: ReportCreate) =>
-    api.post<BountyReport>(`/v1/programs/${slug}/reports`, { body }),
-  myReports: (state?: string) =>
-    api.get<Paginated<BountyReport>>("/v1/me/reports", { params: { state } }),
-  getReport: (id: string) => api.get<BountyReportDetail>(`/v1/reports/${id}`),
-  comment: (id: string, bodyMd: string) =>
-    api.post<void>(`/v1/reports/${id}/comments`, { body: { bodyMd } }),
-  myPayouts: () => api.get<Payout[]>("/v1/me/payouts"),
-};
+/**
+ * Bounty lives in its own module now — it needed real snake_case mappers, and
+ * the versions here returned raw wire objects typed as if they were mapped.
+ */
+export { bountyApi } from "@/lib/bounty-api";
 
 export const billingApi = {
   getSubscription: () => api.get<Subscription>("/v1/billing/subscription"),

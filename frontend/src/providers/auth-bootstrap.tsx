@@ -29,7 +29,7 @@ setTokenGetter(() => useAuthStore.getState().accessToken);
  * stored — replaying a spent token trips its reuse detection and revokes the
  * whole family. Returns null when the session is genuinely over.
  */
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   const stored = useAuthStore.getState().refreshToken;
   if (!stored) return null;
   try {
@@ -45,11 +45,40 @@ async function refreshAccessToken(): Promise<string | null> {
 
 setTokenRefresher(refreshAccessToken);
 
+/**
+ * How long before expiry to renew. The access token lives 15 minutes; renewing
+ * a minute early means a request is never in flight against a token that dies
+ * mid-journey, and a minute is far longer than a refresh round trip.
+ */
+const RENEW_MARGIN_MS = 60_000;
+
 export function AuthBootstrap() {
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const setRefreshToken = useAuthStore((s) => s.setRefreshToken);
   const setUser = useAuthStore((s) => s.setUser);
   const setInitializing = useAuthStore((s) => s.setInitializing);
+
+  /**
+   * Keep an open tab signed in.
+   *
+   * The API layer refreshes on a 401, which covers a request that happens to
+   * land after expiry — but nothing was renewing the token while a tab simply
+   * sat there. Fifteen minutes in, `isAuthenticated()` started returning false
+   * because it only compares `expiresAt` to the clock, and AuthGuard bounced
+   * the user to /login with a perfectly good refresh token in the store.
+   *
+   * So the session renews itself just before it lapses, and reschedules from
+   * the new expiry each time.
+   */
+  const expiresAt = useAuthStore((s) => s.expiresAt);
+  useEffect(() => {
+    if (!expiresAt) return;
+    const delay = Math.max(0, expiresAt - Date.now() - RENEW_MARGIN_MS);
+    const id = setTimeout(() => {
+      void refreshAccessToken();
+    }, delay);
+    return () => clearTimeout(id);
+  }, [expiresAt]);
 
   useEffect(() => {
     let cancelled = false;

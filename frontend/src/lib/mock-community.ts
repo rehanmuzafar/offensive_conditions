@@ -4,15 +4,16 @@
  */
 
 import type { Paginated } from "@/types";
+import type { ScoreboardPage } from "@/lib/community-api";
 import type { CtfEvent, CtfChallenge, ScoreboardRow } from "@/types/ctf";
 import type { ForumCategory, ForumThread, ForumPost, Writeup, WriteupDetail } from "@/types/forum";
 
 /* ---------------------------------- CTF ----------------------------------- */
 export const MOCK_CTF_EVENTS: CtfEvent[] = [
-  { id: "c1", slug: "winter-clash-2026", name: "Winter Clash 2026", description: "Our flagship seasonal jeopardy CTF. 48 hours, 40 challenges, glory on the line.", format: "jeopardy", state: "live", startsAt: new Date(Date.now() - 3600_000 * 6).toISOString(), endsAt: new Date(Date.now() + 3600_000 * 42).toISOString(), participantCount: 8420, teamCount: 2110, challengeCount: 40, prizePool: "$15,000", bannerColor: "#7C3AED", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: true },
-  { id: "c2", slug: "weekly-sprint-w22", name: "Weekly Sprint #22", description: "A quick 6-hour jeopardy sprint. Perfect for a Saturday afternoon.", format: "jeopardy", state: "upcoming", startsAt: new Date(Date.now() + 3600_000 * 30).toISOString(), endsAt: new Date(Date.now() + 3600_000 * 36).toISOString(), participantCount: 1240, teamCount: 980, challengeCount: 18, prizePool: null, bannerColor: "#2563EB", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: false },
-  { id: "c3", slug: "redteam-royale", name: "RedTeam Royale", description: "Attack-defense warfare. Patch your services while breaking everyone else's.", format: "attack_defense", state: "upcoming", startsAt: new Date(Date.now() + 3600_000 * 24 * 5).toISOString(), endsAt: new Date(Date.now() + 3600_000 * 24 * 5 + 3600_000 * 8).toISOString(), participantCount: 640, teamCount: 80, challengeCount: 12, prizePool: "$8,000", bannerColor: "#6D28D9", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: false },
-  { id: "c4", slug: "autumn-open-2025", name: "Autumn Open 2025", description: "Last season's open jeopardy event. Now available for practice.", format: "jeopardy", state: "ended", startsAt: "2025-10-12T12:00:00Z", endsAt: "2025-10-14T12:00:00Z", participantCount: 11200, teamCount: 3400, challengeCount: 45, prizePool: "$20,000", bannerColor: "#1D4ED8", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: false },
+  { id: "c1", slug: "winter-clash-2026", name: "Winter Clash 2026", description: "Our flagship seasonal jeopardy CTF. 48 hours, 40 challenges, glory on the line.", format: "jeopardy", state: "live", startsAt: new Date(Date.now() - 3600_000 * 6).toISOString(), endsAt: new Date(Date.now() + 3600_000 * 42).toISOString(), participantCount: 8420, scoreboardVisibility: "public", isPaused: false, pauseStartsAt: null, pauseEndsAt: null, pauseReason: null, teamCount: 2110, challengeCount: 40, prizePool: "$15,000", bannerColor: "#7C3AED", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: true },
+  { id: "c2", slug: "weekly-sprint-w22", name: "Weekly Sprint #22", description: "A quick 6-hour jeopardy sprint. Perfect for a Saturday afternoon.", format: "jeopardy", state: "upcoming", startsAt: new Date(Date.now() + 3600_000 * 30).toISOString(), endsAt: new Date(Date.now() + 3600_000 * 36).toISOString(), participantCount: 1240, scoreboardVisibility: "public", isPaused: false, pauseStartsAt: null, pauseEndsAt: null, pauseReason: null, teamCount: 980, challengeCount: 18, prizePool: null, bannerColor: "#2563EB", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: false },
+  { id: "c3", slug: "redteam-royale", name: "RedTeam Royale", description: "Attack-defense warfare. Patch your services while breaking everyone else's.", format: "attack_defense", state: "upcoming", startsAt: new Date(Date.now() + 3600_000 * 24 * 5).toISOString(), endsAt: new Date(Date.now() + 3600_000 * 24 * 5 + 3600_000 * 8).toISOString(), participantCount: 640, scoreboardVisibility: "public", isPaused: false, pauseStartsAt: null, pauseEndsAt: null, pauseReason: null, teamCount: 80, challengeCount: 12, prizePool: "$8,000", bannerColor: "#6D28D9", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: false },
+  { id: "c4", slug: "autumn-open-2025", name: "Autumn Open 2025", description: "Last season's open jeopardy event. Now available for practice.", format: "jeopardy", state: "ended", startsAt: "2025-10-12T12:00:00Z", endsAt: "2025-10-14T12:00:00Z", participantCount: 11200, scoreboardVisibility: "public", isPaused: false, pauseStartsAt: null, pauseEndsAt: null, pauseReason: null, teamCount: 3400, challengeCount: 45, prizePool: "$20,000", bannerColor: "#1D4ED8", bannerImageUrl: null, status: "live", teamPlay: false, soloPlay: true, maxTeamSize: null, isRegistered: false },
 ];
 
 export function mockCtfEvents(): Paginated<CtfEvent> {
@@ -24,12 +25,12 @@ export function mockCtfEvent(slug: string): CtfEvent {
 }
 
 export const MOCK_CHALLENGES: CtfChallenge[] = [
-  { id: "ch1", title: "Cookie Monster", category: "web", points: 100, difficulty: "low", description: "The login form trusts a little too much. Inspect what the server hands back, and help yourself to admin.", solveCount: 1840, solved: true, files: [], hints: [{ id: "h1", cost: 10, unlocked: false, text: null }], connectionInfo: "http://10.10.20.5:8080", firstBlood: { username: "zer0Kelvin", at: new Date(Date.now() - 3600_000 * 5).toISOString() } },
-  { id: "ch2", title: "Baby RSA", category: "crypto", points: 150, difficulty: "low", description: "Small exponent, no padding. You know what to do.", solveCount: 1320, solved: false, files: [{ name: "challenge.txt", sizeBytes: 1024, url: "#" }], hints: [{ id: "h2", cost: 15, unlocked: false, text: null }], connectionInfo: null, firstBlood: { username: "nullptr_", at: new Date(Date.now() - 3600_000 * 4).toISOString() } },
-  { id: "ch3", title: "Stack Overflow", category: "pwn", points: 250, difficulty: "medium", description: "Classic buffer overflow with a twist — NX is on. Find the gadgets.", solveCount: 640, solved: false, files: [{ name: "vuln", sizeBytes: 18000, url: "#" }, { name: "libc.so.6", sizeBytes: 2000000, url: "#" }], hints: [{ id: "h3", cost: 25, unlocked: false, text: null }, { id: "h3b", cost: 40, unlocked: false, text: null }], connectionInfo: "nc 10.10.20.5 31337", firstBlood: null },
-  { id: "ch4", title: "Hidden in Plain Sight", category: "forensics", points: 200, difficulty: "medium", description: "This PNG is hiding more than pixels. Carve it open.", solveCount: 810, solved: false, files: [{ name: "evidence.png", sizeBytes: 4500000, url: "#" }], hints: [], connectionInfo: null, firstBlood: { username: "h3xqueen", at: new Date(Date.now() - 3600_000 * 3).toISOString() } },
-  { id: "ch5", title: "Reverse Me", category: "reverse", points: 300, difficulty: "high", description: "A stripped binary checks your serial. Defeat the check.", solveCount: 290, solved: false, files: [{ name: "crackme", sizeBytes: 32000, url: "#" }], hints: [{ id: "h5", cost: 30, unlocked: false, text: null }], connectionInfo: null, firstBlood: null },
-  { id: "ch6", title: "Who Am I", category: "osint", points: 150, difficulty: "low", description: "Track down the person behind this handle using only public sources.", solveCount: 1100, solved: false, files: [], hints: [], connectionInfo: null, firstBlood: { username: "ghostshell", at: new Date(Date.now() - 3600_000 * 2).toISOString() } },
+  { id: "ch1", title: "Cookie Monster", category: "web", points: 100, difficulty: "low", description: "The login form trusts a little too much. Inspect what the server hands back, and help yourself to admin.", solveCount: 1840, solved: true, files: [], hints: [{ id: "h1", cost: 10, unlocked: false, text: null }], connectionInfo: "http://10.10.20.5:8080", deliveryType: "shared_host", firstBlood: { username: "zer0Kelvin", at: new Date(Date.now() - 3600_000 * 5).toISOString() } },
+  { id: "ch2", title: "Baby RSA", category: "crypto", points: 150, difficulty: "low", description: "Small exponent, no padding. You know what to do.", solveCount: 1320, solved: false, files: [{ name: "challenge.txt", sizeBytes: 1024, url: "#" }], hints: [{ id: "h2", cost: 15, unlocked: false, text: null }], connectionInfo: null, deliveryType: "static", firstBlood: { username: "nullptr_", at: new Date(Date.now() - 3600_000 * 4).toISOString() } },
+  { id: "ch3", title: "Stack Overflow", category: "pwn", points: 250, difficulty: "medium", description: "Classic buffer overflow with a twist — NX is on. Find the gadgets.", solveCount: 640, solved: false, files: [{ name: "vuln", sizeBytes: 18000, url: "#" }, { name: "libc.so.6", sizeBytes: 2000000, url: "#" }], hints: [{ id: "h3", cost: 25, unlocked: false, text: null }, { id: "h3b", cost: 40, unlocked: false, text: null }], connectionInfo: "nc 10.10.20.5 31337", deliveryType: "shared_host", firstBlood: null },
+  { id: "ch4", title: "Hidden in Plain Sight", category: "forensics", points: 200, difficulty: "medium", description: "This PNG is hiding more than pixels. Carve it open.", solveCount: 810, solved: false, files: [{ name: "evidence.png", sizeBytes: 4500000, url: "#" }], hints: [], connectionInfo: null, deliveryType: "static", firstBlood: { username: "h3xqueen", at: new Date(Date.now() - 3600_000 * 3).toISOString() } },
+  { id: "ch5", title: "Reverse Me", category: "reverse", points: 300, difficulty: "high", description: "A stripped binary checks your serial. Defeat the check.", solveCount: 290, solved: false, files: [{ name: "crackme", sizeBytes: 32000, url: "#" }], hints: [{ id: "h5", cost: 30, unlocked: false, text: null }], connectionInfo: null, deliveryType: "static", firstBlood: null },
+  { id: "ch6", title: "Who Am I", category: "osint", points: 150, difficulty: "low", description: "Track down the person behind this handle using only public sources.", solveCount: 1100, solved: false, files: [], hints: [], connectionInfo: null, deliveryType: "static", firstBlood: { username: "ghostshell", at: new Date(Date.now() - 3600_000 * 2).toISOString() } },
 ];
 
 const SB_SEED: Omit<ScoreboardRow, "rank">[] = [
@@ -43,9 +44,13 @@ const SB_SEED: Omit<ScoreboardRow, "rank">[] = [
   { teamId: "t8", teamName: "RootCause", country: "fr", points: 2300, solveCount: 18, lastSolveAt: new Date(Date.now() - 4200_000).toISOString(), change: 1 },
 ];
 
-export function mockScoreboard(): Paginated<ScoreboardRow> {
+export function mockScoreboard(): ScoreboardPage {
   const items = SB_SEED.map((r, i) => ({ ...r, rank: i + 1 }));
-  return { items, meta: { total: items.length, limit: 100, offset: 0, hasMore: false } };
+  return {
+    items,
+    eliminated: [],
+    meta: { total: items.length, limit: 100, offset: 0, hasMore: false },
+  };
 }
 
 /* --------------------------------- forum ---------------------------------- */

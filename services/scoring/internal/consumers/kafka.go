@@ -24,15 +24,23 @@ import (
 	"github.com/offensive-conditions/scoring/internal/service"
 )
 
-// EventEnvelope is the wire format used by all our services.
+// EventEnvelope is the wire format the platform actually publishes.
+//
+// It did not match. This struct read `id`, `type`, `user_id` and `data`, while
+// every producer — and notification-svc, the other consumer of these topics —
+// uses `event_id`, `event_type`, `actor_user_id` and `payload`. Nothing here
+// decoded, so every field came out zero and no solve was ever scored. The
+// producer's shape wins: it is in the topics already, with history behind it.
 type EventEnvelope struct {
-	ID         uuid.UUID       `json:"id"`
-	Type       string          `json:"type"`
+	ID         uuid.UUID       `json:"event_id"`
+	Type       string          `json:"event_type"`
 	OccurredAt time.Time       `json:"occurred_at"`
-	UserID     uuid.UUID       `json:"user_id"`
+	//: Whose action this was. `subject_id` is what it happened *to* (the event).
+	UserID     uuid.UUID       `json:"actor_user_id"`
+	SubjectID  *uuid.UUID      `json:"subject_id,omitempty"`
 	InstanceID *uuid.UUID      `json:"instance_id,omitempty"`
 	MachineID  *uuid.UUID      `json:"machine_id,omitempty"`
-	Data       json.RawMessage `json:"data,omitempty"`
+	Data       json.RawMessage `json:"payload,omitempty"`
 	RequestID  string          `json:"request_id,omitempty"`
 }
 
@@ -240,7 +248,9 @@ func (c *Consumer) handleCorrectFlag(ctx context.Context, evt EventEnvelope) err
 
 func (c *Consumer) handleCTFEvent(ctx context.Context, evt EventEnvelope) error {
 	switch evt.Type {
-	case "ctf.challenge.solved":
+	// ctf-svc names this `ctf.solve.recorded`. The old name was never emitted
+	// by anything.
+	case "ctf.solve.recorded":
 		return c.handleCTFChallengeSolved(ctx, evt)
 	case "ctf.match.completed":
 		return c.handleCTFMatchCompleted(ctx, evt)
@@ -250,13 +260,20 @@ func (c *Consumer) handleCTFEvent(ctx context.Context, evt EventEnvelope) error 
 }
 
 func (c *Consumer) handleCTFChallengeSolved(ctx context.Context, evt EventEnvelope) error {
+	// The payload ctf-svc sends. It carries the points the event itself
+	// awarded — dynamic scoring means the value depends on how many teams had
+	// already solved it, so recomputing here would disagree with the CTF's own
+	// scoreboard. Difficulty and IP are not in this event; the award falls back
+	// to the points as given.
 	var data struct {
-		ChallengeID uuid.UUID `json:"challenge_id"`
-		Difficulty  string    `json:"difficulty"`
-		IPAddress   string    `json:"ip_address"`
+		ChallengeID   uuid.UUID  `json:"challenge_id"`
+		ParticipantID uuid.UUID  `json:"participant_id"`
+		Points        int        `json:"points"`
+		//: When the event finishes — the season this result belongs to.
+		EventEndsAt   *time.Time `json:"event_ends_at"`
 	}
 	if err := json.Unmarshal(evt.Data, &data); err != nil {
-		return fmt.Errorf("decode ctf challenge event: %w", err)
+		return fmt.Errorf("decode ctf solve event: %w", err)
 	}
 
 	in := service.AwardInput{
@@ -264,10 +281,12 @@ func (c *Consumer) handleCTFChallengeSolved(ctx context.Context, evt EventEnvelo
 		ContentType: "ctf_challenge",
 		ContentID:   data.ChallengeID,
 		FlagType:    "challenge",
-		IPAddress:   data.IPAddress,
 		SubmittedAt: evt.OccurredAt,
-		Difficulty:  data.Difficulty,
+		Points:      data.Points,
 		RequestID:   evt.RequestID,
+	}
+	if data.EventEndsAt != nil {
+		in.SeasonAt = *data.EventEndsAt
 	}
 	_, err := c.svc.AwardSolve(ctx, in)
 	return err

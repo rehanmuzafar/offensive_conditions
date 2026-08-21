@@ -33,7 +33,7 @@ export function ScoreboardInsights({ eventId }: { eventId: string }) {
   });
 
   return (
-    <section className="rounded-2xl border border-line bg-surface p-5">
+    <section className="edge-iridescent glass p-5">
       <div className="flex items-center justify-between gap-4 border-b border-line pb-3">
         <h2 className="font-display text-[16px] font-bold text-text">
           {panel === 0 ? "Top 10 teams" : "Trending stats"}
@@ -91,8 +91,14 @@ function PointsChart({ series }: { series: TeamSeries[] }) {
     const times = pts.map((p) => new Date(p.at).getTime());
     const minT = Math.min(...times);
     const maxT = Math.max(...times);
-    const maxP = Math.max(...pts.map((p) => p.points), 1);
-    return { minT, maxT: maxT === minT ? minT + 1 : maxT, maxP };
+    const values = pts.map((p) => p.points);
+    const maxP = Math.max(...values, 1);
+    /* The floor is zero unless a penalty has pushed a team below it. The scale
+       used to divide by maxP alone, which put any negative running total below
+       the axis and off the chart — impossible before organisers could deduct
+       points, and reachable now. */
+    const minP = Math.min(0, ...values);
+    return { minT, maxT: maxT === minT ? minT + 1 : maxT, maxP, minP };
   }, [series]);
 
   if (!model) {
@@ -105,32 +111,74 @@ function PointsChart({ series }: { series: TeamSeries[] }) {
 
   const W = 1000;
   const H = 280;
-  const PAD = { l: 46, r: 12, t: 12, b: 26 };
+  const PAD = { l: 46, r: 12, t: 12, b: 42 };
   const x = (t: number) =>
     PAD.l + ((t - model.minT) / (model.maxT - model.minT)) * (W - PAD.l - PAD.r);
-  const y = (p: number) => H - PAD.b - (p / model.maxP) * (H - PAD.t - PAD.b);
+  const span = model.maxP - model.minP || 1;
+  const y = (p: number) => H - PAD.b - ((p - model.minP) / span) * (H - PAD.t - PAD.b);
 
   return (
     <div className="pt-4">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Points over time">
+        {/*
+          The time axis. The chart had a points scale and no answer to "when",
+          which on a scoreboard is half the question — a step upward means
+          nothing without knowing whether it happened an hour in or five minutes
+          ago. Five ticks across the event's actual span, labelled with the date
+          when the window is longer than a day and the clock when it is not, so
+          a two-hour CTF does not repeat the same date five times.
+        */}
+        {(() => {
+          const spansDays = model.maxT - model.minT > 36 * 3600 * 1000;
+          return [0, 0.25, 0.5, 0.75, 1].map((f) => {
+            const t = model.minT + (model.maxT - model.minT) * f;
+            const d = new Date(t);
+            const label = spansDays
+              ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+              : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+            return (
+              <g key={`t-${f}`}>
+                <line
+                  x1={x(t)}
+                  x2={x(t)}
+                  y1={PAD.t}
+                  y2={H - PAD.b}
+                  stroke="currentColor"
+                  className="text-line"
+                  strokeWidth={1}
+                  opacity={f === 0 || f === 1 ? 0 : 0.5}
+                />
+                <text
+                  x={x(t)}
+                  y={H - PAD.b + 18}
+                  textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"}
+                  className="fill-current text-text-ghost"
+                  style={{ fontSize: 11 }}
+                >
+                  {label}
+                </text>
+              </g>
+            );
+          });
+        })()}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
           <g key={f}>
             <line
               x1={PAD.l}
               x2={W - PAD.r}
-              y1={y(model.maxP * f)}
-              y2={y(model.maxP * f)}
+              y1={y(model.minP + span * f)}
+              y2={y(model.minP + span * f)}
               stroke="currentColor"
               className="text-line"
               strokeWidth={1}
             />
             <text
               x={PAD.l - 8}
-              y={y(model.maxP * f) + 4}
+              y={y(model.minP + span * f) + 4}
               textAnchor="end"
               className="fill-text-faint text-[11px]"
             >
-              {Math.round(model.maxP * f).toLocaleString()}
+              {Math.round(model.minP + span * f).toLocaleString()}
             </text>
           </g>
         ))}

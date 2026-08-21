@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload, X } from "lucide-react";
+import { Loader2, Minus, Plus, Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
@@ -28,7 +28,8 @@ const field =
 const label = "mb-1.5 block text-[12px] font-semibold uppercase tracking-wide text-text-dim";
 
 /** ISO → the value a datetime-local input expects, in local time. */
-function toLocalInput(iso: string): string {
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -51,6 +52,12 @@ export function CtfEventEdit({
   const [end, setEnd] = useState(toLocalInput(event.ends_at));
   const [runtime, setRuntime] = useState<ChallengeRuntime>(event.challenge_runtime);
   const [scoreboard, setScoreboard] = useState(event.scoreboard_visibility ?? "public");
+  /* Writeups. `top_n` empty means nobody owes one — the requirement is off
+     rather than set to zero, which would read as "the top nobody". */
+  const [writeupTopN, setWriteupTopN] = useState(
+    event.writeup_required_top_n ? String(event.writeup_required_top_n) : "",
+  );
+  const [writeupDeadline, setWriteupDeadline] = useState(toLocalInput(event.writeup_deadline));
   const [isPaid, setIsPaid] = useState(event.entry_fee_cents > 0);
   const [fee, setFee] = useState((event.entry_fee_cents / 100).toFixed(2));
   const [currency, setCurrency] = useState(event.currency);
@@ -59,6 +66,9 @@ export function CtfEventEdit({
   const [saving, setSaving] = useState(false);
 
   const started = event.status === "live" || event.status === "ended" || event.status === "archived";
+  /* Only the *start* is history. A running event may still be given more time
+     and may keep — or stop — taking registrations. An ended one is frozen. */
+  const finished = event.status === "ended" || event.status === "archived";
 
   async function handleBanner(file: File) {
     setUploading(true);
@@ -90,11 +100,19 @@ export function CtfEventEdit({
         cover_image_url: banner,
         challenge_runtime: runtime,
         scoreboard_visibility: scoreboard,
+        writeup_required_top_n: writeupTopN.trim() ? Number(writeupTopN) : null,
+        writeup_deadline: writeupDeadline ? new Date(writeupDeadline).toISOString() : null,
         entry_fee_cents: isPaid ? Math.round(Number(fee) * 100) : 0,
         currency,
-        // Schedule fields are rejected once the event is running.
+        /* While the event runs, only *when it started* is off-limits — that is
+           history. Extending the end (giving everyone more time) and moving
+           when registration closes are decisions about a running event, and
+           ctf-svc accepts both. */
         ...(started
-          ? {}
+          ? {
+              registration_ends_at: new Date(regEnd).toISOString(),
+              ends_at: new Date(end).toISOString(),
+            }
           : {
               registration_ends_at: new Date(regEnd).toISOString(),
               starts_at: new Date(start).toISOString(),
@@ -157,7 +175,10 @@ export function CtfEventEdit({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <label className={label}>Registration closes</label>
-            <input type="datetime-local" className={field} value={regEnd} disabled={started} onChange={(e) => setRegEnd(e.target.value)} />
+            <input type="datetime-local" className={field} value={regEnd} disabled={finished} onChange={(e) => setRegEnd(e.target.value)} />
+            <p className="mt-1 text-[11.5px] text-text-faint">
+              May be any time up to the event&apos;s end — latecomers can still join.
+            </p>
           </div>
           <div>
             <label className={label}>Event starts</label>
@@ -165,12 +186,21 @@ export function CtfEventEdit({
           </div>
           <div>
             <label className={label}>Event ends</label>
-            <input type="datetime-local" className={field} value={end} disabled={started} onChange={(e) => setEnd(e.target.value)} />
+            <input type="datetime-local" className={field} value={end} disabled={finished} onChange={(e) => setEnd(e.target.value)} />
+            {started && !finished && (
+              <p className="mt-1 text-[11.5px] text-text-faint">Push this out to give everyone extra time.</p>
+            )}
           </div>
         </div>
-        {started && (
+        {started && !finished && (
+          <p className="-mt-2 text-[12px] text-text-faint">
+            The start time is frozen — the event is already running. The end and
+            the registration close can still be moved.
+          </p>
+        )}
+        {finished && (
           <p className="-mt-2 text-[12px] text-warning">
-            The schedule is frozen because this event has already started.
+            This event has ended; its schedule can no longer be changed.
           </p>
         )}
 
@@ -190,6 +220,61 @@ export function CtfEventEdit({
               <option value="participants">Registered players only</option>
               <option value="hidden">Organisers only</option>
             </select>
+          </div>
+        </div>
+
+        {/* Writeups. Missing the deadline does not cost marks — it takes the
+            team off the board — so both fields sit together and are labelled
+            for what they actually do. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className={label}>Writeup required from top</label>
+            {/* A counter rather than a free field: this is "how far down the
+                board", a small whole number picked by nudging, and typing
+                invites "3 teams" or "-1". Zero means the requirement is off,
+                which is what empty encodes. */}
+            <div className="mt-1.5 flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Fewer teams"
+                onClick={() => setWriteupTopN((v) => stepTopN(v, -1))}
+                className="grid h-10 w-10 shrink-0 place-items-center border border-line text-text-dim transition-colors hover:border-line-strong hover:text-text"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <div className="flex h-10 min-w-[120px] flex-1 items-center justify-center border border-line px-3">
+                <span className="font-mono text-[15px] tabular-nums text-text">
+                  {writeupTopN.trim() ? writeupTopN : "—"}
+                </span>
+                <span className="ml-2 text-[11.5px] text-text-faint">
+                  {writeupTopN.trim() ? "teams" : "not required"}
+                </span>
+              </div>
+              <button
+                type="button"
+                aria-label="More teams"
+                onClick={() => setWriteupTopN((v) => stepTopN(v, 1))}
+                className="grid h-10 w-10 shrink-0 place-items-center border border-line text-text-dim transition-colors hover:border-line-strong hover:text-text"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-1 text-[11.5px] text-text-faint">
+              The top {writeupTopN.trim() || "N"} must turn one in, or they are
+              eliminated.
+            </p>
+          </div>
+          <div>
+            <label className={label}>Writeup deadline</label>
+            <input
+              type="datetime-local"
+              className={field}
+              value={writeupDeadline}
+              onChange={(e) => setWriteupDeadline(e.target.value)}
+            />
+            <p className="mt-1 text-[11.5px] text-text-faint">
+              Teams that owe one and miss this are eliminated from the standings.
+            </p>
           </div>
         </div>
 
@@ -235,4 +320,10 @@ export function CtfEventEdit({
       </CardBody>
     </Card>
   );
+}
+
+/** Nudge the top-N counter. Below 1 the requirement is simply off. */
+function stepTopN(current: string, by: number): string {
+  const next = (Number(current) || 0) + by;
+  return next < 1 ? "" : String(next);
 }

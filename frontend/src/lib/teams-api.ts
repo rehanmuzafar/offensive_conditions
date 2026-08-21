@@ -6,6 +6,7 @@
  */
 
 import { api } from "@/lib/api";
+import { COUNTRIES } from "@/lib/countries";
 
 export type TeamCategory = "open" | "country" | "company" | "university" | "school";
 
@@ -131,12 +132,22 @@ export const teamsApi = {
           category: f.category ?? "",
           country: f.country ?? "",
           detail: f.detail ?? "",
+          /* Typing "Pakistan" should find PK teams, but only the code is
+             stored. The names are resolved here rather than in SQL because the
+             code→name list is curated in this app — a second copy in the
+             database would drift away from it. */
+          country_in: countryCodesMatching(f.q ?? "").join(",") || undefined,
         },
       })
     ).teams ?? [],
 
   getBySlug: async (slug: string): Promise<Team> =>
     (await api.get<{ team: Team }>(`/v1/teams/by-slug/${slug}`)).team,
+
+  /** Lookup by primary key. Scoreboard rows carry a team's UUID and no handle,
+   *  so a link out of the standings has nothing else to go on. */
+  getById: async (id: string): Promise<Team> =>
+    (await api.get<{ team: Team }>(`/v1/teams/${id}`)).team,
 
   /**
    * Team CTF stats. Served by ctf-svc (hence the /ctf prefix), which owns the
@@ -227,4 +238,11 @@ export async function getUsername(userId: string): Promise<string> {
 /** user-svc validates this server-side; mirror it so the form fails fast. */
 export function slugifyTeam(v: string): string {
   return v.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+}
+
+/** Codes whose country name contains the search text. */
+function countryCodesMatching(query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  return COUNTRIES.filter((c) => c.name.toLowerCase().includes(needle)).map((c) => c.code);
 }

@@ -3,8 +3,7 @@
 ## Running the stack
 
 ```bash
-cd deploy
-./setup.sh                 # one-time: generates the JWT keypair
+./setup.sh                 # from the repo root: secrets, build, migrate, start
 docker compose up -d       # 21 containers
 ```
 

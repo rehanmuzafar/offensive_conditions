@@ -87,19 +87,30 @@ function Segment({
   return (
     <div className="flex items-center gap-2">
       <span className="text-[13px] text-text-faint">{label}</span>
-      <div className="flex rounded-lg border border-line-strong p-0.5">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            onClick={() => onSelect(o.value)}
-            className={cn(
-              "rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors",
-              value === o.value ? "bg-brand-gradient text-white" : "text-text-dim hover:text-text",
-            )}
-          >
-            {o.label}
-          </button>
-        ))}
+      {/* The same spectral rule the CTF tabs use for "you are here", so the two
+          filter rows in the product read as one control rather than two. */}
+      <div className="flex border border-line-strong p-0.5">
+        {options.map((o) => {
+          const active = value === o.value;
+          return (
+            <button
+              key={o.value}
+              onClick={() => onSelect(o.value)}
+              className={cn(
+                "group relative px-2.5 py-1 text-[13px] font-medium transition-colors",
+                active ? "text-text" : "text-text-dim hover:text-text",
+              )}
+            >
+              {o.label}
+              <span
+                className={cn(
+                  "iridescent-rule absolute bottom-0 left-0 h-px transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                  active ? "w-full" : "w-0 group-hover:w-full",
+                )}
+              />
+            </button>
+          );
+        })}
       </div>
     </div>
   );

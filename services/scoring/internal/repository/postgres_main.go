@@ -446,7 +446,7 @@ func NewPGSeasonRepo(pool *pgxpool.Pool) SeasonRepository {
 	return &pgSeasonRepo{pool: pool}
 }
 
-const colsSeason = `id, code, name, starts_at, ends_at, state, carryover_fraction,
+const colsSeason = `id, code, name, number, starts_at, ends_at, state, carryover_fraction,
 	rewards, rolled_over_at, snapshot_id, created_at, updated_at`
 
 func scanSeason(row pgx.Row) (*Season, error) {
@@ -457,7 +457,7 @@ func scanSeason(row pgx.Row) (*Season, error) {
 		snapshotID   *uuid.UUID
 	)
 	err := row.Scan(
-		&s.ID, &s.Code, &s.Name, &s.StartsAt, &s.EndsAt, &s.State, &s.CarryoverFraction,
+		&s.ID, &s.Code, &s.Name, &s.Number, &s.StartsAt, &s.EndsAt, &s.State, &s.CarryoverFraction,
 		&rewardsRaw, &rolledOverAt, &snapshotID, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
@@ -479,11 +479,15 @@ func (r *pgSeasonRepo) Create(ctx context.Context, s *Season) error {
 	if len(rewardsJSON) == 0 {
 		rewardsJSON = []byte("{}")
 	}
-	const q = `INSERT INTO scoring.seasons (id, code, name, starts_at, ends_at, state, carryover_fraction, rewards)
+	// number falls back to "one past the highest" so a season created without
+	// one still lands in sequence rather than failing the NOT NULL.
+	const q = `INSERT INTO scoring.seasons (id, code, name, number, starts_at, ends_at, state, carryover_fraction, rewards)
 		VALUES (COALESCE(NULLIF($1::uuid, '00000000-0000-0000-0000-000000000000'), gen_random_uuid()),
-		        $2, $3, $4, $5, $6, $7, $8::jsonb)`
+		        $2, $3,
+		        COALESCE(NULLIF($4, 0), (SELECT COALESCE(MAX(number), 0) + 1 FROM scoring.seasons)),
+		        $5, $6, $7, $8, $9::jsonb)`
 	_, err := r.pool.Exec(ctx, q,
-		s.ID, s.Code, s.Name, s.StartsAt, s.EndsAt, s.State, s.CarryoverFraction, rewardsJSON,
+		s.ID, s.Code, s.Name, s.Number, s.StartsAt, s.EndsAt, s.State, s.CarryoverFraction, rewardsJSON,
 	)
 	if isUniqueViolation(err) {
 		return ErrDuplicate
@@ -506,6 +510,19 @@ func (r *pgSeasonRepo) GetActive(ctx context.Context) (*Season, error) {
 		WHERE state = 'active' AND NOW() BETWEEN starts_at AND ends_at
 		ORDER BY starts_at DESC LIMIT 1`
 	return scanSeason(r.pool.QueryRow(ctx, q))
+}
+
+// GetContaining returns the season whose window contains the given instant.
+//
+// Separate from GetActive because "which season is running now" and "which
+// season owns this result" are different questions: a CTF that ends after the
+// season rolls over belongs to the season it ended in, whichever one happens to
+// be live when its last flag is scored.
+func (r *pgSeasonRepo) GetContaining(ctx context.Context, at time.Time) (*Season, error) {
+	q := `SELECT ` + colsSeason + ` FROM scoring.seasons
+	       WHERE starts_at <= $1 AND ends_at > $1
+	       ORDER BY starts_at DESC LIMIT 1`
+	return scanSeason(r.pool.QueryRow(ctx, q, at))
 }
 
 func (r *pgSeasonRepo) List(ctx context.Context, limit, offset int) ([]*Season, error) {

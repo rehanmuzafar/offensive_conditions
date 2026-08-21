@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -130,6 +131,42 @@ func (h *ProfileHandler) GetByUsername(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"profile": serializeProfile(p, owner)})
+}
+
+// SetAccountType answers the first-sign-in question: hacker or company.
+//
+// Write-once by design. The two account types see entirely different products,
+// and letting someone flip between them at will would mean a company account
+// could appear on the hacker leaderboard, or a hacker could stand up a program
+// under their own name. Changing it is a support action, not a settings toggle.
+func (h *ProfileHandler) SetAccountType(c *gin.Context) {
+	uid, ok := middleware.UserIDFrom(c)
+	if !ok {
+		respondError(c, uerrors.New(uerrors.CodeUnauthorized, "no user"))
+		return
+	}
+	var req struct {
+		AccountType    string `json:"account_type" binding:"required,oneof=hacker company"`
+		CompanyName    string `json:"company_name"`
+		CompanyWebsite string `json:"company_website"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, uerrors.New(uerrors.CodeValidation, "account_type must be hacker or company"))
+		return
+	}
+	if req.AccountType == "company" && strings.TrimSpace(req.CompanyName) == "" {
+		respondError(c, uerrors.New(uerrors.CodeValidation, "a company account needs a company name"))
+		return
+	}
+
+	if err := h.svc.SetAccountType(
+		c.Request.Context(), uid,
+		req.AccountType, strings.TrimSpace(req.CompanyName), strings.TrimSpace(req.CompanyWebsite),
+	); err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(200, gin.H{"account_type": req.AccountType, "onboarding_complete": true})
 }
 
 func (h *ProfileHandler) UpdateMe(c *gin.Context) {
@@ -952,6 +989,11 @@ func serializeProfile(p *repository.Profile, owner bool) gin.H {
 		out["email"] = p.Email
 		out["email_verified"] = p.EmailVerified
 		out["onboarding_complete"] = p.OnboardingComplete
+		// Empty string means the first-sign-in question has not been answered.
+		// The shell reads this to decide whether to show onboarding.
+		out["account_type"] = p.AccountType
+		out["company_name"] = p.CompanyName
+		out["company_website"] = p.CompanyWebsite
 		out["last_seen_at"] = p.LastSeenAt
 		out["privacy"] = p.Privacy
 	}
@@ -966,11 +1008,24 @@ func serializeProfile(p *repository.Profile, owner bool) gin.H {
 func (h *TeamHandler) Browse(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "25"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	// country_in carries the codes the caller matched from the same free text
+	// ("Pakistan" -> PK). Sent as codes because the curated code→name list
+	// lives at the edge; duplicating it in SQL would leave two lists to keep
+	// in step.
+	var countryAny []string
+	if raw := strings.TrimSpace(c.Query("country_in")); raw != "" {
+		for _, code := range strings.Split(raw, ",") {
+			if code = strings.TrimSpace(code); code != "" {
+				countryAny = append(countryAny, strings.ToUpper(code))
+			}
+		}
+	}
 	filter := repository.TeamFilter{
 		Query:       c.Query("q"),
 		Category:    c.Query("category"),
 		CountryCode: c.Query("country"),
 		Detail:      c.Query("detail"),
+		CountryAny:  countryAny,
 	}
 	teams, err := h.svc.Browse(c.Request.Context(), filter, limit, offset)
 	if err != nil {

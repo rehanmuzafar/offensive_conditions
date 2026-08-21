@@ -29,6 +29,34 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+def _assert_delivery_complete(
+    delivery: str,
+    *,
+    image_ref: str | None,
+    static_host: str | None,
+    download_url: str | None,
+) -> None:
+    """Each delivery kind must carry the one thing it cannot work without.
+
+    The database enforces this too, but an IntegrityError reaches the author as
+    "something went wrong" — and the thing that went wrong is a field they can
+    see and fix. Saved without this, a download machine ships with no file and
+    the first anyone hears of it is a player clicking a dead button.
+    """
+    if delivery == "spawn" and not image_ref:
+        raise AppError(
+            ErrorCode.VALIDATION, "a spawned machine needs a container or VM image"
+        )
+    if delivery == "static_host" and not static_host:
+        raise AppError(
+            ErrorCode.VALIDATION, "a static-host machine needs the address players attack"
+        )
+    if delivery == "download" and not download_url:
+        raise AppError(
+            ErrorCode.VALIDATION, "a boot2root machine needs the image players download"
+        )
+
+
 class MachineService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -145,6 +173,12 @@ class MachineService:
         tag_ids = data.tags
         # The `tags` key is a list of UUIDs in MachineCreate; we strip it before model_dump.
         body = data.model_dump(exclude={"tags"})
+        _assert_delivery_complete(
+            body.get("delivery", "spawn"),
+            image_ref=body.get("image_ref"),
+            static_host=body.get("static_host"),
+            download_url=body.get("download_url"),
+        )
         machine = Machine(creator_id=creator_id, **body)
         self.session.add(machine)
         try:
@@ -178,6 +212,15 @@ class MachineService:
             )
 
         body = data.model_dump(exclude_unset=True, exclude={"tags"})
+        # Checked against the merged result, not the patch: switching a machine
+        # to `download` without sending a url has to fail, and so does clearing
+        # the url of one that is already a download.
+        _assert_delivery_complete(
+            body.get("delivery", machine.delivery),
+            image_ref=body.get("image_ref", machine.image_ref),
+            static_host=body.get("static_host", machine.static_host),
+            download_url=body.get("download_url", machine.download_url),
+        )
         for k, v in body.items():
             setattr(machine, k, v)
 

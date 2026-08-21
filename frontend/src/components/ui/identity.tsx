@@ -28,14 +28,15 @@ export function Avatar({
         alt={username}
         width={px}
         height={px}
-        className={cn("rounded-xl object-cover", className)}
+        className={cn("border border-line object-cover", className)}
       />
     );
   }
   return (
     <span
+      /* Initials on a solid accent chip — see `.chip-solid`. */
       className={cn(
-        "grid shrink-0 place-items-center rounded-xl bg-brand-gradient font-display font-bold text-white",
+        "chip-solid grid shrink-0 place-items-center font-display font-bold tracking-mega",
         className,
       )}
       style={{ width: px, height: px, fontSize: px * 0.36 }}
@@ -60,14 +61,19 @@ const TIER_LABEL: Record<Tier, string> = {
 };
 
 export function TierBadge({ tier, className }: { tier: Tier; className?: string }) {
+  // A brand-new account can arrive with no tier yet. Rendering the badge anyway
+  // produced an empty bordered box next to the username — worse than nothing.
+  const label = TIER_LABEL[tier];
+  if (!label) return null;
+
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md bg-brand-gradient-soft px-2 py-0.5 text-[11.5px] font-semibold text-accent",
+        "inline-flex items-center border border-accent/40 px-2 py-0.5 text-[9.5px] uppercase tracking-wide text-accent",
         className,
       )}
     >
-      {TIER_LABEL[tier]}
+      {label}
     </span>
   );
 }
@@ -75,17 +81,20 @@ export function TierBadge({ tier, className }: { tier: Tier; className?: string 
 /* -------------------------------------------------------------------------- */
 /* Difficulty badge                                                           */
 /* -------------------------------------------------------------------------- */
+/* Colour in the type and the border, never as a fill — the same rule the Badge
+   primitive follows. A grid of machine cards otherwise becomes a grid of
+   coloured pills. */
 const DIFF: Record<MachineDifficulty, { label: string; cls: string }> = {
-  easy: { label: "Easy", cls: "text-success bg-success/12 border-success/25" },
-  medium: { label: "Medium", cls: "text-warning bg-warning/12 border-warning/25" },
-  hard: { label: "Hard", cls: "text-danger bg-danger/12 border-danger/25" },
-  insane: { label: "Insane", cls: "text-accent bg-brand-gradient-soft border-accent/30" },
+  easy: { label: "Easy", cls: "text-success border-success/45" },
+  medium: { label: "Medium", cls: "text-warning border-warning/45" },
+  hard: { label: "Hard", cls: "text-danger border-danger/45" },
+  insane: { label: "Insane", cls: "text-accent border-accent/45" },
 };
 
 export function DifficultyBadge({ difficulty, className }: { difficulty: MachineDifficulty; className?: string }) {
   const d = DIFF[difficulty];
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[12px] font-semibold", d.cls, className)}>
+    <span className={cn("inline-flex items-center border px-2 py-0.5 text-[9.5px] uppercase tracking-wide", d.cls, className)}>
       {d.label}
     </span>
   );

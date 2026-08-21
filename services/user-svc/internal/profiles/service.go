@@ -235,6 +235,27 @@ func (s *Service) Update(ctx context.Context, userID uuid.UUID, req *UpdateReque
 	return s.Get(ctx, userID)
 }
 
+// SetAccountType writes the hacker/company answer, once.
+//
+// The "already set" check lives here rather than in the handler so the rule
+// holds for any caller, and it reads the profile through the same cache path
+// everything else does.
+func (s *Service) SetAccountType(
+	ctx context.Context, userID uuid.UUID, kind, companyName, companyWebsite string,
+) error {
+	existing, err := s.Get(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if existing.AccountType != "" {
+		return uerrors.New(uerrors.CodeValidation, "account type is already set")
+	}
+	if err := s.repo.SetAccountType(ctx, userID, kind, companyName, companyWebsite); err != nil {
+		return uerrors.Internal(err)
+	}
+	return nil
+}
+
 // UpdatePrivacy updates only the privacy block.
 func (s *Service) UpdatePrivacy(ctx context.Context, userID uuid.UUID, p repository.PrivacySettings, requestID string) error {
 	validVis := map[string]bool{"public": true, "friends_only": true, "private": true}

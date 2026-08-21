@@ -124,7 +124,10 @@ export function InlineTeamChat({ eventId, enabled = true }: { eventId: string; e
         <button
           type="submit"
           disabled={send.isPending || !draft.trim()}
-          className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-text-on-brand disabled:opacity-40"
+          /* Accent fill with near-black glyph — `bg-brand-gradient` is now a dark
+             chip and `--text-on-brand` is black in the ink theme, so the old
+             pairing rendered a black icon on a black square. */
+          className="grid h-9 w-9 place-items-center bg-accent text-bg transition-opacity hover:opacity-90 disabled:opacity-40"
           aria-label="Send"
         >
           {send.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -142,7 +145,7 @@ export function TeamChat({ eventId }: { eventId: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-brand-gradient px-4 py-3 text-[14px] font-semibold text-text-on-brand shadow-glow"
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-brand-gradient px-4 py-3 text-[14px] font-semibold text-text-on-brand shadow-glow"
       >
         <MessageSquare className="h-4 w-4" /> Team chat
       </button>
@@ -150,7 +153,7 @@ export function TeamChat({ eventId }: { eventId: string }) {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 flex h-[460px] w-[min(92vw,360px)] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card-lg">
+    <div className="fixed bottom-6 right-6 z-40 flex h-[460px] w-[min(92vw,360px)] flex-col overflow-hidden glass shadow-card-lg">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <span className="flex items-center gap-2 font-display text-[15px] font-bold">
           <MessageSquare className="h-4 w-4 text-accent" /> Team chat

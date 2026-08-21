@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,31 @@ class PayoutService:
         total = (await self.session.execute(count_stmt)).scalar_one()
         result = await self.session.execute(stmt.limit(limit).offset(offset))
         return list(result.scalars().all()), int(total)
+
+    async def report_labels(self, payouts: list[Payout]) -> dict[UUID, tuple[str, str]]:
+        """(report short id, program name) per payout, in one query.
+
+        A payouts list that shows only a report uuid tells the researcher
+        nothing about which finding was paid for — which is the one thing they
+        are looking at the list to find out.
+        """
+        ids = {p.report_id for p in payouts}
+        if not ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                text(
+                    """
+                    SELECT r.id, r.short_id, p.name AS program_name
+                      FROM bounty.reports r
+                      JOIN bounty.programs p ON p.id = r.program_id
+                     WHERE r.id = ANY(:ids)
+                    """
+                ),
+                {"ids": list(ids)},
+            )
+        ).all()
+        return {r[0]: (r[1], r[2]) for r in rows}
 
     async def get_active_for_report(self, report_id: UUID) -> Payout | None:
         result = await self.session.execute(

@@ -67,6 +67,10 @@ class EventCreate(BaseModel):
     # regardless of this setting.
     challenge_runtime: Literal["cloud", "onsite", "static_only"] = "static_only"
     scoreboard_visibility: Literal["public", "participants", "hidden"] = "public"
+    #: How far down the board the writeup requirement reaches, and when it is
+    #: due. Teams that owe one and miss the deadline are eliminated.
+    writeup_required_top_n: int | None = Field(default=None, gt=0)
+    writeup_deadline: datetime | None = None
     invitation_only: bool = False
     invitation_code: str | None = None
     max_participants: int | None = Field(default=None, ge=1)
@@ -120,6 +124,8 @@ class EventUpdate(BaseModel):
     refund_policy: str | None = None
     challenge_runtime: Literal["cloud", "onsite", "static_only"] | None = None
     scoreboard_visibility: Literal["public", "participants", "hidden"] | None = None
+    writeup_required_top_n: int | None = Field(default=None, gt=0)
+    writeup_deadline: datetime | None = None
     # Editable after creation so an organiser can push the schedule out.
     starts_at: datetime | None = None
     registration_starts_at: datetime | None = None
@@ -154,6 +160,15 @@ class EventRead(BaseModel):
     refund_policy: str | None = None
     challenge_runtime: str = "static_only"
     scoreboard_visibility: str = "public"
+    writeup_required_top_n: int | None = None
+    writeup_deadline: datetime | None = None
+    # Pause is exposed as the answer, not the ingredients: the front end needs
+    # to know whether play is stopped right now, and a scheduled window becomes
+    # true on its own without anything switching it.
+    is_paused: bool = False
+    pause_starts_at: datetime | None = None
+    pause_ends_at: datetime | None = None
+    pause_reason: str | None = None
     invitation_only: bool
     max_participants: int | None = None
     prize_pool: list[dict[str, Any]] = Field(default_factory=list)
@@ -251,7 +266,10 @@ class EventChallengeRead(BaseModel):
     # Present for shared-host challenges — the address players attack.
     connection_url: str | None = None
     requires_instance: bool
-    image_ref: str | None = None
+    # NOTE: image_ref is deliberately absent. It used to be here, which handed
+    # every player the registry path of the container behind a challenge —
+    # enough to pull it and read the flag, or find the bug offline, without
+    # touching the platform at all. It lives on the organizer view now.
     files: list[dict[str, Any]] = Field(default_factory=list)
     unlocks_at: datetime | None = None
     requires_solving_ids: list[UUID] = Field(default_factory=list)
@@ -267,6 +285,7 @@ class EventChallengeRead(BaseModel):
 
 class EventChallengeOrganizerRead(EventChallengeRead):
     """Organizer view — includes secret fields."""
+    image_ref: str | None = None
     static_flag_hash: str | None = None
     flag_pattern: str | None = None
     hints: list[dict[str, Any]] = Field(default_factory=list)
@@ -275,6 +294,18 @@ class EventChallengeOrganizerRead(EventChallengeRead):
 
 class EventChallengeList(BaseModel):
     items: list[EventChallengeRead]
+
+
+class EventChallengeOrganizerList(BaseModel):
+    """Same list, organizer view.
+
+    A separate model rather than a union: declaring the item type as
+    `Organizer | Read` lets pydantic serialise an organizer row through the
+    narrower member and silently drop the very fields the organizer screen
+    needs, which is a hard bug to see.
+    """
+
+    items: list[EventChallengeOrganizerRead]
 
 
 # =============================================================================
@@ -324,6 +355,13 @@ class LeaderboardEntry(BaseModel):
     # ISO alpha-2, joined from the team record; null for solo entries.
     country_code: str | None = None
     first_bloods: int = 0
+    #: Organiser bonuses the board is allowed to explain. Quiet adjustments are
+    #: already inside `points` and are not listed here.
+    bonuses: list[dict[str, Any]] = Field(default_factory=list)
+    #: This position was set by hand, not earned by points. Always surfaced —
+    #: a board that overrides an order silently is worse than one that says so.
+    pinned: bool = False
+    pinned_reason: str | None = None
 
 
 class LeaderboardResponse(BaseModel):
@@ -331,6 +369,10 @@ class LeaderboardResponse(BaseModel):
     frozen: bool
     generated_at: datetime
     entries: list[LeaderboardEntry]
+    #: Entries out for not turning in a writeup by the deadline. Kept beside the
+    #: board rather than dropped: a result that quietly loses teams is harder to
+    #: trust than one that shows who went and why.
+    eliminated: list[LeaderboardEntry] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -364,6 +406,33 @@ class HintUnlockResponse(BaseModel):
     hint_id: str
     text: str
     point_deduction: int
+
+
+# =============================================================================
+# Challenge instances
+# =============================================================================
+
+
+class ChallengeInstanceRead(BaseModel):
+    """The team's container for one challenge.
+
+    `connection` is the only field a player actually needs; the rest is for the
+    panel around it (countdown, who started it, error text on a failed spawn).
+    """
+
+    id: UUID
+    challenge_id: UUID
+    status: str
+    host: str | None = None
+    port: int | None = None
+    connection: str | None = None
+    error: str | None = None
+    expires_at: datetime
+    created_at: datetime
+    #: Username of whoever pressed Spawn — the team sees who did.
+    spawned_by_name: str | None = None
+    #: True when this call started it, False when it already existed.
+    created: bool = False
 
 
 # =============================================================================

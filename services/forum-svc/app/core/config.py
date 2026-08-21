@@ -1,9 +1,11 @@
 """Application settings."""
 
+import json
+import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, computed_field
+from pydantic import Field, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +26,25 @@ class Settings(BaseSettings):
     http_port: int = 8005
     http_host: str = "0.0.0.0"
     http_workers: int = 2
-    http_cors_origins: list[str] = ["http://localhost:3000"]
+    # Read as a plain string, not list[str]: pydantic-settings decodes complex
+    # types as JSON at the source level, before any validator runs, so a
+    # list[str] annotation forces the value to be a JSON array. The Go auth
+    # service reads this same variable and rejects JSON outright, so the
+    # space/comma-separated form is the only one both runtimes accept.
+    http_cors_origins_raw: str = Field(
+        default="http://localhost:3000", alias="HTTP_CORS_ORIGINS"
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def http_cors_origins(self) -> list[str]:
+        raw = self.http_cors_origins_raw.strip()
+        # Tolerate the JSON form too. It is not what this reads natively, and a
+        # bare re.split would turn it into one junk origin that silently matches
+        # nothing — a CORS failure is far harder to trace than a parse error.
+        if raw.startswith("["):
+            return [str(o) for o in json.loads(raw)]
+        return [o for o in re.split(r"[,\s]+", raw) if o]
 
     # --- gRPC ---
     grpc_port: int = 9005

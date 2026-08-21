@@ -14,6 +14,15 @@ export interface LeaderRow {
   points: number;
   ownedMachines: number;
   solvedChallenges: number;
+  /** First bloods and the current daily streak — both shown on the landing ladder. */
+  firstBloods: number;
+  streakDays: number;
+  /**
+   * Bug reports that were actually taken, at a severity that means something.
+   * Pending, rejected, duplicate and informational findings are excluded — a
+   * count that included them would reward volume over signal.
+   */
+  acceptedBugs: number;
   /** rank change vs previous period: +up / -down / 0 */
   change: number;
 }

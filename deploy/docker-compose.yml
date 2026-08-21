@@ -33,9 +33,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: offcon_admin
-      POSTGRES_PASSWORD: dev_only_change_in_prod
-      POSTGRES_DB: offcon
+      # From .env, like every service's DB_PASSWORD. This was a literal, which
+      # meant a clone whose bootstrap generated a password got a database
+      # initialised with a *different* one — every service would then fail
+      # authentication against a database that came up perfectly healthy.
+      POSTGRES_USER: "${DB_USER:-offcon_admin}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}"
+      POSTGRES_DB: "${DB_NAME:-offcon}"
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
     ports: ["5432:5432"]
     volumes:
@@ -85,8 +89,12 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: offcon_dev
-      MINIO_ROOT_PASSWORD: dev_only_change_in_prod
+      # From .env, so bootstrap.sh can generate them and keep every service's
+      # storage credentials in step. These were literals here, which meant
+      # STORAGE_ACCESS_KEY / S3_ACCESS_KEY had to be hand-matched to a string
+      # buried in this file.
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-offcon_dev}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in deploy/.env}"
     ports: ["9000:9000", "9101:9001"]
     volumes: [minio_data:/data]
     healthcheck:
@@ -158,13 +166,26 @@ services:
       DOCKER_PUBLIC_HOST: "${DOCKER_PUBLIC_HOST:-127.0.0.1}"
       DOCKER_NETWORK: "offcon"
       DOCKER_ALLOW_EGRESS: "false"
-    ports: ["8002:8002", "9002:9002"]
+      # Guards /internal/containers, which starts a container from any image.
+      # ctf-svc sends it; nothing else may.
+      ORCHESTRATOR_INTERNAL_TOKEN: "${ORCHESTRATOR_INTERNAL_TOKEN:?set ORCHESTRATOR_INTERNAL_TOKEN in deploy/.env}"
+    # Bound to loopback, not 0.0.0.0. The edge and ctf-svc reach this over the
+    # compose network; publishing it wide put /internal/containers on the box's
+    # public interface, which on a VPS is a remote "run anything" button.
+    ports: ["127.0.0.1:8002:8002", "127.0.0.1:9002:9002"]
     volumes:
       - "./secrets:/secrets:ro"
       # Mounting the daemon socket gives this container control of the host's
       # Docker. Acceptable for a single-host dev/event box; in production the
       # lab host must be separate from the platform host and reached over TLS.
       - "/var/run/docker.sock:/var/run/docker.sock"
+    # The socket is mode 660 root:<docker group>, and this image runs as
+    # nonroot. Joining that group is what makes the mount usable without
+    # running the service as root. The gid differs per host — Docker Desktop
+    # uses 991, most Linux distros 999 — so it is configurable:
+    #   ls -n /var/run/docker.sock   # 4th column is the gid
+    group_add:
+      - "${DOCKER_SOCKET_GID:-991}"
 
   scoring:
     <<: *svc-defaults
@@ -176,12 +197,54 @@ services:
     ports: ["8003:8003", "9003:9003"]
     volumes: ["./secrets:/secrets:ro"]
 
+  # Turns solves into points.
+  #
+  # The scoring Dockerfile has always built this target and ctf-svc has always
+  # published to `ctf.events` — but nothing consumed it, so every solve went
+  # into Kafka and stopped there. scoring.point_history had zero rows, which is
+  # why the leaderboard was empty and the dashboard showed nothing while the
+  # profile page (which reads ctf-svc directly) showed the same player's real
+  # points.
+  #
+  # The resolver URLs turn ids into names and content into titles; without them
+  # the worker still scores, it just cannot label what it scored.
+  scoring-worker:
+    <<: *svc-defaults
+    build: { context: ../services/scoring, target: worker }
+    environment:
+      USER_SERVICE_URL: "http://user-svc:8012"
+      CONTENT_SERVICE_URL: "http://content-svc:8010"
+    volumes: ["./secrets:/secrets:ro"]
+    # A Kafka consumer, not an HTTP service; the image's healthcheck probes a
+    # port it does not listen on.
+    healthcheck:
+      disable: true
+
+  # Season rollover and the daily ELO/streak jobs. The Dockerfile has always
+  # built this target and the rollover logic has always been complete — it was
+  # simply never deployed, so seasons ran past their end date forever and the
+  # next one was never created.
+  #
+  # Single instance by design: it holds no lock, and two of them would roll the
+  # same season over twice.
+  scoring-seasonjob:
+    <<: *svc-defaults
+    build: { context: ../services/scoring, target: seasonjob }
+    volumes: ["./secrets:/secrets:ro"]
+    # Cron loop, not an HTTP service; the image's healthcheck probes a port it
+    # does not listen on.
+    healthcheck:
+      disable: true
+
   ctf-svc:
     <<: *svc-defaults
     build: { context: ../services/ctf-svc }
     environment:
       HTTP_PORT: "8004"
       GRPC_PORT: "9004"
+      # Lets ctf-svc start per-team challenge containers. The orchestrator
+      # rejects the call without it.
+      ORCHESTRATOR_INTERNAL_TOKEN: "${ORCHESTRATOR_INTERNAL_TOKEN:?set ORCHESTRATOR_INTERNAL_TOKEN in deploy/.env}"
     ports: ["8004:8004", "9004:9004"]
     volumes: ["./secrets:/secrets:ro"]
 
@@ -195,12 +258,29 @@ services:
     build: { context: ../services/ctf-svc }
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     volumes: ["./secrets:/secrets:ro"]
+    # The image bakes in `curl /livez` on port 8004, which is the API's port.
+    # This container runs celery and listens on nothing, so that check could
+    # never pass — both workers sat "unhealthy" for days while doing their job
+    # perfectly, which is worse than no check at all: a real failure would have
+    # looked exactly the same. `inspect ping` asks the worker itself.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
 
   ctf-beat:
     <<: *svc-defaults
     build: { context: ../services/ctf-svc }
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
     volumes: ["./secrets:/secrets:ro"]
+    # Beat only sends; it answers no ping and serves no port, so there is
+    # nothing honest to probe. Disabled rather than left with the image's HTTP
+    # check, which reported a false failure every 30 seconds. If beat stops, the
+    # worker goes quiet — that is the signal to watch.
+    healthcheck:
+      disable: true
 
   flag-verifier:
     <<: *svc-defaults

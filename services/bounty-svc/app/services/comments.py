@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
@@ -51,6 +51,23 @@ class CommentService:
         total = (await self.session.execute(count_stmt)).scalar_one()
         result = await self.session.execute(stmt.limit(limit).offset(offset))
         return list(result.scalars().all()), int(total)
+
+    async def author_names(self, comments: list[ReportComment]) -> dict[UUID, str]:
+        """Usernames for a batch of comment authors.
+
+        One query for the thread rather than one per comment, and a batch
+        rather than a per-comment join so the ORM objects stay plain rows.
+        """
+        ids = {c.author_id for c in comments}
+        if not ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                text("SELECT id, username FROM auth.users WHERE id = ANY(:ids)"),
+                {"ids": list(ids)},
+            )
+        ).all()
+        return {r[0]: r[1] for r in rows}
 
     async def add(
         self,

@@ -124,7 +124,7 @@ export default function TeamsPage() {
           <select
             value={country}
             onChange={(e) => setCountry(e.target.value)}
-            className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-[12.5px] font-semibold text-text-dim outline-none focus:border-line-strong"
+            className="border border-line bg-surface px-3.5 py-1.5 text-[12.5px] font-semibold text-text-dim outline-none focus:border-line-strong"
           >
             <option value="">Any country</option>
             {COUNTRIES.map((c) => (

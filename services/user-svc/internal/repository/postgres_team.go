@@ -184,10 +184,18 @@ func (r *pgTeamRepo) UpdateMemberRole(ctx context.Context, teamID, userID uuid.U
 }
 
 func (r *pgTeamRepo) ListMembers(ctx context.Context, teamID uuid.UUID) ([]*TeamMembership, error) {
-	q := `SELECT team_id, user_id, role, joined_at, left_at
-		FROM users.team_members
-		WHERE team_id = $1 AND left_at IS NULL
-		ORDER BY (role = 'captain') DESC, joined_at ASC`
+	// The name lives in auth.users; users.profiles carries the display name and
+	// the rest. Both are joined because a roster wants the handle, and the
+	// display name only when someone set one.
+	q := `SELECT m.team_id, m.user_id, m.role,
+			COALESCE(u.username, ''), COALESCE(p.display_name, ''),
+			COALESCE(p.avatar_url, ''), COALESCE(p.country_code, ''),
+			m.joined_at, m.left_at
+		FROM users.team_members m
+		LEFT JOIN auth.users u ON u.id = m.user_id
+		LEFT JOIN users.profiles p ON p.user_id = m.user_id
+		WHERE m.team_id = $1 AND m.left_at IS NULL
+		ORDER BY (m.role = 'captain') DESC, m.joined_at ASC`
 	rows, err := r.pool.Query(ctx, q, teamID)
 	if err != nil {
 		return nil, err
@@ -196,7 +204,11 @@ func (r *pgTeamRepo) ListMembers(ctx context.Context, teamID uuid.UUID) ([]*Team
 	var out []*TeamMembership
 	for rows.Next() {
 		m := &TeamMembership{}
-		if err := rows.Scan(&m.TeamID, &m.UserID, &m.Role, &m.JoinedAt, &m.LeftAt); err != nil {
+		if err := rows.Scan(
+			&m.TeamID, &m.UserID, &m.Role,
+			&m.Username, &m.DisplayName, &m.AvatarURL, &m.CountryCode,
+			&m.JoinedAt, &m.LeftAt,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -311,19 +323,33 @@ func scanInvitations(rows pgx.Rows) ([]*TeamInvitation, error) {
 func (r *pgTeamRepo) ListPublic(
 	ctx context.Context, f TeamFilter, limit, offset int,
 ) ([]*Team, error) {
-	// The free-text box searches name, affiliation and country together, so a
-	// player can type "NUST" or "Pakistan" without picking a filter first.
+	// The free-text box searches name, affiliation, slug, id and country in one
+	// go, so a player can type "NUST", "Pakistan" or paste a team id without
+	// first choosing which field they mean.
+	//
+	// The country half arrives as codes ($7): the caller turns "Pakistan" into
+	// {PK} against the curated list, because matching a name here would need a
+	// second copy of that list in SQL.
 	sql := `SELECT ` + teamSelectColumns + ` FROM users.teams
 		WHERE disbanded_at IS NULL AND is_private = FALSE
 		  AND ($1 = '' OR name ILIKE '%' || $1 || '%'
 		               OR COALESCE(category_detail, '') ILIKE '%' || $1 || '%'
-		               OR COALESCE(country_code, '') ILIKE $1)
+		               OR COALESCE(slug, '') ILIKE '%' || $1 || '%'
+		               OR id::text = $1
+		               OR COALESCE(country_code, '') ILIKE $1
+		               OR COALESCE(country_code, '') = ANY($7))
 		  AND ($2 = '' OR category = $2)
 		  AND ($3 = '' OR COALESCE(country_code, '') = $3)
 		  AND ($4 = '' OR COALESCE(category_detail, '') ILIKE '%' || $4 || '%')
 		ORDER BY member_count DESC, created_at DESC
 		LIMIT $5 OFFSET $6`
-	rows, err := r.pool.Query(ctx, sql, f.Query, f.Category, f.CountryCode, f.Detail, limit, offset)
+	countryAny := f.CountryAny
+	if countryAny == nil {
+		countryAny = []string{}
+	}
+	rows, err := r.pool.Query(
+		ctx, sql, f.Query, f.Category, f.CountryCode, f.Detail, limit, offset, countryAny,
+	)
 	if err != nil {
 		return nil, err
 	}

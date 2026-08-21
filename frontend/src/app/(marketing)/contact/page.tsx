@@ -70,7 +70,7 @@ export default function ContactPage() {
                       type="button"
                       onClick={() => setTopic(t)}
                       className={
-                        "rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors " +
+                        "border px-3.5 py-1.5 text-[13px] font-medium transition-colors" +
                         (topic === t
                           ? "border-accent bg-brand-gradient-soft text-accent"
                           : "border-line-strong text-text-dim hover:bg-surface-hover")

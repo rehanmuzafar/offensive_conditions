@@ -94,6 +94,36 @@ function buildUrl(path: string, params?: RequestOptions["params"]): string {
   return s ? `${url}?${s}` : url;
 }
 
+/**
+ * Fetch a protected file as a blob.
+ *
+ * The JSON helper parses every response, and a PDF is not JSON. This exists so
+ * an authenticated file — a writeup, say — can be read in the browser: an
+ * `<iframe src=…>` carries no Authorization header, so the bytes have to be
+ * fetched here and handed on as an object URL.
+ */
+export async function fetchBlob(
+  path: string,
+): Promise<{ blob: Blob; contentType: string; kind: string }> {
+  const headers = new Headers({ Accept: "*/*" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(buildUrl(path), { headers, credentials: "include" });
+  if (!res.ok) {
+    throw new ApiError(res.status, {
+      code: "FILE_UNREADABLE",
+      message: `Could not load that file (${res.status})`,
+    });
+  }
+  return {
+    blob: await res.blob(),
+    contentType: res.headers.get("Content-Type") ?? "application/octet-stream",
+    // Set by ctf-svc: pdf | markdown | text — how the page should show it.
+    kind: res.headers.get("X-Writeup-Kind") ?? "text",
+  };
+}
+
 async function request<T>(
   method: string,
   path: string,

@@ -7,15 +7,20 @@ from app.models.announcement import (
     HintUnlock,
 )
 from app.models.event import (
+    ChallengeInstance,
     ChallengeProgress,
     ChatMessage,
     Event,
     EventChallenge,
     EventParticipant,
     EventSolve,
+    ScoreAdjustment,
+    EventWriteup,
+    RankPin,
 )
 
 __all__ = [
+    "ChallengeInstance",
     "ChallengeProgress",
     "ChatMessage",
     "Event",
@@ -23,6 +28,9 @@ __all__ = [
     "EventChallenge",
     "EventParticipant",
     "EventSolve",
+    "EventWriteup",
+    "RankPin",
+    "ScoreAdjustment",
     "FlagSubmissionAttempt",
     "FrozenScoreboard",
     "HintUnlock",

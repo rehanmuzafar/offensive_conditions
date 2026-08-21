@@ -14,7 +14,7 @@ import {
   CheckoutSessionResponseSchema,
 } from '@/schemas/index.js';
 import { createCheckoutSession, createPortalSession } from '@/services/checkout.js';
-import { getPlanByCode, listPlans, planRowToRead } from '@/services/plans.js';
+import { getPlanByCode, listPlans, planRowToRead, updatePlan } from '@/services/plans.js';
 
 export async function registerPlanRoutes(app: FastifyInstance): Promise<void> {
   // Public listing of plans
@@ -52,6 +52,49 @@ export async function registerPlanRoutes(app: FastifyInstance): Promise<void> {
         throw new AppError(ErrorCode.PLAN_INACTIVE, 'plan is not currently sold');
       }
       return planRowToRead(plan, region);
+    },
+  );
+
+  /**
+   * Admin: change what a plan costs.
+   *
+   * The prices the product shows were hard-coded in three places — the pricing
+   * page, the checkout page and the marketing copy — none of which matched the
+   * plans this service actually bills against. Editing them here makes the
+   * table the single answer to "what does Pro cost?", which is the only way
+   * the page and the invoice can agree.
+   *
+   * Deliberately narrow: name, price, features and visibility. Codes and
+   * billing cycles are not editable, because subscriptions already reference
+   * them and a renamed code silently detaches every customer on it.
+   */
+  app.patch(
+    '/v1/plans/:code',
+    {
+      preHandler: app.requireAuth,
+      schema: {
+        params: z.object({ code: z.string() }),
+        body: z.object({
+          name: z.string().min(1).max(80).optional(),
+          description: z.string().max(400).nullable().optional(),
+          // Cents, so the UI never has to round a float into money.
+          base_price_cents: z.number().int().min(0).max(10_000_00).optional(),
+          features: z.array(z.string().max(120)).max(20).optional(),
+          is_active: z.boolean().optional(),
+          sort_order: z.number().int().min(0).max(100).optional(),
+        }),
+        response: { 200: PlanReadSchema },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const auth = (request as FastifyRequest & { auth?: { is_admin?: boolean } }).auth;
+      if (!auth?.is_admin) {
+        throw new AppError(ErrorCode.FORBIDDEN, 'admin role required');
+      }
+      const { code } = request.params as { code: string };
+      const existing = await getPlanByCode(code);
+      const updated = await updatePlan(existing.id, request.body as Record<string, unknown>);
+      return planRowToRead(updated);
     },
   );
 

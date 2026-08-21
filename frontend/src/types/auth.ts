@@ -28,6 +28,16 @@ export interface AuthUser {
   createdAt: string;
 }
 
+/** Which product this account is for. Empty until onboarding is answered. */
+export type AccountType = "hacker" | "company" | "";
+
+export interface AccountIdentity {
+  accountType: AccountType;
+  onboardingComplete: boolean;
+  companyName: string | null;
+  companyWebsite: string | null;
+}
+
 /** Tokens returned on a successful login / refresh. */
 export interface AuthTokens {
   accessToken: string;

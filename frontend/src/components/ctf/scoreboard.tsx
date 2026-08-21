@@ -15,7 +15,7 @@ import type { ScoreboardRow } from "@/types/ctf";
 export function Scoreboard({ rows }: { rows: ScoreboardRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-2xl border border-line bg-surface px-4 py-10 text-center">
+      <div className="edge-iridescent glass px-4 py-10 text-center">
         <p className="text-[14px] text-text-dim">No solves yet — the board fills up as flags land.</p>
       </div>
     );
@@ -30,7 +30,7 @@ export function Scoreboard({ rows }: { rows: ScoreboardRow[] }) {
       {podium.length > 0 && <Podium rows={podium} />}
 
       {rest.length > 0 && (
-        <div className="overflow-hidden rounded-2xl border border-line bg-surface">
+        <div className="overflow-hidden glass">
           <div className="grid grid-cols-[44px_1fr_84px] items-center border-b border-line px-4 py-3 text-[11.5px] font-bold uppercase tracking-[1px] text-text-faint sm:grid-cols-[52px_1fr_150px_110px_84px]">
             <span>#</span>
             <span>Player</span>
@@ -41,7 +41,7 @@ export function Scoreboard({ rows }: { rows: ScoreboardRow[] }) {
           {rest.map((r) => (
             <div
               key={r.teamId}
-              className="grid grid-cols-[44px_1fr_84px] items-center border-b border-line px-4 py-3 transition-colors last:border-0 hover:bg-surface-hover sm:grid-cols-[52px_1fr_150px_110px_84px]"
+              className="group relative grid grid-cols-[44px_1fr_84px] items-center border-b border-line px-4 py-3 transition-colors last:border-0 hover:bg-surface-hover sm:grid-cols-[52px_1fr_150px_110px_84px]"
             >
               <span className="font-display text-[15px] font-extrabold tabular-nums text-text-faint">
                 {r.rank}
@@ -140,7 +140,7 @@ function PointsBar({ points, max }: { points: number; max: number }) {
       className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-elevated"
       title={`${formatNumber(points)} points`}
     >
-      <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+      <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
     </div>
   );
 }

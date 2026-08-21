@@ -103,6 +103,10 @@ class SubmissionService:
             if event.status == "ended":
                 raise AppError(ErrorCode.EVENT_ENDED, "event has ended")
             raise AppError(ErrorCode.EVENT_NOT_LIVE, f"event not live (status={event.status})")
+        # A pause has to stop play, or it is only a notice on the front end and
+        # the clock keeps running for anyone who kept a tab open.
+        if event.is_paused:
+            raise AppError(ErrorCode.EVENT_NOT_LIVE, "the event is paused")
         now = datetime.now(timezone.utc)
         if now > event.ends_at:
             raise AppError(ErrorCode.EVENT_ENDED, "event ended")
@@ -292,6 +296,11 @@ class SubmissionService:
             "challenge_id": str(challenge_id),
             "participant_id": str(participant.id),
             "solving_user_id": str(submitting_user_id),
+            # When this event finishes. Scoring credits the whole event to the
+            # season that is running at its end, so a CTF that straddles a
+            # season boundary lands in one of them rather than being split
+            # across two by the accident of when each flag went in.
+            "event_ends_at": event.ends_at.isoformat() if event.ends_at else None,
         }
 
     # =========================================================================
@@ -310,6 +319,8 @@ class SubmissionService:
         event = await self._load_event_state(event_id)
         if event.status != "live":
             raise AppError(ErrorCode.EVENT_NOT_LIVE, "event not live")
+        if event.is_paused:
+            raise AppError(ErrorCode.EVENT_NOT_LIVE, "the event is paused")
         if participant.is_disqualified:
             raise AppError(ErrorCode.PARTICIPANT_DISQUALIFIED, "you are disqualified")
 

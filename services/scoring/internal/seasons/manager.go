@@ -160,11 +160,14 @@ func (m *Manager) createNextSeason(ctx context.Context, prev *repository.Season)
 	ends := starts.Add(duration)
 
 	code := generateSeasonCode(starts)
-	name := generateSeasonName(starts)
+	number := prev.Number + 1
 
 	next := &repository.Season{
-		Code:              code,
-		Name:              name,
+		Code: code,
+		// Players count seasons; they do not talk about Q4 2026. The quarter
+		// stays in `code` for anyone who needs to know when it ran.
+		Name:              generateSeasonName(number),
+		Number:            number,
 		StartsAt:          starts,
 		EndsAt:            ends,
 		State:             repository.SeasonActive,
@@ -254,8 +257,6 @@ func generateSeasonCode(starts time.Time) string {
 	return fmt.Sprintf("%d-Q%d", starts.Year(), quarter)
 }
 
-func generateSeasonName(starts time.Time) string {
-	quarter := (int(starts.Month())-1)/3 + 1
-	names := map[int]string{1: "Spring", 2: "Summer", 3: "Autumn", 4: "Winter"}
-	return fmt.Sprintf("%s %d", names[quarter], starts.Year())
+func generateSeasonName(number int) string {
+	return fmt.Sprintf("Season %d", number)
 }

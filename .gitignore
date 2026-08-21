@@ -37,3 +37,6 @@ coverage/
 .mypy_cache/
 .ruff_cache/
 tmp/
+
+# Editing backups taken before changing the edge config.
+deploy/nginx.conf.bak-*

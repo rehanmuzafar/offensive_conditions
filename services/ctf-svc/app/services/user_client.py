@@ -86,6 +86,43 @@ class UserServiceClient:
         name = team.get("name") or f"team-{team_id}"
         return name, len(members)
 
+    async def get_team_roster(
+        self, team_id: UUID, *, bearer: str, actor_id: UUID
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Return (team_name, members) if the caller captains this team.
+
+        The roster screen needs the whole membership, not a count: it shows who
+        is entered and who could be, so the captain can swap one for the other.
+        """
+        headers = {"Authorization": bearer}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            try:
+                team_res = await client.get(f"{self._base}/v1/teams/{team_id}", headers=headers)
+                members_res = await client.get(
+                    f"{self._base}/v1/teams/{team_id}/members", headers=headers
+                )
+            except httpx.HTTPError as exc:
+                raise AppError(ErrorCode.INTERNAL, "could not verify the team right now") from exc
+
+        if team_res.status_code == 404:
+            raise AppError(ErrorCode.VALIDATION, "team not found")
+        if team_res.status_code >= 400 or members_res.status_code >= 400:
+            raise AppError(ErrorCode.FORBIDDEN, "you cannot manage this team")
+
+        body = team_res.json()
+        team = body.get("team") or body
+        members: list[dict[str, Any]] = members_res.json().get("members") or []
+
+        mine = next((m for m in members if str(m.get("user_id")) == str(actor_id)), None)
+        if mine is None:
+            raise AppError(ErrorCode.FORBIDDEN, "you are not a member of this team")
+        if str(mine.get("role", "")).lower() not in CAPTAIN_ROLES:
+            raise AppError(
+                ErrorCode.FORBIDDEN, "only the team owner or a captain can manage the roster"
+            )
+
+        return team.get("name") or f"team-{team_id}", members
+
     async def list_my_team_ids(self, *, bearer: str) -> list[str]:
         """Team ids the caller belongs to, as user-svc sees them.
 

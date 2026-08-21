@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
-from app.models import Event, EventChallenge, EventSolve
+from app.models import Event, EventChallenge, EventSolve, HintUnlock
 from app.schemas import EventChallengeCreate, EventChallengeUpdate
 
 log = get_logger("challenges")
@@ -145,6 +145,35 @@ class ChallengeService:
         )
         return challenge
 
+    async def delete(self, challenge_id: UUID, *, event_id: UUID) -> None:
+        """Remove a challenge from a given event.
+
+        Refused once an event has ended, for the same reason edits are: teams
+        have already been scored against this challenge and the final standings
+        must stay explicable. While an event is live it is allowed — a broken
+        challenge is worse than a missing one, and organizers do pull them
+        mid-CTF.
+        """
+        challenge = await self.get(challenge_id)
+
+        # Checked first. Deleting and *then* discovering the caller used another
+        # event's URL would mean the row is already gone, leaving correctness to
+        # whether the request happens to roll back.
+        if challenge.event_id != event_id:
+            raise AppError(ErrorCode.CHALLENGE_NOT_FOUND, "challenge not in this event")
+
+        event = await self.session.get(Event, challenge.event_id)
+
+        if event and event.status in ("ended", "archived"):
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                "cannot delete a challenge after the event has ended",
+            )
+
+        await self.session.delete(challenge)
+        await self.session.flush()
+        log.info("challenge_deleted", challenge_id=str(challenge_id), event_id=str(event_id))
+
     async def update(
         self, challenge_id: UUID, *, data: EventChallengeUpdate
     ) -> EventChallenge:
@@ -242,9 +271,45 @@ class ChallengeService:
                     details={"missing": missing},
                 )
 
-    def hint_summaries(self, challenge: EventChallenge) -> list[dict[str, Any]]:
-        """Return only hint id + point_deduction (text revealed on unlock)."""
-        return [
-            {"id": h["id"], "point_deduction": h.get("point_deduction", 0)}
-            for h in challenge.hints
-        ]
+    async def unlocked_hint_ids(
+        self, event_id: UUID, participant_id: UUID
+    ) -> dict[UUID, set[str]]:
+        """Hints this participant has already paid for, keyed by challenge."""
+        rows = await self.session.execute(
+            select(HintUnlock.challenge_id, HintUnlock.hint_id).where(
+                and_(
+                    HintUnlock.event_id == event_id,
+                    HintUnlock.participant_id == participant_id,
+                )
+            )
+        )
+        out: dict[UUID, set[str]] = {}
+        for challenge_id, hint_id in rows:
+            out.setdefault(challenge_id, set()).add(hint_id)
+        return out
+
+    def hint_summaries(
+        self, challenge: EventChallenge, unlocked: set[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Hint id + cost, plus the text of the ones this viewer has unlocked.
+
+        Withholding the text until it is paid for is the point of hints. Never
+        handing it back afterwards is not: unlocking wrote a row, deducted the
+        points and returned the text exactly once, and a reload lost it for
+        good — with the endpoint answering 409 on a second attempt, so the
+        player had paid for something they could no longer read.
+        """
+        seen = unlocked or set()
+        summaries: list[dict[str, Any]] = []
+        for h in challenge.hints:
+            hint_id = h["id"]
+            is_unlocked = hint_id in seen
+            row: dict[str, Any] = {
+                "id": hint_id,
+                "point_deduction": h.get("point_deduction", 0),
+                "unlocked": is_unlocked,
+            }
+            if is_unlocked:
+                row["text"] = h.get("text")
+            summaries.append(row)
+        return summaries

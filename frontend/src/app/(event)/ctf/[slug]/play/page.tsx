@@ -9,6 +9,8 @@
  * three columns HackTheBox uses: categories, scenarios, team.
  */
 
+import { CtfAmbient } from "@/components/ctf/ctf-ambient";
+import { LiveNotices } from "@/components/ctf/live-notices";
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ListChecks, BarChart3, Lock } from "lucide-react";
@@ -75,74 +77,79 @@ export default function ArenaPage({ params }: { params: Promise<{ slug: string }
   const totalPoints = (challenges ?? []).reduce((sum, c) => sum + (c.basePoints ?? c.points), 0);
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* Arena bar: the event's own chrome, in place of the platform topbar. */}
-      <header className="sticky top-0 z-30 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-bg-elevated px-4 py-3 lg:px-6">
-        <Link
-          href={`/ctf/${slug}`}
-          className="flex items-center gap-2 font-display text-[15px] font-bold text-text hover:text-accent"
-          title="Back to the event page"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {event.name}
-        </Link>
+    <>
+      <CtfAmbient />
+      <LiveNotices />
 
-        <nav className="flex items-center gap-1">
-          <ArenaTab active={tab === "scenarios"} onClick={() => setTab("scenarios")} icon={<ListChecks className="h-4 w-4" />} label="Scenarios" />
-          <ArenaTab active={tab === "scoreboard"} onClick={() => setTab("scoreboard")} icon={<BarChart3 className="h-4 w-4" />} label="Scoreboard" />
-        </nav>
+      <div className="flex min-h-screen flex-col">
+        {/* Arena bar: the event's own chrome, in place of the platform topbar. */}
+        <header className="sticky top-0 z-30 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-bg-elevated px-4 py-3 lg:px-6">
+          <Link
+            href={`/ctf/${slug}`}
+            className="flex items-center gap-2 font-display text-[15px] font-bold text-text hover:text-accent"
+            title="Back to the event page"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {event.name}
+          </Link>
 
-        {event.state === "live" && (
-          <div className="ml-auto flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5">
-            <span className="text-[12.5px] text-text-dim">Ends in</span>
-            <Countdown to={event.endsAt} />
-          </div>
-        )}
-      </header>
+          <nav className="flex items-center gap-1">
+            <ArenaTab active={tab === "scenarios"} onClick={() => setTab("scenarios")} icon={<ListChecks className="h-4 w-4" />} label="Scenarios" />
+            <ArenaTab active={tab === "scoreboard"} onClick={() => setTab("scoreboard")} icon={<BarChart3 className="h-4 w-4" />} label="Scoreboard" />
+          </nav>
 
-      <div className="flex-1 px-4 py-5 lg:px-6">
-        {error ? (
-          <div className="mx-auto max-w-md rounded-2xl border border-line bg-surface px-4 py-12 text-center">
-            <Lock className="mx-auto h-6 w-6 text-text-faint" />
-            <p className="mt-3 font-display text-[16px] font-bold text-text">Scenarios locked</p>
-            <p className="mt-1.5 text-[13.5px] text-text-dim">
-              {error instanceof Error ? error.message : "Scenarios are not available."}
-            </p>
-            <Link
-              href={`/ctf/${slug}`}
-              className="mt-5 inline-block text-[13.5px] font-semibold text-accent hover:underline"
-            >
-              Back to the event page
-            </Link>
-          </div>
-        ) : tab === "scenarios" ? (
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_340px]">
-            <ScenarioBoard
-              challenges={challenges ?? []}
-              progressByChallenge={progressByChallenge}
+          {event.state === "live" && (
+            <div className="ml-auto flex items-center gap-2 rounded-full border border-line bg-surface px-3.5 py-1.5">
+              <span className="text-[12.5px] text-text-dim">Ends in</span>
+              <Countdown to={event.endsAt} />
+            </div>
+          )}
+        </header>
+
+        <div className="flex-1 px-4 py-5 lg:px-6">
+          {error ? (
+            <div className="mx-auto max-w-md rounded-2xl border border-line bg-surface px-4 py-12 text-center">
+              <Lock className="mx-auto h-6 w-6 text-text-faint" />
+              <p className="mt-3 font-display text-[16px] font-bold text-text">Scenarios locked</p>
+              <p className="mt-1.5 text-[13.5px] text-text-dim">
+                {error instanceof Error ? error.message : "Scenarios are not available."}
+              </p>
+              <Link
+                href={`/ctf/${slug}`}
+                className="mt-5 inline-block text-[13.5px] font-semibold text-accent hover:underline"
+              >
+                Back to the event page
+              </Link>
+            </div>
+          ) : tab === "scenarios" ? (
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_340px]">
+              <ScenarioBoard
+                challenges={challenges ?? []}
+                progressByChallenge={progressByChallenge}
+                eventId={event.id}
+                onOpen={setActive}
+                headline={
+                  <StatStrip solved={solved} total={total} me={me ?? null} standing={myStanding} />
+                }
+              />
+              <TeamRail eventId={event.id} />
+            </div>
+          ) : (
+            <ArenaScoreboard
+              slug={slug}
               eventId={event.id}
-              onOpen={setActive}
-              headline={
-                <StatStrip solved={solved} total={total} me={me ?? null} standing={myStanding} />
-              }
+              totalScenarios={total}
+              totalPoints={totalPoints}
+              myTeamId={me?.team_id ?? null}
             />
-            <TeamRail eventId={event.id} />
-          </div>
-        ) : (
-          <ArenaScoreboard
-            slug={slug}
-            eventId={event.id}
-            totalScenarios={total}
-            totalPoints={totalPoints}
-            myTeamId={me?.team_id ?? null}
-          />
+          )}
+        </div>
+
+        {active && (
+          <ScenarioDrawer challenge={active} slug={slug} onClose={() => setActive(null)} />
         )}
       </div>
-
-      {active && (
-        <ScenarioDrawer challenge={active} slug={slug} onClose={() => setActive(null)} />
-      )}
-    </div>
+    </>
   );
 }
 
@@ -166,6 +173,7 @@ function ArenaScoreboard({
     <EventScoreboard
       eventId={eventId}
       rows={rows?.items ?? []}
+      eliminated={rows?.eliminated ?? []}
       myTeamId={myTeamId}
       totalScenarios={totalScenarios}
       totalPoints={totalPoints}

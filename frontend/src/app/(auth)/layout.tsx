@@ -1,48 +1,76 @@
 /**
- * Auth layout — a centered card on a branded, atmospheric backdrop. On large
- * screens a left "showcase" panel carries the brand story; the form sits on the
- * right. Fully theme-aware.
+ * Auth layout — a ruled sheet split in two: a showcase panel carrying the brand
+ * argument on the left, the form on the right.
+ *
+ * The panel used to be a violet gradient block, which was the single largest
+ * area of chroma anywhere in the product. It is now the same drafting ground as
+ * the rest of the app — grid, crosshair ticks, corner brackets — with the
+ * weight carried by type instead of by fill. The only division between the two
+ * halves is a hairline.
  */
 
 import Link from "next/link";
 
+import AmbientScene from "@/components/landing/canvas/AmbientScene";
+import PointerTracker from "@/components/landing/PointerTracker";
+import { SignInTransition } from "@/components/auth/sign-in-transition";
 import { Logo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/brand/theme-toggle";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen lg:grid lg:grid-cols-[1.1fr_1fr]">
+      {/* The gate gets the live scene: it is the one page where the visitor is
+          waiting on something anyway, and it is the last thing they see before
+          the product turns into a tool. The pointer tracker is what the wake and
+          the skull's tilt read from. */}
+      <PointerTracker />
+      {/* Anchored left, into the showcase column. The default ambient pose
+          drifts right with the scroll timeline's opening keyframes, which put
+          the skull directly behind the form. */}
+      <AmbientScene
+        anchor={[-2.1, -0.15, -0.6]}
+        className="pointer-events-none fixed inset-0 -z-10 opacity-80"
+      />
+      <SignInTransition />
       {/* showcase (desktop only) */}
-      <aside className="relative hidden overflow-hidden bg-brand-gradient lg:block">
+      <aside className="bg-grid relative hidden overflow-hidden border-r border-line lg:block">
+        {/* Crosshair ticks — kept for the case where the scene is gated off
+            (no WebGL2, reduced motion), so the panel is never bare. */}
         <div
-          className="absolute inset-0"
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
           style={{
             backgroundImage:
-              "linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.07) 1px,transparent 1px)",
-            backgroundSize: "48px 48px",
-            maskImage: "radial-gradient(ellipse at 30% 30%, #000, transparent 80%)",
-            WebkitMaskImage: "radial-gradient(ellipse at 30% 30%, #000, transparent 80%)",
+              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cpath d='M128 121v14M121 128h14' stroke='currentColor' stroke-width='1'/%3E%3C/svg%3E\")",
+            color: "rgb(var(--grid-ink))",
+            opacity: "var(--tick-opacity)",
           }}
         />
-        <div className="relative flex h-full flex-col justify-between p-12">
-          <Logo size={34} href="/" className="[&_*]:!text-white" />
+
+        <div className="bracket-frame relative m-8 flex h-[calc(100%-4rem)] flex-col justify-between p-10">
+          <Logo size={34} href="/" />
 
           <div className="max-w-md">
-            <h2 className="font-display text-[40px] font-extrabold leading-[1.1] tracking-[-1px] text-white">
-              Forge yourself in offensive security.
+            <div className="mb-6 flex items-center gap-3 text-[10.5px] uppercase tracking-widest text-text-faint">
+              <span className="iridescent-rule h-px w-10 opacity-70" />
+              The arena
+            </div>
+            <h2 className="font-display text-[clamp(30px,3.4vw,46px)] font-extrabold uppercase leading-[0.95] tracking-mega">
+              Forge yourself in <span className="text-gradient">offensive security</span>.
             </h2>
-            <p className="mt-5 text-[17px] text-white/85">
+            <p className="mt-6 max-w-[380px] text-[13px] leading-[1.75] text-text-dim">
               Join 128,000+ hackers training on real vulnerable machines, live CTFs,
               and guided tracks. Your first root is minutes away.
             </p>
-            <div className="mt-8 flex gap-6">
+            <div className="mt-9 flex gap-10">
               <Stat n="540+" l="Machines" />
               <Stat n="86" l="Live CTFs" />
               <Stat n="195" l="Countries" />
             </div>
           </div>
 
-          <p className="text-[13px] text-white/70">
+          <p className="text-[11.5px] text-text-faint">
             “The best place I’ve found to actually <em>practice</em> offensive security.”
           </p>
         </div>
@@ -50,14 +78,22 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       {/* form side */}
       <main className="relative flex min-h-screen flex-col">
-        {/* atmosphere on the form side too (mobile + light/dark) */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div
-            className="absolute -right-20 -top-24 h-80 w-80 rounded-full blur-[80px]"
-            style={{ background: "radial-gradient(circle,#7C3AED,transparent 65%)", opacity: "var(--atmos-opacity)" }}
-          />
-        </div>
-
+        {/*
+          A scrim under the form column. The scene runs full-bleed on purpose —
+          clipping it to the showcase panel would put a hard vertical seam down
+          the middle of the page — but a login form has to stay readable while a
+          glass skull passes behind it. This fades the ground back in from the
+          left so the type sits on something solid without the scene appearing to
+          stop.
+        */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-[5]"
+          style={{
+            background:
+              "linear-gradient(90deg, rgb(var(--bg) / 0) 0%, rgb(var(--bg) / 0.72) 22%, rgb(var(--bg) / 0.92) 55%)",
+          }}
+        />
         <div className="relative flex items-center justify-between p-6">
           {/* mobile logo */}
           <div className="lg:hidden">
@@ -85,8 +121,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 function Stat({ n, l }: { n: string; l: string }) {
   return (
     <div>
-      <div className="font-display text-[26px] font-extrabold text-white">{n}</div>
-      <div className="text-[13px] text-white/70">{l}</div>
+      <div className="font-display text-[26px] font-extrabold tracking-mega text-text">{n}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-text-faint">{l}</div>
     </div>
   );
 }

@@ -49,7 +49,7 @@ export function ModerationQueue({ kinds, emptyLabel }: { kinds: FlaggedContent["
                   <span className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-0.5 text-[11.5px] font-semibold capitalize text-text-dim">
                     {KIND_ICON[f.kind]} {f.kind}
                   </span>
-                  <span className="flex items-center gap-1 rounded-full bg-danger/12 px-2 py-0.5 text-[11px] font-semibold text-danger">
+                  <span className="flex items-center gap-1 bg-danger/12 px-2 py-0.5 text-[11px] font-semibold text-danger">
                     <FlagIcon className="h-3 w-3" /> {f.reportCount} reports
                   </span>
                   <span className="text-[12px] text-text-faint">· {f.reason}</span>

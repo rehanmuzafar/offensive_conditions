@@ -91,7 +91,7 @@ function SocialLink({
       aria-label={label}
       target="_blank"
       rel="noopener noreferrer"
-      className="grid h-[38px] w-[38px] place-items-center rounded-[10px] border border-line-strong text-text-dim transition-all hover:border-transparent hover:bg-brand-gradient hover:text-white"
+      className="grid h-[38px] w-[38px] place-items-center border border-line-strong text-text-dim transition-all hover:border-transparent hover:bg-brand-gradient hover:text-white"
     >
       {children}
     </a>

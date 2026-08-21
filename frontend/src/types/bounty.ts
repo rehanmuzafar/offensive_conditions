@@ -3,7 +3,6 @@
  */
 
 import type { Severity } from "./index";
-import type { ForumAuthor } from "./forum";
 
 export type { Severity } from "./index";
 
@@ -25,11 +24,15 @@ export interface ScopeItem {
   notes: string | null;
 }
 
+export interface AssetTypeCount {
+  assetType: string;
+  count: number;
+}
+
 export interface BountyProgram {
   id: string;
   slug: string;
   name: string;
-  orgName: string;
   status: ProgramStatus;
   visibility: ProgramVisibility;
   currency: string;
@@ -39,9 +42,16 @@ export interface BountyProgram {
   totalPaidCents: number;
   responseSlaHours: number;
   safeHarbor: boolean;
+  /** Derived from the slug — see programColor. Not an authored field. */
   bannerColor: string;
   publishedAt: string | null;
-  tags: string[];
+  disclosurePolicy: string;
+  /** In-scope asset types with counts. See ProgramService.card_stats. */
+  assetCounts: AssetTypeCount[];
+  /** Distinct researchers who have reported. */
+  hackers: number;
+  /** 0..1, or null when nothing is old enough to judge the SLA against. */
+  responseEfficiency: number | null;
 }
 
 export interface BountyProgramDetail extends BountyProgram {
@@ -49,6 +59,8 @@ export interface BountyProgramDetail extends BountyProgram {
   policy: string;
   inScopeSummary: string;
   outOfScopeSummary: string;
+  triageSlaHours: number;
+  resolutionSlaDays: number;
   scope: ScopeItem[];
   rewards: RewardTier[];
 }
@@ -67,6 +79,8 @@ export type ReportState =
 export interface BountyReport {
   id: string;
   shortId: string;
+  programId: string;
+  /** Empty on list endpoints, which do not join the program. */
   programSlug: string;
   programName: string;
   title: string;
@@ -77,12 +91,14 @@ export interface BountyReport {
   bountyCurrency: string | null;
   assetIdentifier: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 export interface ReportComment {
   id: string;
-  author: ForumAuthor;
+  authorId: string;
+  /** Resolved server-side; "deleted account" when the user is gone. */
+  authorName: string;
+  authorRole: string;
   bodyMd: string;
   visibility: "public" | "internal";
   isStateChange: boolean;
@@ -104,12 +120,13 @@ export interface BountyReportDetail extends BountyReport {
   impact: string;
   vrtCategory: string | null;
   cvssVector: string | null;
-  comments: ReportComment[];
-  transitions: ReportStateTransition[];
+  rejectionReason: string | null;
+  researcherName: string | null;
 }
 
 export interface Payout {
   id: string;
+  reportId: string;
   reportShortId: string;
   programName: string;
   amountCents: number;
@@ -125,6 +142,59 @@ export interface ReportCreate {
   reproductionSteps: string;
   impact: string;
   assetIdentifier: string;
+  /** Vulnerability taxonomy label, e.g. "XSS — Stored". Optional. */
+  vrtCategory?: string;
   severity: Severity;
   cvssVector?: string;
+}
+
+
+/** One row of a program's thanks page. Reputation is severity-weighted. */
+export interface ThanksEntry {
+  researcherId: string;
+  username: string;
+  accepted: number;
+  criticals: number;
+  reputation: number;
+  earnedCents: number;
+}
+
+export interface Collaborator {
+  researcherId: string;
+  username: string;
+  reports: number;
+  lastReportAt: string;
+}
+
+export interface ProgramUpdate {
+  id: string;
+  title: string;
+  bodyMd: string;
+  authorName: string | null;
+  createdAt: string;
+}
+
+
+/** A disclosed report, as the public hacktivity index shows it. */
+export interface HacktivityItem {
+  id: string;
+  shortId: string;
+  title: string;
+  severity: Severity;
+  state: ReportState;
+  vrtCategory: string | null;
+  bountyCents: number;
+  bountyCurrency: string | null;
+  programName: string;
+  programSlug: string;
+  researcherName: string;
+  publishedAt: string;
+}
+
+/** One weakness class, counted across every report on the platform. */
+export interface WeaknessRow {
+  name: string;
+  reports: number;
+  severe: number;
+  accepted: number;
 }

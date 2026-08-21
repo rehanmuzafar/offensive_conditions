@@ -67,6 +67,48 @@ class RegistrationService:
     # Solo registration
     # =========================================================================
 
+    async def _recount_teams(self, event_id: UUID) -> None:
+        """Set total_teams from the rows, rather than nudging a counter.
+
+        The counter was kept by hand and the two sides did not agree: only the
+        legacy whole-team path incremented it, while unregistering decremented
+        it for any team row — including the per-player rows that never added to
+        it. Several teammates share one team, so a delta-per-row counter cannot
+        be right anyway; the distinct count can.
+        """
+        total = await self.session.scalar(
+            select(func.count(func.distinct(EventParticipant.team_id))).where(
+                and_(
+                    EventParticipant.event_id == event_id,
+                    EventParticipant.team_id.is_not(None),
+                )
+            )
+        )
+        await self.session.execute(
+            Event.__table__.update().where(Event.id == event_id).values(total_teams=total or 0)
+        )
+
+    async def team_registration_counts(self, event_id: UUID) -> dict[UUID, int]:
+        """How many players have entered under each team, for one event.
+
+        Registration is per player: several teammates hold their own rows
+        against the same team_id, which is why there is no unique constraint on
+        (event_id, team_id). This is the count that makes a team's remaining
+        slots knowable — both to the player choosing a team and to the check
+        below that stops a fifth player entering a four-slot event.
+        """
+        rows = await self.session.execute(
+            select(EventParticipant.team_id, func.count())
+            .where(
+                and_(
+                    EventParticipant.event_id == event_id,
+                    EventParticipant.team_id.is_not(None),
+                )
+            )
+            .group_by(EventParticipant.team_id)
+        )
+        return {team_id: count for team_id, count in rows if team_id is not None}
+
     async def register_solo(
         self,
         event_id: UUID,
@@ -111,6 +153,20 @@ class RegistrationService:
         if existing.scalar_one_or_none() is not None:
             raise AppError(ErrorCode.ALREADY_REGISTERED, "already registered for this event")
 
+        # The event's team size is a cap on how many of a team may *enter*, not
+        # on how many the team has. Nothing enforced it here, so a four-slot
+        # event would happily take all ten members of a team; the front end
+        # instead refused to let a big team register at all, which is the same
+        # rule applied to the wrong number and in the wrong place.
+        if team_id is not None and event.max_team_size:
+            taken = (await self.team_registration_counts(event_id)).get(team_id, 0)
+            if taken >= event.max_team_size:
+                raise AppError(
+                    ErrorCode.VALIDATION,
+                    f"this team already has {taken} of {event.max_team_size} "
+                    "players entered for this event",
+                )
+
         # Paid events: the row is created immediately but stays 'pending' until
         # the payment provider confirms, so the seat is held without granting
         # access. Free events register outright.
@@ -141,6 +197,8 @@ class RegistrationService:
                 .where(Event.id == event_id)
                 .values(total_registered=Event.total_registered + 1)
             )
+        if team_id is not None:
+            await self._recount_teams(event_id)
         await self.session.flush()
         log.info(
             "solo_registered",
@@ -223,11 +281,9 @@ class RegistrationService:
         await self.session.execute(
             Event.__table__.update()
             .where(Event.id == event_id)
-            .values(
-                total_registered=Event.total_registered + 1,
-                total_teams=Event.total_teams + 1,
-            )
+            .values(total_registered=Event.total_registered + 1)
         )
+        await self._recount_teams(event_id)
         await self.session.flush()
         log.info(
             "team_registered",
@@ -240,6 +296,132 @@ class RegistrationService:
     # =========================================================================
     # Unregister
     # =========================================================================
+
+    # =========================================================================
+    # Captain roster control
+    #
+    # A team's slots belong to the team, not to whoever clicked first. On a
+    # four-slot event a captain may find the wrong four entered — so they can
+    # take a seat back and hand it to someone else.
+    #
+    # Only before the event starts. Once it is live a participant owns solves,
+    # first bloods and a rank; removing them would either destroy that record or
+    # leave it pointing at nobody, and no swap is worth an unreadable scoreboard.
+    # =========================================================================
+
+    async def roster(self, event_id: UUID, team_id: UUID) -> list[EventParticipant]:
+        """Who from this team is entered in this event."""
+        rows = await self.session.execute(
+            select(EventParticipant).where(
+                and_(
+                    EventParticipant.event_id == event_id,
+                    EventParticipant.team_id == team_id,
+                )
+            )
+        )
+        return list(rows.scalars())
+
+    async def add_member(
+        self,
+        event_id: UUID,
+        *,
+        team_id: UUID,
+        team_name: str,
+        user_id: UUID,
+    ) -> EventParticipant:
+        """Enter one of the captain's teammates. Membership is checked upstream."""
+        event = await self._load_event(event_id)
+        if event.status not in ("published", "registration"):
+            raise AppError(
+                ErrorCode.EVENT_NOT_REGISTRATION_OPEN,
+                "the roster is locked once the event starts",
+            )
+
+        existing = await self.session.execute(
+            select(EventParticipant).where(
+                and_(
+                    EventParticipant.event_id == event_id,
+                    EventParticipant.user_id == user_id,
+                )
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            raise AppError(ErrorCode.ALREADY_REGISTERED, "that player is already entered")
+
+        if event.max_team_size:
+            taken = (await self.team_registration_counts(event_id)).get(team_id, 0)
+            if taken >= event.max_team_size:
+                raise AppError(
+                    ErrorCode.VALIDATION,
+                    f"the team already has {taken} of {event.max_team_size} slots filled",
+                )
+
+        paid_event = (event.entry_fee_cents or 0) > 0
+        participant = EventParticipant(
+            event_id=event_id,
+            participant_type="team",
+            user_id=user_id,
+            team_id=team_id,
+            team_name_at_event=team_name,
+            payment_status="pending" if paid_event else "not_required",
+            payment_currency=event.currency if paid_event else None,
+        )
+        self.session.add(participant)
+        try:
+            await self.session.flush()
+        except IntegrityError:
+            await self.session.rollback()
+            raise AppError(ErrorCode.ALREADY_REGISTERED, "that player is already entered")
+
+        if not paid_event:
+            await self.session.execute(
+                Event.__table__.update()
+                .where(Event.id == event_id)
+                .values(total_registered=Event.total_registered + 1)
+            )
+        await self._recount_teams(event_id)
+        await self.session.flush()
+        log.info(
+            "roster_added", event_id=str(event_id), team_id=str(team_id), user_id=str(user_id)
+        )
+        return participant
+
+    async def remove_member(self, event_id: UUID, *, team_id: UUID, user_id: UUID) -> None:
+        """Take back a slot from a teammate. Captaincy is checked upstream."""
+        event = await self._load_event(event_id)
+        if event.status not in ("published", "registration"):
+            raise AppError(
+                ErrorCode.EVENT_NOT_REGISTRATION_OPEN,
+                "the roster is locked once the event starts",
+            )
+
+        result = await self.session.execute(
+            select(EventParticipant).where(
+                and_(
+                    EventParticipant.event_id == event_id,
+                    EventParticipant.user_id == user_id,
+                    # Scoped to the captain's own team, so a captain cannot
+                    # reach into another team's roster by guessing a user id.
+                    EventParticipant.team_id == team_id,
+                )
+            )
+        )
+        participant = result.scalar_one_or_none()
+        if not participant:
+            raise AppError(ErrorCode.NOT_REGISTERED, "that player is not entered under this team")
+
+        await self.session.delete(participant)
+        await self.session.execute(
+            Event.__table__.update()
+            .where(Event.id == event_id)
+            .values(total_registered=Event.total_registered - 1)
+        )
+        await self.session.flush()
+        await self._recount_teams(event_id)
+        await self.session.flush()
+        log.info(
+            "roster_removed", event_id=str(event_id), team_id=str(team_id), user_id=str(user_id)
+        )
 
     async def unregister(self, event_id: UUID, *, user_id: UUID) -> None:
         event = await self._load_event(event_id)
@@ -260,14 +442,14 @@ class RegistrationService:
         if not participant:
             raise AppError(ErrorCode.NOT_REGISTERED, "you are not registered")
 
-        is_team = participant.participant_type == "team"
         await self.session.delete(participant)
-        update_values = {"total_registered": Event.total_registered - 1}
-        if is_team:
-            update_values["total_teams"] = Event.total_teams - 1
         await self.session.execute(
-            Event.__table__.update().where(Event.id == event_id).values(**update_values)
+            Event.__table__.update()
+            .where(Event.id == event_id)
+            .values(total_registered=Event.total_registered - 1)
         )
+        await self.session.flush()
+        await self._recount_teams(event_id)
         await self.session.flush()
         log.info("unregistered", event_id=str(event_id), user_id=str(user_id))
 

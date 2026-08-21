@@ -32,31 +32,62 @@ class TeamSeries:
 # the chart is unreadable past about ten lines.
 _SERIES_SQL = text(
     """
-    WITH solves AS (
+    WITH points AS (
+        -- Earned: a solve, less any hint the team unlocked on it.
         SELECT COALESCE(p.team_id::text, 'user:' || p.user_id::text) AS grp,
                p.team_id,
                COALESCE(NULLIF(p.team_name_at_event, ''),
                         NULLIF(p.display_name, ''), 'Unnamed')       AS name,
-               s.solved_at,
+               s.solved_at                                           AS at,
                (s.points_at_solve - COALESCE(s.point_deduction, 0))  AS pts
           FROM ctf.event_solves s
           JOIN ctf.event_participants p ON p.id = s.participant_id
          WHERE s.event_id = :event_id AND NOT p.is_disqualified
+
+        UNION ALL
+
+        -- Awarded or deducted by an organiser, plotted at the moment it was
+        -- applied. Without this the chart and the board disagree: a team could
+        -- lose 500 points to a penalty and the line would not move.
+        --
+        -- The name is resolved with a scalar subquery rather than a join. A
+        -- team has one participant row per member, so joining would repeat the
+        -- adjustment once per member and multiply a +50 into +150.
+        SELECT COALESCE(a.team_id::text, 'user:' || a.user_id::text) AS grp,
+               a.team_id,
+               (SELECT COALESCE(NULLIF(p.team_name_at_event, ''),
+                                NULLIF(p.display_name, ''), 'Unnamed')
+                  FROM ctf.event_participants p
+                 WHERE p.event_id = a.event_id
+                   AND ((a.team_id IS NOT NULL AND p.team_id = a.team_id)
+                     OR (a.user_id IS NOT NULL AND p.user_id = a.user_id))
+                 LIMIT 1)                                            AS name,
+               a.created_at                                          AS at,
+               a.delta                                               AS pts
+          FROM ctf.score_adjustments a
+         WHERE a.event_id = :event_id
+           AND EXISTS (
+                 SELECT 1 FROM ctf.event_participants p
+                  WHERE p.event_id = a.event_id
+                    AND ((a.team_id IS NOT NULL AND p.team_id = a.team_id)
+                      OR (a.user_id IS NOT NULL AND p.user_id = a.user_id))
+                    AND NOT p.is_disqualified
+               )
     ),
     totals AS (
         SELECT grp, MAX(team_id::text) AS team_id, MAX(name) AS name,
                SUM(pts)::BIGINT AS total
-          FROM solves GROUP BY grp
+          FROM points GROUP BY grp
          ORDER BY total DESC
          LIMIT :top
     )
     SELECT t.grp, t.team_id, t.name, t.total,
-           s.solved_at,
-           SUM(s.pts) OVER (PARTITION BY s.grp ORDER BY s.solved_at
+           s.at AS solved_at,
+           SUM(s.pts) OVER (PARTITION BY s.grp ORDER BY s.at
                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)::BIGINT AS running
       FROM totals t
-      JOIN solves s ON s.grp = t.grp
-     ORDER BY t.total DESC, s.solved_at ASC
+      JOIN points s ON s.grp = t.grp
+     ORDER BY t.total DESC, s.at ASC
     """
 )
 

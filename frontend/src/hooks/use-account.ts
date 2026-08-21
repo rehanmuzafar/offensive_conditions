@@ -10,11 +10,6 @@ import { toast } from "sonner";
 
 import { bountyApi, billingApi, notificationApi, settingsApi } from "@/lib/account-api";
 import {
-  mockPrograms,
-  mockProgramDetail,
-  mockReports,
-  mockReportDetail,
-  MOCK_PAYOUTS,
   MOCK_SUBSCRIPTION,
   MOCK_PAYMENT_METHODS,
   MOCK_INVOICES,
@@ -42,33 +37,86 @@ async function withMock<T>(fn: () => Promise<T>, _fallback: () => T): Promise<T>
 }
 
 /* --------------------------------- bounty --------------------------------- */
-export function usePrograms(q?: string) {
-  return useQuery({ queryKey: ["programs", q], queryFn: () => withMock(() => bountyApi.listPrograms(q), mockPrograms) });
+export function usePrograms(
+  params: { q?: string; assetType?: string; hasBounty?: boolean; limit?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["programs", params],
+    queryFn: () => bountyApi.listPrograms(params),
+  });
 }
 export function useProgram(slug: string) {
-  return useQuery({ queryKey: ["program", slug], queryFn: () => withMock(() => bountyApi.getProgram(slug), () => mockProgramDetail(slug)), enabled: Boolean(slug) });
+  return useQuery({ queryKey: ["program", slug], queryFn: () => bountyApi.getProgram(slug), enabled: Boolean(slug) });
 }
 export function useMyReports(state?: string) {
-  return useQuery({ queryKey: ["my-reports", state], queryFn: () => withMock(() => bountyApi.myReports(state), mockReports) });
+  return useQuery({ queryKey: ["my-reports", state], queryFn: () => bountyApi.myReports(state) });
 }
 export function useReport(id: string) {
-  return useQuery({ queryKey: ["report", id], queryFn: () => withMock(() => bountyApi.getReport(id), () => mockReportDetail(id)), enabled: Boolean(id) });
+  return useQuery({ queryKey: ["report", id], queryFn: () => bountyApi.getReport(id), enabled: Boolean(id) });
 }
+
+/**
+ * Comments and history are separate endpoints, not fields on the report.
+ * They were read off the report object, which never carried them — so both
+ * lists rendered empty no matter what was in the database.
+ */
+export function useReportComments(id: string) {
+  return useQuery({ queryKey: ["report-comments", id], queryFn: () => bountyApi.comments(id), enabled: Boolean(id) });
+}
+export function useReportTimeline(id: string) {
+  return useQuery({ queryKey: ["report-timeline", id], queryFn: () => bountyApi.timeline(id), enabled: Boolean(id) });
+}
+
+export function useHacktivity(
+  params: { program?: string; severity?: string; q?: string; limit?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["hacktivity", params],
+    queryFn: () => bountyApi.hacktivity(params),
+  });
+}
+export function useWeaknesses() {
+  return useQuery({ queryKey: ["weaknesses"], queryFn: () => bountyApi.weaknesses() });
+}
+
+export function useProgramThanks(slug: string) {
+  return useQuery({
+    queryKey: ["program-thanks", slug],
+    queryFn: () => bountyApi.thanks(slug),
+    enabled: Boolean(slug),
+  });
+}
+export function useProgramCollaborators(slug: string) {
+  return useQuery({
+    queryKey: ["program-collaborators", slug],
+    queryFn: () => bountyApi.collaborators(slug),
+    enabled: Boolean(slug),
+  });
+}
+export function useProgramUpdates(slug: string) {
+  return useQuery({
+    queryKey: ["program-updates", slug],
+    queryFn: () => bountyApi.updates(slug),
+    enabled: Boolean(slug),
+  });
+}
+
 export function useMyPayouts() {
-  return useQuery({ queryKey: ["payouts"], queryFn: () => withMock(() => bountyApi.myPayouts(), () => MOCK_PAYOUTS) });
+  return useQuery({ queryKey: ["payouts"], queryFn: () => bountyApi.myPayouts() });
 }
 export function useSubmitReport(slug: string) {
   return useMutation({
     mutationFn: (body: ReportCreate) => bountyApi.submitReport(slug, body),
-    onError: () => toast.error("Couldn't submit the report. Try again."),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't submit the report. Try again."),
   });
 }
 export function useReportComment(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (bodyMd: string) => bountyApi.comment(id, bodyMd),
+    mutationFn: ({ bodyMd, visibility }: { bodyMd: string; visibility?: "public" | "internal" }) =>
+      bountyApi.comment(id, bodyMd, visibility),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["report", id] });
+      qc.invalidateQueries({ queryKey: ["report-comments", id] });
       toast.success("Comment posted");
     },
     onError: () => toast.error("Couldn't post your comment."),

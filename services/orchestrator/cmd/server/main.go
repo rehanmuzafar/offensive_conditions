@@ -279,6 +279,14 @@ func run() error {
 	instH := handlers.NewInstanceHandler(orch, logger)
 	instH.Register(v1)
 
+	// Service-to-service: start a container from an image, with no machine
+	// behind it. Mounted outside /v1 and not proxied by the edge, so it is
+	// reachable only from inside the compose network — it takes an arbitrary
+	// image reference, which is not something to expose to end users.
+	internal := r.Group("/internal")
+	containerH := handlers.NewContainerHandler(k8sBe, os.Getenv("ORCHESTRATOR_INTERNAL_TOKEN"), logger)
+	containerH.Register(internal)
+
 	admin := r.Group("/v1")
 	admin.Use(middleware.RequireAuth(validator, logger), middleware.RequireRole("admin"))
 	adminH := handlers.NewAdminHandler(orch, logger)

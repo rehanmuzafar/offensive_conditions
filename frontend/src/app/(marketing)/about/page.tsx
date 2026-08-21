@@ -72,16 +72,18 @@ export default function AboutPage() {
               className="absolute inset-0"
               style={{
                 backgroundImage:
-                  "linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px)",
+                  "linear-gradient(rgb(var(--grid-ink) / 0.07) 1px,transparent 1px),linear-gradient(90deg,rgb(var(--grid-ink) / 0.07) 1px,transparent 1px)",
                 backgroundSize: "40px 40px",
                 maskImage: "radial-gradient(ellipse at 70% 30%,#000,transparent 80%)",
                 WebkitMaskImage: "radial-gradient(ellipse at 70% 30%,#000,transparent 80%)",
               }}
             />
-            <blockquote className="relative font-display text-[24px] font-semibold leading-snug text-white">
+            <blockquote className="relative font-display text-[clamp(20px,2.4vw,30px)] font-bold leading-[1.25] tracking-mega">
               “The gap between knowing about security and doing security is enormous. OFFCON is a bridge across it.”
             </blockquote>
-            <p className="relative mt-5 text-[14px] text-white/80">— The founding team</p>
+            <p className="relative mt-6 text-[10.5px] uppercase tracking-wide text-text-faint">
+              — The founding team
+            </p>
           </div>
         </Card>
       </div>

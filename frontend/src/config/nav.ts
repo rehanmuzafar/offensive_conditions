@@ -5,6 +5,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  ShieldCheck,
   LayoutDashboard,
   Server,
   Flag,
@@ -65,6 +66,9 @@ export const ADMIN_NAV: NavItem[] = [
   { label: "Forum", href: "/admin/forum", icon: MessagesSquare, roles: ["admin", "moderator"] },
   { label: "Writeups", href: "/admin/writeups", icon: BookOpen, roles: ["admin", "moderator"] },
   { label: "Bounty triage", href: "/admin/bounty", icon: Target, roles: ["admin", "triager"] },
+  { label: "Bounty programs", href: "/admin/bounty/programs", icon: ShieldCheck, roles: ["admin"] },
+  { label: "Pricing", href: "/admin/pricing", icon: CreditCard, roles: ["admin"] },
+  { label: "Teams", href: "/admin/teams", icon: Users, roles: ["admin", "moderator"] },
   { label: "Users", href: "/admin/users", icon: ShieldAlert, roles: ["admin"] },
   { label: "Broadcasts", href: "/admin/broadcast", icon: Bell, roles: ["admin", "moderator"] },
 ];

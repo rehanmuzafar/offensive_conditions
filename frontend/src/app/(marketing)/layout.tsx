@@ -1,7 +1,11 @@
 /**
- * Marketing layout — wraps all public pages with the top nav + footer and the
- * atmospheric background (grid + brand glow blobs) that defines the premium
- * dark look. The atmosphere adapts to the active theme via CSS tokens.
+ * Marketing layout — top nav, footer, and the ruled ground the public pages
+ * sit on.
+ *
+ * The ground is `.app-aurora`: a fine grid with crosshair ticks, the same
+ * drafting language used inside the app. It replaced a pair of blurred violet
+ * and blue blobs — those read as a generic SaaS gradient and, more practically,
+ * were the reason every marketing page had a wash of chroma behind its type.
  */
 
 import { MarketingNav } from "@/components/layout/marketing-nav";
@@ -9,35 +13,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative min-h-screen">
-      {/* atmosphere */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div
-          className="absolute inset-0 bg-grid"
-          style={{
-            opacity: "var(--grid-opacity)",
-            maskImage:
-              "radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%)",
-            WebkitMaskImage:
-              "radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%)",
-          }}
-        />
-        <div
-          className="absolute -left-24 -top-40 h-[520px] w-[520px] rounded-full blur-[90px]"
-          style={{
-            background: "radial-gradient(circle, #7C3AED, transparent 65%)",
-            opacity: "var(--atmos-opacity)",
-          }}
-        />
-        <div
-          className="absolute -right-28 -top-20 h-[480px] w-[480px] rounded-full blur-[90px]"
-          style={{
-            background: "radial-gradient(circle, #2563EB, transparent 65%)",
-            opacity: "var(--atmos-opacity)",
-          }}
-        />
-      </div>
-
+    <div className="app-aurora relative min-h-screen">
       <div className="relative z-10">
         <MarketingNav />
         <main>{children}</main>

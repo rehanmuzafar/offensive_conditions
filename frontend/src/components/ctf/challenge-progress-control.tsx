@@ -116,7 +116,7 @@ function StatusPicker({
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false));
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-menu-open={open ? "true" : undefined}>
       <button
         disabled={pending}
         onClick={() => setOpen((v) => !v)}
@@ -129,7 +129,7 @@ function StatusPicker({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1.5 w-44 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+        <div className="absolute left-0 top-full z-30 mt-1.5 w-44 overflow-hidden rounded-xl glass shadow-xl">
           {PICKABLE.map((s) => (
             <button
               key={s}
@@ -181,7 +181,7 @@ function AssigneePicker({
   const shown = mates.filter((m) => m.username.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-menu-open={open ? "true" : undefined}>
       <button
         disabled={pending}
         onClick={() => setOpen((v) => !v)}
@@ -202,7 +202,7 @@ function AssigneePicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1.5 w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+        <div className="absolute right-0 top-full z-30 mt-1.5 w-56 overflow-hidden rounded-xl glass shadow-xl">
           <p className="border-b border-line px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-dim">
             Assign team member
           </p>

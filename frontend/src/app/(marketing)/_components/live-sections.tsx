@@ -110,7 +110,7 @@ export function HomeHallOfFame() {
                 </td>
                 <td className="px-5 py-[15px]">
                   <div className="flex items-center gap-3">
-                    <span className={`grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[11px] font-display text-[14px] font-bold text-white ${avGrad}`}>
+                    <span className={`grid h-[38px] w-[38px] shrink-0 place-items-center font-display text-[14px] font-bold text-white ${avGrad}`}>
                       {r ? initials(r.username) : "—"}
                     </span>
                     <div>

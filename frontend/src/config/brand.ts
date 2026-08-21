@@ -60,7 +60,7 @@ export interface BrandConfig {
 export const BRAND: BrandConfig = {
   // ⬇⬇⬇  REPLACE THESE TWO PATHS WITH YOUR REAL LOGO WHEN READY  ⬇⬇⬇
   logo: null, // e.g. "/logo.svg"
-  logoMark: null, // e.g. "/logo-mark.svg"
+  logoMark: "/offcon-mark.png", // e.g. "/logo-mark.svg"
   // ⬆⬆⬆  (left null → inline SVG placeholder renders automatically)  ⬆⬆⬆
 
   favicon: "/favicon.ico",

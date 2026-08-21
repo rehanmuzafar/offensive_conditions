@@ -1,9 +1,11 @@
 """Application settings."""
 
+import json
+import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, computed_field
+from pydantic import Field, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +26,36 @@ class Settings(BaseSettings):
     http_port: int = 8004
     http_host: str = "0.0.0.0"
     http_workers: int = 2
-    http_cors_origins: list[str] = ["http://localhost:3000"]
+    # Read as a plain string, not list[str]: pydantic-settings decodes complex
+    # types as JSON at the source level, before any validator runs, so a
+    # list[str] annotation forces the value to be a JSON array. The Go auth
+    # service reads this same variable and rejects JSON outright, so the
+    # space/comma-separated form is the only one both runtimes accept.
+    http_cors_origins_raw: str = Field(
+        default="http://localhost:3000", alias="HTTP_CORS_ORIGINS"
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def http_cors_origins(self) -> list[str]:
+        raw = self.http_cors_origins_raw.strip()
+        # Tolerate the JSON form too. It is not what this reads natively, and a
+        # bare re.split would turn it into one junk origin that silently matches
+        # nothing — a CORS failure is far harder to trace than a parse error.
+        if raw.startswith("["):
+            return [str(o) for o in json.loads(raw)]
+        return [o for o in re.split(r"[,\s]+", raw) if o]
+
+    # --- Object storage (writeups) -----------------------------------------
+    # Writeups are private: the bucket has no public policy and nothing is ever
+    # served straight from it. ctf-svc streams the bytes so the reader's role is
+    # checked on every request.
+    storage_endpoint: str = "minio:9000"
+    storage_access_key: SecretStr = SecretStr("minioadmin")
+    storage_secret_key: SecretStr = SecretStr("minioadmin")
+    storage_use_ssl: bool = False
+    storage_region: str = "us-east-1"
+    storage_writeups_bucket: str = "offcon-ctf-writeups"
 
     # --- gRPC ---
     grpc_port: int = 9004
@@ -101,6 +132,18 @@ class Settings(BaseSettings):
 
     # --- User service client (for team membership lookups) ---
     user_svc_addr: str = "user-svc:9001"
+
+    # --- Orchestrator client (per-team challenge containers) ---
+    # /internal is not proxied by the edge, so this address only resolves
+    # inside the compose network.
+    orchestrator_url: str = "http://orchestrator:8002"
+    #: Shared secret for the orchestrator's /internal group. Empty means the
+    #: orchestrator will refuse every spawn, which is the intended failure.
+    orchestrator_internal_token: str = ""
+    challenge_instance_ttl_minutes: int = 120
+    # Ports opened for a challenge container when the challenge does not name
+    # its own. One TCP service is the overwhelmingly common shape.
+    challenge_default_port: int = 1337
 
     # --- Scoring rules ---
     # Default CTFd-style decay: f(n) = max(min_points, base * ((1 - (n-1)*0.012)^4))

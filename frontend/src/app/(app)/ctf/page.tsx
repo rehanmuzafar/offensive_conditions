@@ -5,8 +5,8 @@ import { Flag } from "lucide-react";
 
 import { CtfEventCard } from "@/components/ctf/ctf-event-card";
 import { Skeleton } from "@/components/ui/card";
+import { Segmented } from "@/components/ui/segmented";
 import { useCtfEvents } from "@/hooks/use-community";
-import { cn } from "@/lib/cn";
 import type { CtfState } from "@/types/ctf";
 
 const TABS: { value: CtfState | "all"; label: string }[] = [
@@ -25,10 +25,13 @@ export default function CtfPage() {
     return tab === "all" ? all : all.filter((e) => e.state === tab);
   }, [data, tab]);
 
-  const liveCount = (data?.items ?? []).filter((e) => e.state === "live").length;
+  /* A paused event is not "live right now" in the sense a player reads
+     this: nothing is accepting flags. */
+  const liveCount = (data?.items ?? []).filter((e) => e.state === "live" && !e.isPaused).length;
 
   return (
     <div className="space-y-6">
+
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2.5 font-display text-[28px] font-extrabold tracking-[-0.5px]">
@@ -43,20 +46,7 @@ export default function CtfPage() {
       </div>
 
       {/* tabs */}
-      <div className="flex rounded-xl border border-line-strong p-0.5 w-fit">
-        {TABS.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => setTab(t.value)}
-            className={cn(
-              "rounded-lg px-4 py-2 text-[13.5px] font-semibold transition-colors",
-              tab === t.value ? "bg-brand-gradient text-white" : "text-text-dim hover:text-text",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+        <Segmented options={TABS} value={tab} onChange={setTab} />
 
       {isLoading ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">

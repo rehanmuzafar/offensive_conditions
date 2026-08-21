@@ -46,3 +46,15 @@ pytest-cov==5.0.0
 # Dev
 ruff==0.6.9
 mypy==1.11.2
+
+# Object storage for event writeups (private bucket, streamed by the service)
+minio==7.2.9
+
+# FastAPI parses multipart form data through this; without it any route that
+# declares an UploadFile refuses to build and the whole app fails to boot.
+python-multipart==0.0.12
+
+# Reading a .docx well enough to preview it in the browser. The organiser has to
+# be able to read a writeup without downloading it, and a docx is a zip of XML —
+# nothing renders it natively.
+python-docx==1.1.2

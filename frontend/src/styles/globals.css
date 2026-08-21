@@ -5,9 +5,24 @@
 /* ==========================================================================
    OFFCON THEME ENGINE
    --------------------------------------------------------------------------
-   Two complete palettes. The <html> element carries data-theme="dark" or
-   data-theme="light" (set by next-themes before paint, so no flash). Every
-   semantic token below flips automatically; components never hardcode color.
+   Two complete palettes, one design. <html> carries data-theme="dark" or
+   "light" (set by next-themes before paint, so no flash) and every semantic
+   token below flips; components never hardcode colour.
+
+   The design is monochrome by construction. There is a five-step grey ramp, a
+   single violet accent held in reserve, and four status hues — and that is the
+   entire colour budget. Anything more chromatic on the page should be coming
+   from content (a chart, a flag, an avatar), never from chrome.
+
+   The two themes are not light-and-dark versions of one picture; they are two
+   different materials:
+
+     dark  — ink. Black ground, hairlines that glow faintly, type that sits on
+             top of nothing. This is the product's real face.
+     light — paper. A technical drawing: warm off-white stock, pencil-weight
+             rules, near-black ink. Not "the dark theme with the lights on" —
+             inverting a black-first design produces grey soup, so the light
+             theme commits to being a drafting sheet instead.
 
    Token values are space-separated RGB channels so Tailwind's
    `rgb(var(--x) / <alpha-value>)` can apply opacity.
@@ -15,72 +30,146 @@
 
 :root,
 [data-theme="dark"] {
-  /* surfaces */
-  --bg: 7 7 16;                 /* #070710 deep near-black */
-  --bg-elevated: 12 12 24;      /* #0C0C18 */
-  --surface: 20 20 34;          /* #141422 cards */
-  --surface-hover: 28 28 46;    /* hover state */
-  --line: 38 36 58;             /* hairline borders */
-  --line-strong: 56 52 84;      /* stronger borders */
+  /* surfaces — the ground is true black so the hairlines have something to
+     cut against; panels are barely lifted off it */
+  --bg: 0 0 0;
+  --bg-elevated: 9 9 11;
+  --surface: 13 13 16;
+  --surface-hover: 23 23 28;
+  --line: 34 34 40;
+  --line-strong: 58 58 68;
 
-  /* text */
-  --text: 237 235 250;          /* #EDEBFA */
-  --text-dim: 163 159 196;      /* #A39FC4 */
-  --text-faint: 110 106 143;    /* #6E6A8F */
-  --text-on-brand: 255 255 255;
+  /* text — the five-step ramp. Every step clears 4.5:1 on the ground, down to
+     `faint`; `ghost` is for marks and rules, not for words. */
+  --text: 244 244 245;
+  --text-dim: 199 199 208;
+  --text-faint: 155 155 167;
+  --text-ghost: 117 117 127;
+  --text-on-brand: 0 0 0;
 
-  /* accent (purple-leaning in dark) */
-  --accent: 167 139 250;        /* #A78BFA */
-  --accent-soft: 124 58 237;    /* #7C3AED */
+  /* accent — see THE IRIDESCENT ACCENT below; only the soft tint is fixed */
+  --accent-soft: 124 58 237;
 
   /* status */
-  --success: 52 211 153;        /* #34D399 */
-  --warning: 251 191 36;        /* #FBBF24 */
-  --danger: 248 113 113;        /* #F87171 */
-  --info: 96 165 250;           /* #60A5FA */
+  --success: 52 211 153;
+  --warning: 251 191 36;
+  --danger: 248 113 113;
+  --info: 96 165 250;
 
-  /* shadows */
-  --shadow-card: 0 4px 24px -10px rgba(0, 0, 0, 0.6);
-  --shadow-card-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  /* shadows — on black, elevation reads from the hairline, not from a shadow,
+     so these are almost nothing */
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03);
+  --shadow-card-lg: 0 24px 60px -32px rgb(0 0 0 / 0.9);
 
-  /* atmosphere opacity (glow blobs brighter in dark) */
-  --atmos-opacity: 0.5;
-  --grid-opacity: 0.5;
+  /* the ambient layer's weight */
+  --grid-ink: 255 255 255;
+  --grid-opacity: 0.045;
+  --tick-opacity: 0.085;
+
   color-scheme: dark;
 }
 
 [data-theme="light"] {
-  /* surfaces */
-  --bg: 251 250 255;            /* #FBFAFF */
+  /* surfaces — warm drafting stock rather than white, so black ink on it does
+     not vibrate the way it does on pure #FFF */
+  --bg: 246 245 241;
   --bg-elevated: 255 255 255;
-  --surface: 255 255 255;       /* white cards */
-  --surface-hover: 244 241 254; /* #F4F1FE */
-  --line: 234 230 245;          /* #EAE6F5 */
-  --line-strong: 222 216 238;   /* #DED8EE */
+  --surface: 255 255 255;
+  --surface-hover: 240 238 232;
+  --line: 216 213 204;
+  --line-strong: 166 162 150;
 
   /* text */
-  --text: 22 19 31;             /* #16131F */
-  --text-dim: 67 61 85;         /* #433D55 */
-  --text-faint: 122 115 144;    /* #7A7390 */
+  --text: 17 17 19;
+  --text-dim: 61 61 68;
+  --text-faint: 108 108 117;
+  --text-ghost: 150 148 140;
   --text-on-brand: 255 255 255;
 
-  /* accent (deeper purple for contrast on light) */
-  --accent: 109 40 217;         /* #6D28D9 */
-  --accent-soft: 237 233 254;   /* #EDE9FE */
+  /* accent — see THE IRIDESCENT ACCENT below */
+  --accent-soft: 237 233 254;
 
-  /* status (slightly deeper for light-bg contrast) */
-  --success: 22 163 74;         /* #16A34A */
-  --warning: 180 83 9;          /* #B45309 */
-  --danger: 220 38 38;          /* #DC2626 */
-  --info: 37 99 235;            /* #2563EB */
+  /* status, pulled darker for contrast on a light ground */
+  --success: 21 128 61;
+  --warning: 161 98 7;
+  --danger: 185 28 28;
+  --info: 29 78 216;
 
-  /* shadows */
-  --shadow-card: 0 4px 24px -8px rgba(76, 29, 149, 0.16);
-  --shadow-card-lg: 0 24px 60px -20px rgba(76, 29, 149, 0.28);
+  /* on paper, elevation is a real shadow again */
+  --shadow-card: 0 1px 2px 0 rgb(28 25 23 / 0.06);
+  --shadow-card-lg: 0 24px 48px -28px rgb(28 25 23 / 0.28);
 
-  --atmos-opacity: 0.6;
-  --grid-opacity: 0.4;
+  --grid-ink: 28 25 23;
+  --grid-opacity: 0.055;
+  --tick-opacity: 0.12;
+
   color-scheme: light;
+}
+
+
+/* ==========================================================================
+   THE IRIDESCENT ACCENT
+   --------------------------------------------------------------------------
+   The accent is not a colour, it is a slow trip around a ring of them — the
+   same five neon stops the marketing scene cycles through, so the product and
+   its front door drift together.
+
+   Why `@property` and not just `--accent`: plain custom properties are strings
+   to the animation engine, so they *swap* between keyframes instead of
+   interpolating. Registering the three channels as `<number>` makes them real
+   animatable values, and `--accent` is then composed from them — which keeps
+   the "R G B" shape Tailwind needs for `rgb(var(--accent) / <alpha-value>)`.
+   Anything already written as `text-accent` or `border-accent/40` inherits the
+   cycle for free; nothing had to be rewritten.
+
+   One lap is 48s. That is deliberately slower than anyone watches a single
+   screen: the accent should never appear to be animating, only to have been a
+   slightly different colour when you look back.
+   ========================================================================== */
+@property --accent-r { syntax: "<number>"; inherits: true; initial-value: 140; }
+@property --accent-g { syntax: "<number>"; inherits: true; initial-value: 92; }
+@property --accent-b { syntax: "<number>"; inherits: true; initial-value: 247; }
+
+:root,
+[data-theme="dark"] {
+  --accent: var(--accent-r) var(--accent-g) var(--accent-b);
+  animation: accent-ring 48s linear infinite;
+}
+
+/* On paper the pastel end of the ring disappears, so the light theme walks the
+   same hues at roughly half the lightness. Same journey, printable. */
+[data-theme="light"] {
+  --accent: var(--accent-r) var(--accent-g) var(--accent-b);
+  animation: accent-ring-paper 48s linear infinite;
+}
+
+@keyframes accent-ring {
+  0%,
+  100% { --accent-r: 96;  --accent-g: 134; --accent-b: 255; } /* electric blue */
+  20%  { --accent-r: 167; --accent-g: 139; --accent-b: 250; } /* violet */
+  40%  { --accent-r: 240; --accent-g: 171; --accent-b: 252; } /* magenta */
+  60%  { --accent-r: 103; --accent-g: 232; --accent-b: 249; } /* cyan */
+  80%  { --accent-r: 190; --accent-g: 242; --accent-b: 100; } /* acid green */
+}
+
+@keyframes accent-ring-paper {
+  0%,
+  100% { --accent-r: 29;  --accent-g: 78;  --accent-b: 216; }
+  20%  { --accent-r: 109; --accent-g: 40;  --accent-b: 217; }
+  40%  { --accent-r: 162; --accent-g: 28;  --accent-b: 175; }
+  60%  { --accent-r: 14;  --accent-g: 116; --accent-b: 144; }
+  80%  { --accent-r: 77;  --accent-g: 124; --accent-b: 15;  }
+}
+
+/* An accent that shifts hue is exactly the kind of ambient motion that makes
+   some people ill. Freeze it — the initial value is the brand violet, so the
+   product simply looks like it always did. */
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  [data-theme="dark"],
+  [data-theme="light"] {
+    animation: none;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -91,70 +180,305 @@
 }
 
 html {
-  scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   background-color: rgb(var(--bg));
   color: rgb(var(--text));
-  font-family: var(--font-body), sans-serif;
+  /* Monospace is the interface voice: labels, numbers, tables, navigation.
+     Long-form reading opts out via `.prose-reading` — see the note there. */
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
 }
 
 ::selection {
-  background: rgba(124, 58, 237, 0.3);
-  color: rgb(var(--text));
+  background: rgb(var(--text));
+  color: rgb(var(--bg));
 }
 
-/* Custom scrollbar */
+/* Scrollbar — a rule in a gutter, not a pill */
 ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: rgb(var(--bg));
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--line-strong));
-  border-radius: 6px;
   border: 3px solid rgb(var(--bg));
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--accent));
+  background: rgb(var(--text-faint));
 }
 
-/* Focus ring — accessible, brand-colored */
+/* Focus ring — square, like everything else here */
 :focus-visible {
-  outline: 2px solid rgb(var(--accent));
+  outline: 1px solid rgb(var(--text));
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 /* --------------------------------------------------------------------------
-   Reusable utility classes
+   Utilities
    -------------------------------------------------------------------------- */
 @layer components {
-  .text-gradient {
-    @apply bg-brand-gradient bg-clip-text text-transparent;
+  /* ---- the ambient ground ------------------------------------------------
+     What replaces the old violet aurora. The app deliberately has no WebGL:
+     a scene behind a data table costs GPU on every route and fights the text
+     for attention. The identity is carried by a ruled ground instead — a fine
+     grid with crosshair ticks at every fourth intersection, which is the same
+     drafting language the marketing pages use, at a fraction of the cost.
+
+     Fixed, so it does not travel with the content, and masked toward the top
+     so long pages do not sit on a full-strength lattice all the way down.
+     ---------------------------------------------------------------------- */
+  .app-aurora::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background-color: rgb(var(--bg));
+    background-image:
+      linear-gradient(rgb(var(--grid-ink) / var(--grid-opacity)) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--grid-ink) / var(--grid-opacity)) 1px, transparent 1px);
+    background-size: 64px 64px;
   }
 
+  .app-aurora::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    /* A '+' tick every 256px. Drawn as an SVG data URI rather than with
+       stacked gradients so the arms stay exactly 1px at any zoom. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cpath d='M128 121v14M121 128h14' stroke='currentColor' stroke-width='1'/%3E%3C/svg%3E");
+    color: rgb(var(--grid-ink));
+    opacity: var(--tick-opacity);
+    mask-image: radial-gradient(60rem 45rem at 30% 0%, #000 20%, transparent 80%);
+    -webkit-mask-image: radial-gradient(60rem 45rem at 30% 0%, #000 20%, transparent 80%);
+  }
+
+  /* Kept for the surfaces that still ask for a ruled ground directly. */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgb(var(--grid-ink) / var(--grid-opacity)) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--grid-ink) / var(--grid-opacity)) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+
+  /* ---- panels ------------------------------------------------------------
+     `.glass` keeps its name because a dozen files call it, but it is no longer
+     frosted acrylic. On black, a heavy blur just produces a grey rectangle;
+     what reads as a panel here is a hairline and a barely-lifted ground.
+     ---------------------------------------------------------------------- */
   .glass {
-    background: rgb(var(--surface) / 0.66);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    /* The wash is deliberately thin and the blur heavy. Now that most surfaces
+       have a scene behind them, a panel earns its edge by *disturbing* what is
+       under it rather than by hiding it — you should be able to tell the grid
+       is still back there. A thicker fill would work equally well over an empty
+       page and lose the whole effect over a live one. */
+    background: rgb(var(--surface) / 0.62);
+    backdrop-filter: blur(22px) saturate(125%);
+    -webkit-backdrop-filter: blur(22px) saturate(125%);
     border: 1px solid rgb(var(--line));
   }
 
-  /* Atmospheric background grid (used on marketing/dashboard shells) */
-  .bg-grid {
-    background-image:
-      linear-gradient(rgb(var(--line) / 0.6) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(var(--line) / 0.6) 1px, transparent 1px);
-    background-size: 60px 60px;
+  /* A heavier wash, for panels that must hold body copy over the WebGL scene. */
+  .glass-strong {
+    background: rgb(var(--bg-elevated) / 0.82);
+    backdrop-filter: blur(24px) saturate(130%);
+    -webkit-backdrop-filter: blur(24px) saturate(130%);
+    border: 1px solid rgb(var(--line));
+  }
+
+  /* ---- a panel with an open menu wins the stacking order ------------------
+     `backdrop-filter` makes every .glass panel its own stacking context, so a
+     dropdown opening out of one row is trapped inside that panel and the next
+     panel down — later in the DOM, same z — paints straight over it. That is
+     what buried the status and assignee menus under the SOLVED block.
+
+     `position: relative` is not decoration here: z-index does nothing on a
+     static element, which is why an earlier version of this rule looked right
+     and changed nothing. The attribute is set by the menu components. */
+  .glass:has([data-menu-open="true"]),
+  .glass-strong:has([data-menu-open="true"]) {
+    position: relative;
+    z-index: 40;
+  }
+
+  /* ---- iridescent edge ---------------------------------------------------
+     A spectral border that resolves on hover.
+
+     Drawn as a gradient behind the panel with a mask that punches out
+     everything except a one-pixel ring, which is the only way to get a
+     *gradient* border — `border-image` cannot round with the box, and a second
+     inset element cannot sit under the content without a stacking context.
+
+     It is the design's one sanctioned use of full spectrum on an interface
+     surface: the panel is monochrome until you reach for it, and the colour is
+     a reflection off its edge rather than a fill. Uses the cycling accent for
+     its midpoint, so a hovered card agrees with whatever the rest of the
+     product is currently tinted.
+     ---------------------------------------------------------------------- */
+  .edge-iridescent {
+    position: relative;
+  }
+  .edge-iridescent::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background: linear-gradient(
+      120deg,
+      #a5f3fc 0%,
+      rgb(var(--accent)) 35%,
+      #f5d0fe 60%,
+      #bef264 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+  .edge-iridescent:hover::after,
+  .edge-iridescent:focus-within::after {
+    opacity: 0.85;
+  }
+
+  /* ---- initials chip -----------------------------------------------------
+     The ground for an avatar with no picture.
+
+     It was a flat dark square, which on a near-black page gave the avatar no
+     edge at all — the initials appeared to float. A ruled lattice was tried and
+     rejected: at 30px the grid is finer than the type sitting on it and the
+     whole chip turns to noise. A solid fill in the accent is the right answer,
+     and because the accent cycles, every avatar on the page drifts through the
+     neon ring together.
+     ---------------------------------------------------------------------- */
+  .chip-solid {
+    background-color: rgb(var(--accent));
+    /* The accent runs from electric blue to acid green; near-black type holds
+       its contrast across all of it, where white would fail at the green end. */
+    color: rgb(var(--bg));
+  }
+
+  /* Technical-drawing frame: four corner brackets, no continuous border. */
+  .bracket-frame {
+    position: relative;
+  }
+  .bracket-frame::before,
+  .bracket-frame::after {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgb(var(--line-strong));
+    pointer-events: none;
+  }
+  .bracket-frame::before {
+    top: 0;
+    left: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .bracket-frame::after {
+    right: 0;
+    bottom: 0;
+    border-left: 0;
+    border-top: 0;
+  }
+
+  /* ---- the one place colour is allowed ----------------------------------
+     A thin spectral edge, standing in for the dispersion coming off the glass
+     on the marketing pages. `.text-gradient` keeps its name — thirteen files
+     use it — but it is now this rather than the old purple-to-blue brand ramp.
+     ---------------------------------------------------------------------- */
+  .text-gradient,
+  .iridescent-text {
+    background: linear-gradient(
+      100deg,
+      #a5f3fc 0%,
+      #c4b5fd 28%,
+      #f5d0fe 52%,
+      #bef264 78%,
+      #a5f3fc 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* On paper the pastel spectrum washes out, so the light theme uses a
+     deeper run of the same hues. */
+  [data-theme="light"] .text-gradient,
+  [data-theme="light"] .iridescent-text {
+    background: linear-gradient(100deg, #0e7490 0%, #6d28d9 40%, #a21caf 70%, #4d7c0f 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  .iridescent-rule {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      #a5f3fc,
+      #c4b5fd,
+      #f5d0fe,
+      #bef264,
+      transparent
+    );
+  }
+
+  /* Giant ghost words behind sections — pure texture, hidden from AT. */
+  .outline-type {
+    color: transparent;
+    -webkit-text-stroke: 1px rgb(var(--text) / 0.16);
+  }
+
+  /* Inverted highlight run, for editorial callouts. */
+  .highlight-run {
+    background: rgb(var(--text));
+    color: rgb(var(--bg));
+    padding: 0.06em 0.24em;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* ---- long-form reading -------------------------------------------------
+     Monospace is the interface voice, but it is a genuinely slower read: the
+     even advance width removes the word-shape cues the eye uses to skim. That
+     is a fine trade for a label or a table and a bad one for a writeup or a
+     forum thread, so prose opts back into a proportional face — IBM Plex Sans,
+     the same superfamily as the mono, so the two sit together.
+     ---------------------------------------------------------------------- */
+  .prose-reading {
+    font-family: var(--font-body), system-ui, sans-serif;
+    font-size: 15.5px;
+    line-height: 1.75;
+    letter-spacing: 0;
+  }
+  .prose-reading code,
+  .prose-reading pre,
+  .prose-reading kbd {
+    font-family: var(--font-mono), ui-monospace, monospace;
   }
 
   /* Loading shimmer for skeletons */
@@ -167,14 +491,276 @@ body {
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgb(var(--surface-hover) / 0.6),
-      transparent
-    );
+    background: linear-gradient(90deg, transparent, rgb(var(--surface-hover) / 0.6), transparent);
     animation: shimmer 1.6s infinite;
   }
+}
+
+/* --------------------------------------------------------------------------
+   Landing-only rules.
+
+   Scoped under [data-theme] on the landing wrapper rather than applied
+   globally, because both of these would be actively wrong inside the app.
+   -------------------------------------------------------------------------- */
+
+/* Legibility over the WebGL scene.
+
+   Every word on the landing sits on top of something moving: the grid sweeps
+   behind paragraphs, the skull passes under headlines, the neon cycle changes
+   what is behind a given pixel every few seconds. Raising the grey ramp cannot
+   fix that — the problem is that the background under any given letter is not a
+   known quantity — so a tight dark shadow gives each glyph its own ground.
+
+   IMPORTANT: this must never reach text whose own fill is transparent, i.e.
+   anything using `background-clip: text` or `-webkit-text-stroke` with a
+   transparent colour. text-shadow paints *behind* the glyph, and with nothing
+   opaque in front you see the shadow through the letterform — the type turns
+   solid black. `.iridescent-text` and `.outline-type` opt out below; where such
+   text still needs separating, `filter: drop-shadow()` works off the rendered
+   alpha and follows the gradient instead of filling the glyph. */
+.landing-scene main,
+.landing-scene footer {
+  text-shadow:
+    0 1px 14px rgba(0, 0, 0, 0.85),
+    0 0 4px rgba(0, 0, 0, 0.65);
+}
+
+.landing-scene .no-text-shadow,
+.landing-scene .no-text-shadow *,
+.landing-scene .highlight-run,
+.landing-scene .outline-type {
+  text-shadow: none;
+}
+
+.landing-scene .iridescent-text,
+.landing-scene .text-gradient {
+  text-shadow: none;
+  filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.75));
+}
+
+/* Set by the landing's <Cursor> once it is live — never declared statically, so
+   a failed JS load leaves the native cursor rather than no cursor at all. */
+@media (pointer: fine) {
+  html.has-custom-cursor .landing-scene,
+  html.has-custom-cursor .landing-scene * {
+    cursor: none;
+  }
+  html.has-custom-cursor .landing-scene input,
+  html.has-custom-cursor .landing-scene textarea {
+    cursor: text;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Glitch — used by the sign-in greeting.
+
+   Built from two coloured copies of the same text sitting behind the real one,
+   each clipped to a moving horizontal band and nudged sideways. That is what a
+   broken signal actually looks like: whole scanlines displaced, with the red and
+   cyan channels landing in different places. Filters or blurs give you a fuzzy
+   glow instead, which reads as decoration.
+
+   The copies come from `data-text`, so the markup stays a single readable
+   string and screen readers see the word once, not three times.
+   -------------------------------------------------------------------------- */
+.glitch {
+  position: relative;
+  display: inline-block;
+  animation: glitch-shift 2.3s steps(1) infinite;
+}
+
+.glitch::before,
+.glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Inherit the box exactly so the copies register with the original. */
+  width: 100%;
+  overflow: hidden;
+  /*
+   * Above the real letters, explicitly.
+   *
+   * Both copies are `position: absolute` with `z-index: auto`, so they paint in
+   * DOM order relative to their siblings — `::before`, then the children, then
+   * `::after`. That is fine until a child has a transform, which gives it its
+   * own stacking context and lifts it above anything with auto z-index that
+   * came before it. The greeting animates each letter in with a transform, so
+   * the cyan copy ended up buried behind the white type and only the magenta
+   * one showed at all. Lifting both out of `auto` fixes the order regardless of
+   * what the children do.
+   */
+  z-index: 2;
+}
+
+.glitch::before {
+  color: #67e8f9;
+  animation: glitch-a 1.4s steps(1) infinite;
+}
+
+.glitch::after {
+  color: #f0abfc;
+  animation: glitch-b 1.75s steps(1) infinite;
+}
+
+/* Both run on `steps(1)` so the displacement snaps between states instead of
+   easing — a smooth glitch is a contradiction.
+
+   The windows are wide on purpose, and that took two attempts to get right.
+   The first version had seven displacement states packed into one cycle, which
+   with `steps(1)` meant each one was held for about 4% of 900ms — roughly two
+   frames at 60Hz. It was firing correctly and was simply too brief for anyone,
+   including a screenshot, to catch. Fewer states held far longer is what reads
+   as a broken signal; more states just averages out to nothing. */
+@keyframes glitch-a {
+  0%, 100% { clip-path: inset(100% 0 0 0); transform: none; }
+  6%  { clip-path: inset(10% 0 72% 0); transform: translate(-9px, -2px); }
+  17% { clip-path: inset(44% 0 36% 0); transform: translate(10px, 2px); }
+  28% { clip-path: inset(100% 0 0 0); transform: none; }
+  56% { clip-path: inset(72% 0 10% 0); transform: translate(-7px, 1px); }
+  67% { clip-path: inset(24% 0 58% 0); transform: translate(8px, -2px); }
+  78% { clip-path: inset(100% 0 0 0); transform: none; }
+}
+
+@keyframes glitch-b {
+  0%, 100% { clip-path: inset(100% 0 0 0); transform: none; }
+  11% { clip-path: inset(60% 0 20% 0); transform: translate(9px, 2px); }
+  23% { clip-path: inset(18% 0 64% 0); transform: translate(-10px, -1px); }
+  35% { clip-path: inset(100% 0 0 0); transform: none; }
+  62% { clip-path: inset(84% 0 4% 0); transform: translate(7px, -2px); }
+  74% { clip-path: inset(36% 0 46% 0); transform: translate(-8px, 2px); }
+  86% { clip-path: inset(100% 0 0 0); transform: none; }
+}
+
+/* The word itself tears occasionally. Without this the effect lives entirely in
+   two thin coloured copies, which on a bright white headline is easy to read as
+   a rendering artefact rather than as something deliberate. */
+@keyframes glitch-shift {
+  0%, 100% { transform: none; }
+  20% { transform: translate(2px, 0) skewX(-1.2deg); }
+  24% { transform: none; }
+  70% { transform: translate(-2px, 0) skewX(1deg); }
+  74% { transform: none; }
+}
+
+/* A rejected flag. Short, sharp, and asymmetric — a clean sine reads as a
+   wobble, while uneven throws read as something being refused. */
+@keyframes flag-reject {
+  0%, 100% { transform: translateX(0); }
+  12% { transform: translateX(-7px); }
+  26% { transform: translateX(6px); }
+  40% { transform: translateX(-4px); }
+  54% { transform: translateX(3px); }
+  68% { transform: translateX(-2px); }
+}
+
+.animate-flag-reject {
+  animation: flag-reject 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+/* ---- pennant ------------------------------------------------------------
+   The team card is cut to a pennant, and a clip-path cuts everything —
+   including a border. `edge-iridescent` draws its ring on the element's
+   rectangular box, so the clip removed the bottom edge outright and left the
+   two diagonals bare: the shape had no outline exactly where its shape is.
+
+   Drawn as two clipped layers instead. The outer carries the gradient and the
+   inner sits 2px inside it carrying the panel, so what shows through the gap
+   is a border that follows the cut rather than the box.
+   -------------------------------------------------------------------------- */
+.pennant,
+.pennant-inner {
+  --pennant-notch: 34px;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - var(--pennant-notch)),
+    50% 100%,
+    0 calc(100% - var(--pennant-notch))
+  );
+}
+
+.pennant {
+  padding: 2px;
+  background: linear-gradient(
+    120deg,
+    #a5f3fc 0%,
+    rgb(var(--accent)) 30%,
+    #f5d0fe 55%,
+    #bef264 80%,
+    #a5f3fc 100%
+  );
+  background-size: 220% 220%;
+  animation: pennant-sheen 11s ease-in-out infinite;
+  transition: filter 0.35s ease, transform 0.3s ease-out;
+}
+
+.pennant:hover {
+  filter: brightness(1.25) saturate(1.15);
+  transform: translateY(-2px);
+}
+
+@keyframes pennant-sheen {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ---- accepted flag -------------------------------------------------------
+   The counterpart to `flag-reject`. A rejection is a flinch, so it shakes; an
+   acceptance is a release, so it radiates and dies out rather than settling.
+
+   Two layers, because one does not read: a ring of light leaving the box, and
+   spokes sweeping out behind it. The spokes are drawn on a pseudo-element at
+   negative z so they pass under the field's own background instead of washing
+   the text out — the same reason the scene ground sits where it does.
+   -------------------------------------------------------------------------- */
+@keyframes flag-accept-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--success) / 0.6), 0 0 18px 0 rgb(var(--success) / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 16px rgb(var(--success) / 0), 0 0 34px 4px rgb(var(--success) / 0.28);
+  }
+  100% {
+    box-shadow: 0 0 0 24px rgb(var(--success) / 0), 0 0 0 0 rgb(var(--success) / 0);
+  }
+}
+
+@keyframes flag-accept-rays {
+  0% { opacity: 0; transform: scale(0.55) rotate(0deg); }
+  18% { opacity: 0.85; }
+  100% { opacity: 0; transform: scale(2.1) rotate(28deg); }
+}
+
+/* The glow rides the field itself. */
+.flag-accept {
+  border-color: rgb(var(--success)) !important;
+  color: rgb(var(--success));
+  animation: flag-accept-glow 1.5s ease-out forwards;
+}
+
+/* The spokes ride the wrapper: `input` is a replaced element and never renders
+   a pseudo-element, so they cannot hang off the field directly. */
+.flag-accept-burst {
+  position: relative;
+}
+
+.flag-accept-burst::after {
+  content: "";
+  position: absolute;
+  inset: -40% -12%;
+  z-index: -1;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgb(var(--success) / 0.55) 0deg 3deg,
+    transparent 3deg 13deg
+  );
+  /* Faded to nothing at the rim so the spokes read as light leaving the box
+     rather than as a wheel sitting behind it. */
+  mask-image: radial-gradient(closest-side, #000 12%, transparent 78%);
+  -webkit-mask-image: radial-gradient(closest-side, #000 12%, transparent 78%);
+  animation: flag-accept-rays 1.5s ease-out forwards;
 }
 
 /* Respect reduced motion */
@@ -186,5 +772,65 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ---- live event notices --------------------------------------------------
+   The "<player> has pwned <challenge>" strip in the arena.
+
+   Enters from the right and settles, rather than fading in place: a fade at
+   the edge of vision is easy to miss entirely, while lateral motion is the one
+   thing peripheral vision is actually good at. The sweep runs once — a looping
+   shimmer in a corner of a page someone is staring at for eight hours is a
+   different kind of interface problem.
+   ------------------------------------------------------------------------ */
+@keyframes live-notice-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px) scale(0.96);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes live-notice-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
+
+.live-notice {
+  animation: live-notice-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.live-notice-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgb(var(--accent) / 0.16) 45%,
+    rgb(var(--accent) / 0.28) 50%,
+    rgb(var(--accent) / 0.16) 55%,
+    transparent 100%
+  );
+  width: 45%;
+  animation: live-notice-sweep 1.1s ease-out 0.15s 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-notice {
+    animation: none;
+  }
+  .live-notice-sweep {
+    display: none;
   }
 }

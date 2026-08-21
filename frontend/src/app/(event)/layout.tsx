@@ -15,7 +15,7 @@ import { AuthGuard } from "../(app)/_components/auth-guard";
 export default function EventLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-bg">{children}</div>
+      <div className="app-aurora min-h-screen">{children}</div>
     </AuthGuard>
   );
 }

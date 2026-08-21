@@ -14,14 +14,18 @@ export function CategoryCard({ category }: { category: ForumCategory }) {
     <Link href={`/forum/${category.slug}`} className="block">
       <Card interactive className="h-full">
         <CardBody className="flex items-start gap-4">
-          <div
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl text-white"
-            style={{ background: `linear-gradient(120deg, ${category.color}, #2563EB)` }}
-          >
-            <Icon className="h-6 w-6" />
+          {/* Hairline tile rather than a filled one; the category colour is the
+              rule under the icon, not the whole square. */}
+          <div className="relative grid h-11 w-11 shrink-0 place-items-center border border-line text-text-dim">
+            <Icon className="h-[18px] w-[18px]" strokeWidth={1.6} />
+            <span
+              aria-hidden
+              className="absolute inset-x-0 bottom-0 h-px opacity-80"
+              style={{ background: category.color }}
+            />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="font-display text-[17px] font-bold">{category.name}</h3>
+            <h3 className="font-display text-[17px] font-bold tracking-mega">{category.name}</h3>
             <p className="mt-1 line-clamp-2 text-[13.5px] text-text-dim">{category.description}</p>
             <div className="mt-2.5 flex items-center gap-4 text-[12.5px] text-text-faint">
               <span>{formatNumber(category.threadCount)} threads</span>
@@ -37,7 +41,7 @@ export function CategoryCard({ category }: { category: ForumCategory }) {
 export function ThreadRow({ thread }: { thread: ForumThread }) {
   return (
     <Link href={`/forum/thread/${thread.id}`} className="block">
-      <div className="flex items-start gap-4 border-b border-line px-4 py-4 transition-colors last:border-0 hover:bg-surface-hover">
+      <div className="group relative flex items-start gap-4 border-b border-line px-4 py-4 transition-colors last:border-0 hover:bg-surface-hover">
         {/* votes */}
         <div className="hidden w-12 shrink-0 flex-col items-center pt-1 sm:flex">
           <ArrowBigUp className="h-4 w-4 text-text-faint" />
@@ -51,7 +55,7 @@ export function ThreadRow({ thread }: { thread: ForumThread }) {
             {thread.isPinned && <Pin className="h-3.5 w-3.5 text-accent" />}
             {thread.isLocked && <Lock className="h-3.5 w-3.5 text-text-faint" />}
             {thread.isSolved && (
-              <span className="flex items-center gap-1 rounded-full bg-success/12 px-2 py-0.5 text-[10.5px] font-semibold text-success">
+              <span className="flex items-center gap-1 bg-success/12 px-2 py-0.5 text-[10.5px] font-semibold text-success">
                 <CheckCircle2 className="h-3 w-3" /> Solved
               </span>
             )}

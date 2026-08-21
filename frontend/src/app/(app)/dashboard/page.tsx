@@ -1,5 +1,6 @@
 "use client";
 
+import { Tilt, Reveal, CountUp } from "@/components/ui/motion";
 import Link from "next/link";
 import {
   Server,
@@ -29,7 +30,8 @@ export default function DashboardPage() {
   const name = authUser?.username ?? data?.user.username ?? "operator";
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       {/* greeting */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -47,10 +49,10 @@ export default function DashboardPage() {
 
       {/* stat cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard loading={isLoading} icon={<Server className="h-5 w-5" />} label="Machines owned" value={data ? formatNumber(data.stats.machinesOwned) : "—"} />
-        <StatCard loading={isLoading} icon={<Flag className="h-5 w-5" />} label="Challenges solved" value={data ? formatNumber(data.stats.challengesSolved) : "—"} />
-        <StatCard loading={isLoading} icon={<Flame className="h-5 w-5" />} label="Day streak" value={data ? `${data.stats.currentStreakDays}` : "—"} />
-        <StatCard loading={isLoading} icon={<Trophy className="h-5 w-5" />} label="Global rank" value={data ? `#${formatNumber(data.stats.globalRank)}` : "—"} />
+        <StatCard index={0} loading={isLoading} icon={<Server className="h-5 w-5" />} label="Machines owned" value={data ? formatNumber(data.stats.machinesOwned) : "—"} />
+        <StatCard index={1} loading={isLoading} icon={<Flag className="h-5 w-5" />} label="Challenges solved" value={data ? formatNumber(data.stats.challengesSolved) : "—"} />
+        <StatCard index={2} loading={isLoading} icon={<Flame className="h-5 w-5" />} label="Day streak" value={data ? `${data.stats.currentStreakDays}` : "—"} />
+        <StatCard index={3} loading={isLoading} icon={<Trophy className="h-5 w-5" />} label="Global rank" value={data ? `#${formatNumber(data.stats.globalRank)}` : "—"} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -93,7 +95,7 @@ export default function DashboardPage() {
 
           {/* active track */}
           {data?.activeTrack && (
-            <Card interactive>
+            <Card interactive spotlight>
               <CardBody>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -170,23 +172,53 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
-function StatCard({ icon, label, value, loading }: { icon: React.ReactNode; label: string; value: string; loading?: boolean }) {
+/**
+ * A figure worth counting to.
+ *
+ * `value` arrives as a preformatted string ("#0", "1,204", "—"), so the counter
+ * only runs when the string is a plain number — anything with a rank prefix, a
+ * placeholder or a suffix is rendered as-is rather than animated into something
+ * misleading.
+ */
+function StatCard({
+  icon,
+  label,
+  value,
+  loading,
+  index = 0,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  loading?: boolean;
+  index?: number;
+}) {
+  const numeric = Number(value.replace(/,/g, ""));
+  const countable = value !== "" && !Number.isNaN(numeric);
+
   return (
-    <Card>
-      <CardBody className="p-5">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-gradient-soft text-accent">{icon}</div>
-        {loading ? (
-          <Skeleton className="mt-3 h-8 w-16" />
-        ) : (
-          <div className="mt-3 font-display text-[28px] font-extrabold leading-none">{value}</div>
-        )}
-        <div className="mt-1.5 text-[13px] text-text-dim">{label}</div>
-      </CardBody>
-    </Card>
+    <Reveal delay={index * 70}>
+      <Tilt>
+        <Card spotlight className="edge-iridescent h-full">
+          <CardBody className="p-5">
+            <div className="grid h-9 w-9 place-items-center border border-line text-text-faint">{icon}</div>
+            {loading ? (
+              <Skeleton className="mt-4 h-8 w-16" />
+            ) : (
+              <div className="mt-4 font-display text-[30px] font-extrabold leading-none tracking-mega">
+                {countable ? <CountUp value={numeric} /> : value}
+              </div>
+            )}
+            <div className="mt-2 text-[10.5px] uppercase tracking-wide text-text-faint">{label}</div>
+          </CardBody>
+        </Card>
+      </Tilt>
+    </Reveal>
   );
 }
 
@@ -201,16 +233,21 @@ const ACTIVITY_ICON: Record<ActivityItem["type"], React.ReactNode> = {
 
 function ActivityRow({ item }: { item: ActivityItem }) {
   return (
-    <li className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-hover">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-gradient-soft text-accent">
+    <li className="group relative flex items-center gap-3 px-2 py-2.5 transition-colors hover:bg-surface-hover">
+      {/* A rule that draws in from the left on hover — the row equivalent of the
+          iridescent edge, which would be too much repeated down a list. */}
+      <span className="iridescent-rule absolute bottom-0 left-0 h-px w-0 transition-[width] duration-500 group-hover:w-full" />
+      <span className="grid h-8 w-8 shrink-0 place-items-center border border-line text-text-faint transition-colors group-hover:text-text">
         {ACTIVITY_ICON[item.type]}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[14.5px] font-medium">{item.title}</div>
-        <div className="truncate text-[12.5px] text-text-faint">{item.subtitle}</div>
+        <div className="truncate text-[13px]">{item.title}</div>
+        <div className="truncate text-[11px] text-text-ghost">{item.subtitle}</div>
       </div>
       <div className="text-right">
-        {item.points != null && <div className="font-display text-[14px] font-bold text-accent">+{item.points}</div>}
+        {item.points != null && (
+          <div className="font-display text-[14px] font-bold tabular-nums text-accent">+{item.points}</div>
+        )}
         <div className="text-[11.5px] text-text-faint">{formatRelative(item.at)}</div>
       </div>
     </li>
@@ -221,9 +258,11 @@ function QuickLink({ href, icon, title, subtitle }: { href: string; icon: React.
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-xl border border-line p-3 transition-colors hover:border-accent hover:bg-surface-hover"
+      className="edge-iridescent group flex items-center gap-3 border border-line p-3 transition-colors hover:bg-surface-hover"
     >
-      <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-gradient-soft text-accent">{icon}</span>
+      <span className="grid h-9 w-9 place-items-center border border-line text-text-faint transition-colors group-hover:text-text">
+        {icon}
+      </span>
       <div className="flex-1">
         <div className="text-[14px] font-semibold">{title}</div>
         <div className="text-[12px] text-text-faint">{subtitle}</div>

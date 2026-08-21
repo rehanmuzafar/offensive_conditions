@@ -40,7 +40,7 @@ export default function ThreadPage({ params }: { params: Promise<{ id: string }>
           {thread.isPinned && <Pin className="h-4 w-4 text-accent" />}
           {thread.isLocked && <Lock className="h-4 w-4 text-text-faint" />}
           {thread.isSolved && (
-            <span className="flex items-center gap-1 rounded-full bg-success/12 px-2.5 py-0.5 text-[12px] font-semibold text-success">
+            <span className="flex items-center gap-1 bg-success/12 px-2.5 py-0.5 text-[12px] font-semibold text-success">
               <CheckCircle2 className="h-3.5 w-3.5" /> Solved
             </span>
           )}
@@ -115,7 +115,7 @@ function PostCard({ post }: { post: ForumPost }) {
             <TierBadge tier={post.author.tier} />
             {post.isOriginalPost && <span className="rounded bg-brand-gradient-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent">OP</span>}
             {post.isAcceptedAnswer && (
-              <span className="ml-auto flex items-center gap-1 rounded-full bg-success/12 px-2 py-0.5 text-[11px] font-semibold text-success">
+              <span className="ml-auto flex items-center gap-1 bg-success/12 px-2 py-0.5 text-[11px] font-semibold text-success">
                 <CheckCircle2 className="h-3 w-3" /> Accepted answer
               </span>
             )}

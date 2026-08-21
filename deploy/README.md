@@ -19,8 +19,7 @@ nginx edge fronting the API.
 ## Quick start
 
 ```bash
-cd deploy
-./setup.sh                 # one-time: generates the JWT keypair
+./setup.sh                 # from the repo root: secrets, build, migrate, start
 docker compose up --build  # build + start everything (first run is slow)
 ```
 
@@ -31,8 +30,8 @@ Then open:
 | http://localhost:3000 | **Frontend** (the website) |
 | http://localhost:8080/v1/... | API edge (nginx → services) |
 | http://localhost:8025 | Mailpit — catches all auth emails |
-| http://localhost:9101 | MinIO console (`offcon_dev` / `dev_only_change_in_prod`) |
-| localhost:5432 | Postgres (`offcon_admin` / `dev_only_change_in_prod`) |
+| http://localhost:9101 | MinIO console — credentials in `deploy/.env` (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) |
+| localhost:5432 | Postgres — credentials in `deploy/.env` (`DB_USER` / `POSTGRES_PASSWORD`) |
 
 Stop everything: `docker compose down`
 Wipe data too: `docker compose down -v`
@@ -82,7 +81,7 @@ they're not auto-applied on startup, run the migrations:
 # from the repo root, against the running postgres
 docker compose -f database/docker-compose.yml run --rm migrate \
   -path /migrations/auth \
-  -database "postgres://offcon_admin:dev_only_change_in_prod@postgres:5432/offcon?sslmode=disable" up
+  -database "postgres://$DB_USER:$POSTGRES_PASSWORD@postgres:5432/$DB_NAME?sslmode=disable" up
 ```
 
 (Repeat per schema: auth, users, content, ctf, forum, writeup, payment, scoring, lab, audit.)

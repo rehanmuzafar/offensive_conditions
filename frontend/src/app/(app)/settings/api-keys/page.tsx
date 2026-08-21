@@ -158,7 +158,7 @@ function CreateKeyForm({ onCancel, onCreated }: { onCancel: () => void; onCreate
               <button
                 key={s}
                 onClick={() => toggleScope(s)}
-                className={cn("rounded-full border px-3 py-1.5 font-mono text-[12px] font-medium transition-colors", scopes.includes(s) ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover")}
+                className={cn("border px-3 py-1.5 font-mono text-[12px] font-medium transition-colors", scopes.includes(s) ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover")}
               >
                 {s}
               </button>

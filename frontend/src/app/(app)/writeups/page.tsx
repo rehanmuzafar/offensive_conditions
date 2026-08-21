@@ -35,7 +35,7 @@ export default function WriteupsPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2.5 font-display text-[28px] font-extrabold tracking-[-0.5px]">
-            <BookOpen className="h-7 w-7 text-accent" /> Writeups
+            <BookOpen className="h-6 w-6 text-text-faint" strokeWidth={1.6} /> Writeups
           </h1>
           <p className="mt-1 text-[15px] text-text-dim">Solution walkthroughs — readable once you&apos;ve rooted the target yourself.</p>
         </div>

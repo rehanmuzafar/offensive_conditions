@@ -8,6 +8,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth-store";
 import { authApi } from "@/lib/auth-api";
+import { playSignInTransition } from "@/components/landing/lib/transition";
+import { SignInTransition } from "@/components/auth/sign-in-transition";
 
 /**
  * Landing page for the backend's OAuth redirect.
@@ -52,6 +54,12 @@ function CallbackInner() {
     setSession({ accessToken, refreshToken, expiresIn }, null as never);
 
     (async () => {
+      // The same sign-in cinematic the email/password path plays. It lived only
+      // in `useLogin`, so signing in with Google skipped it entirely and dropped
+      // straight onto the dashboard — the two routes end in the same place and
+      // should feel the same getting there.
+      const cinematic = playSignInTransition();
+
       try {
         const user = await authApi.me();
         setUser(user);
@@ -60,6 +68,7 @@ function CallbackInner() {
       } finally {
         // Clear sensitive data from the URL before pushing to history.
         window.history.replaceState(null, "", "/auth/callback");
+        await cinematic;
         router.replace("/dashboard");
       }
     })();
@@ -83,10 +92,13 @@ function CallbackInner() {
   }
 
   return (
-    <div className="text-center">
-      <Loader2 className="mx-auto h-10 w-10 animate-spin text-accent" />
-      <p className="mt-4 text-[15px] text-text-dim">Completing sign-in…</p>
-    </div>
+    <>
+      <SignInTransition />
+      <div className="text-center">
+        <Loader2 className="mx-auto h-10 w-10 animate-spin text-text-faint" />
+        <p className="mt-4 text-[13px] text-text-dim">Completing sign-in…</p>
+      </div>
+    </>
   );
 }
 

@@ -5,6 +5,7 @@
 
 import { api } from "@/lib/api";
 import type {
+  AccountIdentity,
   AuthTokens,
   AuthUser,
   OAuthProvider,
@@ -81,6 +82,41 @@ export const authApi = {
       createdAt: r.created_at,
     };
   },
+
+  /**
+   * The hacker/company answer, from user-svc.
+   *
+   * Not on /v1/auth/me: auth-svc owns credentials and roles, user-svc owns the
+   * profile, and the account type is profile data. Two calls rather than
+   * teaching auth-svc about a column it does not own.
+   */
+  identity: async (): Promise<AccountIdentity> => {
+    const r = await api.get<{
+      account_type?: string;
+      onboarding_complete?: boolean;
+      company_name?: string | null;
+      company_website?: string | null;
+    }>("/v1/me");
+    return {
+      accountType: (r.account_type ?? "") as AccountIdentity["accountType"],
+      onboardingComplete: Boolean(r.onboarding_complete),
+      companyName: r.company_name ?? null,
+      companyWebsite: r.company_website ?? null,
+    };
+  },
+
+  setAccountType: (body: {
+    accountType: "hacker" | "company";
+    companyName?: string;
+    companyWebsite?: string;
+  }) =>
+    api.post<{ account_type: string }>("/v1/me/account-type", {
+      body: {
+        account_type: body.accountType,
+        company_name: body.companyName || null,
+        company_website: body.companyWebsite || null,
+      },
+    }),
 
   /**
    * Exchange a refresh token for a new access token.

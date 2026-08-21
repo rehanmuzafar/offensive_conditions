@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -186,7 +187,17 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 		ID string `json:"Id"`
 	}
 	q := url.Values{"name": {name}}
-	if err := b.do(ctx, http.MethodPost, "/containers/create?"+q.Encode(), create, &created); err != nil {
+	err := b.do(ctx, http.MethodPost, "/containers/create?"+q.Encode(), create, &created)
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		// The daemon does not pull on create. Without this an organizer who
+		// registers a challenge image sees the first spawn fail with a raw
+		// Docker error and no way to act on it.
+		if perr := b.pullImage(ctx, req.Image); perr != nil {
+			return nil, fmt.Errorf("image %s is not available: %w", req.Image, perr)
+		}
+		err = b.do(ctx, http.MethodPost, "/containers/create?"+q.Encode(), create, &created)
+	}
+	if err != nil {
 		return nil, err
 	}
 	if err := b.do(ctx, http.MethodPost, "/containers/"+created.ID+"/start", nil, nil); err != nil {
@@ -196,6 +207,56 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 	}
 
 	return &backends.SpawnResult{Ref: created.ID, NodeName: b.opts.PublicHost}, nil
+}
+
+// pullImage fetches an image the host does not have yet.
+//
+// /images/create streams progress and only reports failure in that stream, not
+// in the status code — a 200 with an "errorDetail" line is still a failure, so
+// the body has to be read to the end and inspected.
+func (b *Backend) pullImage(ctx context.Context, image string) error {
+	ref, tag := image, "latest"
+	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
+		ref, tag = image[:i], image[i+1:]
+	}
+	q := url.Values{"fromImage": {ref}, "tag": {tag}}
+
+	// Pulling a large image over a slow link takes minutes; the caller's
+	// request deadline is far shorter than that.
+	pullCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(
+		pullCtx, http.MethodPost, b.endpoint("/images/create?"+q.Encode()), nil,
+	)
+	if err != nil {
+		return err
+	}
+	res, err := b.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("docker daemon unreachable: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		return fmt.Errorf("docker api pull %s: %d", image, res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return fmt.Errorf("pull stream: %w", err)
+	}
+	if bytes.Contains(body, []byte(`"errorDetail"`)) {
+		var line struct {
+			Error string `json:"error"`
+		}
+		for _, raw := range bytes.Split(body, []byte("\n")) {
+			if json.Unmarshal(raw, &line) == nil && line.Error != "" {
+				return fmt.Errorf("pull failed: %s", line.Error)
+			}
+		}
+		return fmt.Errorf("pull failed")
+	}
+	return nil
 }
 
 // Status reports the container state and, once running, the address players use.

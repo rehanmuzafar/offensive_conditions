@@ -53,6 +53,9 @@ export function CtfChallengeManager({
   runtime?: "cloud" | "onsite" | "static_only";
 }) {
   const [items, setItems] = useState<AdminCtfChallenge[]>([]);
+  /** Challenge awaiting a second click to confirm deletion. */
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -146,7 +149,12 @@ export function CtfChallengeManager({
         description: description.trim(),
         base_points: points,
         delivery_type: delivery,
-        connection_url: delivery === "shared_host" ? connectionUrl.trim() : null,
+        /* Saved whatever the delivery type is. It used to be nulled unless the
+           challenge was "shared host", so an author who uploaded files *and*
+           pasted a web link silently lost the link — the field was only ever
+           rendered for one of the three types. It is required for shared_host
+           and optional everywhere else. */
+        connection_url: connectionUrl.trim() || null,
         image_ref: delivery === "per_player" ? imageRef.trim() : null,
         files,
         ...(flag.trim() ? { static_flag_hash: await hashFlag(flag.trim()) } : {}),
@@ -260,12 +268,12 @@ export function CtfChallengeManager({
                 </label>
               </div>
 
-              {delivery === "shared_host" && (
-                <div className="mt-3">
-                  <label className={label}>Address players connect to</label>
+              <div className="mt-3">
+                  <label className={label}>
+                    Link players open{delivery === "shared_host" ? "" : " (optional)"}
+                  </label>
                   <input className={field} value={connectionUrl} onChange={(e) => setConnectionUrl(e.target.value)} placeholder="http://203.0.113.10:8001" />
                 </div>
-              )}
               {delivery === "per_player" && (
                 <div className="mt-3">
                   <label className={label}>Container image</label>
@@ -385,6 +393,36 @@ export function CtfChallengeManager({
                   </span>
                   <Button variant="ghost" onClick={() => startEdit(c)}>
                     <Pencil className="h-4 w-4" /> Edit
+                  </Button>
+                  {/* Two-step. The confirm names the challenge, because in a
+                      list of similar rows the dangerous mistake is deleting the
+                      one next to the one you meant. */}
+                  <Button
+                    variant="danger"
+                    loading={removing === c.id}
+                    onClick={() => {
+                      if (confirmingDelete !== c.id) {
+                        setConfirmingDelete(c.id);
+                        return;
+                      }
+                      setRemoving(c.id);
+                      ctfAdminApi
+                        .deleteChallenge(eventId, c.id)
+                        .then(() => {
+                          toast.success(`Deleted "${c.name}"`);
+                          setConfirmingDelete(null);
+                          void load();
+                        })
+                        .catch((err) =>
+                          toast.error(
+                            err instanceof Error ? err.message : "Could not delete that challenge.",
+                          ),
+                        )
+                        .finally(() => setRemoving(null));
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {confirmingDelete === c.id ? "Confirm" : "Delete"}
                   </Button>
                 </div>
               </div>

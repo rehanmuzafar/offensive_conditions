@@ -22,6 +22,13 @@ from app.schemas import (
     ProgramCreate,
     ProgramDetailRead,
     ProgramList,
+    ProgramCardList,
+    ThanksEntry,
+    CollaboratorEntry,
+    ProgramUpdateRead,
+    ProgramUpdateCreate,
+    ProgramCardRead,
+    AssetTypeCount,
     ProgramRead,
     ProgramUpdate,
     RewardTier,
@@ -46,26 +53,73 @@ def _to_detail(program) -> ProgramDetailRead:
 # =============================================================================
 
 
-@router.get("", response_model=ProgramList)
+@router.get("", response_model=ProgramCardList)
 async def list_programs(
     page: tuple[int, int] = Depends(pagination),
     q: str | None = Query(None, min_length=2, max_length=200),
+    asset_type: str | None = Query(None, description="Only programs with this asset type in scope"),
+    has_bounty: bool | None = Query(None, description="Only programs that pay"),
     claims: Claims | None = Depends(get_optional_claims),
     svc: ProgramService = Depends(get_program_service),
-) -> ProgramList:
+) -> ProgramCardList:
+    """The discovery grid.
+
+    Carries the card aggregates — scope breakdown, distinct hackers, measured
+    response efficiency — because every one of them is on the card and fetching
+    them per program would be sixty round trips for a page of twenty.
+    """
     limit, offset = page
     items, total = await svc.list_(
         viewer_is_owner=False,
         search=q,
+        asset_type=asset_type,
+        has_bounty=has_bounty,
         limit=limit,
         offset=offset,
     )
-    return ProgramList(
-        items=[_to_read(p) for p in items],
+    stats = await svc.card_stats([p.id for p in items])
+    cards = []
+    for p in items:
+        card = ProgramCardRead.model_validate(p, from_attributes=True)
+        s = stats.get(p.id, {})
+        card.asset_counts = [AssetTypeCount(**a) for a in s.get("asset_counts", [])]
+        card.hackers = s.get("hackers", 0)
+        card.response_efficiency = s.get("response_efficiency")
+        cards.append(card)
+    return ProgramCardList(
+        items=cards,
         meta=PageMeta(
             total=total, limit=limit, offset=offset, has_more=(offset + limit) < total
         ),
     )
+
+
+@router.get("/{slug}/thanks", response_model=list[ThanksEntry])
+async def program_thanks(
+    slug: str,
+    svc: ProgramService = Depends(get_program_service),
+) -> list[ThanksEntry]:
+    """Who found what here, ranked. Public: it is a credit page."""
+    program = await svc.get_by_slug(slug)
+    return [ThanksEntry(**r) for r in await svc.thanks(program.id)]
+
+
+@router.get("/{slug}/collaborators", response_model=list[CollaboratorEntry])
+async def program_collaborators(
+    slug: str,
+    svc: ProgramService = Depends(get_program_service),
+) -> list[CollaboratorEntry]:
+    program = await svc.get_by_slug(slug)
+    return [CollaboratorEntry(**r) for r in await svc.collaborators(program.id)]
+
+
+@router.get("/{slug}/updates", response_model=list[ProgramUpdateRead])
+async def program_updates(
+    slug: str,
+    svc: ProgramService = Depends(get_program_service),
+) -> list[ProgramUpdateRead]:
+    program = await svc.get_by_slug(slug)
+    return [ProgramUpdateRead(**r) for r in await svc.updates(program.id)]
 
 
 @router.get("/{slug}", response_model=ProgramDetailRead)
@@ -191,6 +245,23 @@ async def replace_rewards(
             for r in items
         ]
     }
+
+
+@admin_router.post("/{slug}/updates", status_code=status.HTTP_201_CREATED)
+async def create_program_update(
+    slug: str,
+    body: ProgramUpdateCreate,
+    claims: Claims = Depends(get_claims),
+    svc: ProgramService = Depends(get_program_service),
+) -> dict:
+    """Post an announcement to the program's hackers."""
+    program = await svc.get_by_slug(slug)
+    if program.owner_user_id != claims.user_id and not claims.is_admin:
+        raise AppError(ErrorCode.FORBIDDEN, "only the program owner can post updates")
+    await svc.post_update(
+        program.id, author_id=claims.user_id, title=body.title, body_md=body.body_md
+    )
+    return {"status": "created"}
 
 
 @admin_router.post("/{slug}/publish", response_model=ProgramDetailRead)

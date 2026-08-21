@@ -16,6 +16,7 @@ from app.services import (
     ChallengeService,
     CtfEventPublisher,
     EventService,
+    InstanceService,
     RegistrationService,
     SubmissionService,
 )
@@ -115,6 +116,13 @@ async def get_submission_service(
         decay_power=settings.dynamic_scoring_decay_power,
         first_blood_percentages=settings.first_blood_bonus_percentages,
     )
+
+
+async def get_instance_service(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> InstanceService:
+    return InstanceService(session, request.app.state.settings)
 
 
 async def get_announcement_service(

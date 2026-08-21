@@ -44,7 +44,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex items-center gap-2.5">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-[14px] font-bold text-white shadow-glow">A</span>
         <h1 className="font-display text-[26px] font-extrabold tracking-[-0.5px]">Admin</h1>
-        <span className="rounded-full bg-danger/12 px-2.5 py-0.5 text-[11.5px] font-semibold text-danger">Staff</span>
+        <span className="bg-danger/12 px-2.5 py-0.5 text-[11.5px] font-semibold text-danger">Staff</span>
       </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_1fr]">

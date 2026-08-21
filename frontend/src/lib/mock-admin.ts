@@ -6,7 +6,6 @@ import type { Paginated } from "@/types";
 import type {
   AdminOverview,
   AdminMachine,
-  AdminReportQueue,
   AdminUser,
   FlaggedContent,
   Broadcast,
@@ -57,17 +56,6 @@ export function mockAdminMachines(): Paginated<AdminMachine> {
   return { items: MOCK_ADMIN_MACHINES, meta: { total: MOCK_ADMIN_MACHINES.length, limit: 50, offset: 0, hasMore: false } };
 }
 
-export const MOCK_REPORT_QUEUE: AdminReportQueue[] = [
-  { id: "r1", shortId: "ACM-1042", programName: "ACME Corporation", title: "Stored XSS in product review form", severity: "high", state: "triaging", reporter: "you", assignedTo: "triage-team", ageHours: 5, slaBreached: false },
-  { id: "rq2", shortId: "FIN-0322", programName: "FinTech Secure", title: "Auth bypass via JWT confusion", severity: "critical", state: "submitted", reporter: "byteWitch", assignedTo: null, ageHours: 14, slaBreached: true },
-  { id: "rq3", shortId: "CLD-0890", programName: "CloudBase Platform", title: "RCE in image processing pipeline", severity: "critical", state: "submitted", reporter: "rootcanal", assignedTo: null, ageHours: 2, slaBreached: false },
-  { id: "rq4", shortId: "SHP-0215", programName: "ShopFlow Commerce", title: "Price manipulation in cart API", severity: "high", state: "triaging", reporter: "0verfl0w", assignedTo: "triage-team", ageHours: 30, slaBreached: false },
-  { id: "rq5", shortId: "ACM-1051", programName: "ACME Corporation", title: "CSRF on account settings", severity: "medium", state: "submitted", reporter: "shellshock", assignedTo: null, ageHours: 8, slaBreached: false },
-];
-
-export function mockReportQueue(): Paginated<AdminReportQueue> {
-  return { items: MOCK_REPORT_QUEUE, meta: { total: MOCK_REPORT_QUEUE.length, limit: 50, offset: 0, hasMore: false } };
-}
 
 export const MOCK_ADMIN_USERS: AdminUser[] = [
   { id: "u1", username: "zer0Kelvin", email: "zer0@example.com", country: "de", roles: ["user", "moderator"], status: "active", points: 142850, joinedAt: "2024-03-10", lastSeenAt: new Date(Date.now() - 600_000).toISOString() },

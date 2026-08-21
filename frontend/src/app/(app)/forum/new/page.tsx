@@ -63,7 +63,7 @@ function Composer() {
                   key={c.slug}
                   onClick={() => setCategorySlug(c.slug)}
                   className={cn(
-                    "rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+                    "border px-3.5 py-1.5 text-[13px] font-medium transition-colors",
                     categorySlug === c.slug ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover",
                   )}
                 >
