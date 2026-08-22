@@ -1,4 +1,4 @@
-# Offensive Conditions — Database Layer
+# Offense Conditions — Database Layer
 
 PostgreSQL 16 schemas, migrations, and seed data for the entire platform.
 

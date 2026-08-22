@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — Content Service
+  title: Offense Conditions — Content Service
   version: 0.1.0
   description: |
     HTTP API for the content service: machines, challenges, learning paths,
     ratings, reviews, search. Internal gRPC interface is documented in
     `proto/content.proto`.
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:

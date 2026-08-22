@@ -1,5 +1,5 @@
 -- =============================================================================
--- Offensive Conditions — Cluster Initialization
+-- Offense Conditions — Cluster Initialization
 -- =============================================================================
 -- Run as superuser on a fresh PostgreSQL 16 cluster.
 -- Creates the database, extensions, service roles, and base permissions.

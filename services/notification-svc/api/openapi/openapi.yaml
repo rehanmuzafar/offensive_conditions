@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — Notification Service
+  title: Offense Conditions — Notification Service
   version: 0.1.0
   description: |
     Multi-channel notification delivery: in-app, email, outbound webhooks.
     Consumes domain events from Kafka, applies per-user preferences,
     delivers via channel adapters.
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:

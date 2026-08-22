@@ -1,5 +1,5 @@
 # =============================================================================
-# Offensive Conditions — Public Route Registry
+# Offense Conditions — Public Route Registry
 # =============================================================================
 # This file is the canonical, version-controlled map of every route exposed
 # on https://api.offensiveconditions.org. Istio VirtualServices, rate-limit rules, and

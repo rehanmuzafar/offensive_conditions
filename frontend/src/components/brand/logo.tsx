@@ -22,7 +22,7 @@ interface LogoProps {
   variant?: "full" | "mark";
   /** Height in px (width auto). */
   size?: number;
-  /** Show the "OFFENSIVE CONDITIONS" sub-label under the wordmark. */
+  /** Show the "OFFENSE CONDITIONS" sub-label under the wordmark. */
   showSub?: boolean;
   /** Wrap in a link to "/". Set false inside other links. */
   href?: string | null;
@@ -107,7 +107,7 @@ function Wordmark({ showSub }: { showSub: boolean }) {
       </span>
       {showSub && (
         <span className="mt-[3px] text-[8.5px] tracking-[4.5px] text-text-ghost">
-          OFFENSIVE CONDITIONS
+          OFFENSE CONDITIONS
         </span>
       )}
     </span>

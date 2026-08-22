@@ -181,16 +181,30 @@ A service stuck restarting is almost always a config error in its startup path
 
 The app is served from four hostnames, routed by `frontend/src/middleware.ts`:
 
-| Host | What |
-|------|------|
-| `offensiveconditions.org` | landing page |
-| `ctf.offensiveconditions.org` | events, teams, arena, scoreboards |
-| `bugbounty.offensiveconditions.org` | programs, reports, hacktivity |
-| `app.offensiveconditions.org` | tracks, machines, forum, everything else |
+| Host | Locally | What |
+|------|---------|------|
+| `offensiveconditions.org` | `localhost:3000` | landing page |
+| `dashboard.…` | `dashboard.localhost:3000` | where a signed-in player lands |
+| `ctf.…` | `ctf.localhost:3000` | events, teams, arena, scoreboards |
+| `bugbounty.…` | `bugbounty.localhost:3000` | programs, reports, hacktivity |
+| `app.…` | `app.localhost:3000` | tracks, machines, forum, writeups |
 
-**In development they collapse to one origin.** `http://localhost:3000` serves
-all four through their normal paths (`/ctf`, `/bounty`, `/dashboard`), so you
-do not need hosts-file entries to work on any of them.
+**The subdomains work locally with no setup.** Browsers resolve `*.localhost`
+to 127.0.0.1 on their own — no hosts-file entry, no DNS. Open
+`http://ctf.localhost:3000` and you are on the CTF surface.
+
+A path that belongs to another surface redirects there rather than 404ing, so
+old single-origin links keep working: `localhost:3000/dashboard` sends you to
+`dashboard.localhost:3000`.
+
+Two things have to know about a new surface, or sign-in breaks on it:
+
+- **`HTTP_CORS_ORIGINS`** in `deploy/.env` — every surface is its own origin,
+  and the browser sends `Origin` on every POST. A surface missing from that
+  list gets a 403 with an empty body, which the frontend can only report as
+  "could not sign you in".
+- **`NEXT_PUBLIC_ROOT_DOMAIN`** — a *build* argument. Cross-surface links are
+  built from it, so an image built without it links to the wrong host.
 
 They only split apart when `NEXT_PUBLIC_ROOT_DOMAIN` is set. If you write a
 link that crosses from one surface to another, use `link()` from

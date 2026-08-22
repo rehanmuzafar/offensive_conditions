@@ -2,9 +2,10 @@
  * Host-based routing for the four surfaces.
  *
  *   offensiveconditions.org           the landing page
+ *   dashboard.offensiveconditions.org where a signed-in player lands
  *   ctf.offensiveconditions.org       events, teams, arena, scoreboards
  *   bugbounty.offensiveconditions.org programs, reports, hacktivity
- *   app.offensiveconditions.org       tracks, machines, forum, everything else
+ *   app.offensiveconditions.org       tracks, machines, forum, writeups
  *
  * One Next app, not four. Four apps would mean four builds, four deploys and
  * four copies of the design system drifting apart — and the auth session has to
@@ -45,7 +46,7 @@ const SHARED_PREFIXES = [
   "/icon.png",
 ];
 
-type Surface = "landing" | "ctf" | "bugbounty" | "app";
+type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app";
 
 /**
  * Which surface a hostname belongs to.
@@ -56,15 +57,44 @@ type Surface = "landing" | "ctf" | "bugbounty" | "app";
  */
 export function surfaceForHost(host: string): Surface {
   const name = (host.split(":")[0] ?? "").toLowerCase();
+  if (name.startsWith("dashboard.")) return "dashboard";
   if (name.startsWith("ctf.")) return "ctf";
   if (name.startsWith("bugbounty.") || name.startsWith("bb.")) return "bugbounty";
   if (name.startsWith("app.")) return "app";
-  // The apex and www are the marketing site.
-  if (name === "offensiveconditions.org" || name === "www.offensiveconditions.org") {
-    return "landing";
-  }
-  return "app";
+  // Anything with no surface label is the marketing site: the apex, www, and
+  // bare `localhost` in development. Falling back to "app" here put /machines
+  // at localhost:3000 and left the landing page with nowhere to live.
+  return "landing";
 }
+
+/**
+ * Sections that belong to exactly one surface.
+ *
+ * Without this a path landing on the wrong host does not 404 — it gets
+ * swallowed by whatever dynamic route is there. `/dashboard` on the CTF host
+ * became `/ctf/dashboard`, which matches `/ctf/[slug]` and renders an event
+ * page for an event called "dashboard". A redirect sends it where it belongs
+ * instead, which also keeps every old single-origin link working.
+ */
+const OWNER: Record<string, Surface> = {
+  dashboard: "dashboard",
+  ctf: "ctf",
+  bounty: "bugbounty",
+  machines: "app",
+  tracks: "app",
+  forum: "app",
+  writeups: "app",
+  leaderboard: "app",
+};
+
+/** Where a surface sends someone who arrives at its root. */
+const ROOT_PATH: Record<Surface, string> = {
+  landing: "/",
+  dashboard: "/dashboard",
+  ctf: "/ctf",
+  bugbounty: "/bounty",
+  app: "/machines",
+};
 
 export function middleware(req: NextRequest) {
   const url = req.nextUrl;
@@ -74,7 +104,25 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const surface = surfaceForHost(req.headers.get("host") ?? "");
+  const host = req.headers.get("host") ?? "";
+  const surface = surfaceForHost(host);
+
+  const first = path.split("/").filter(Boolean)[0];
+  const owner = first ? OWNER[first] : undefined;
+  if (owner && owner !== surface) {
+    const target = hostFor(owner, host);
+    // Same host means the surfaces are collapsed onto one origin (no root
+    // domain configured), and there is nowhere to redirect to — the path
+    // already resolves correctly there.
+    if (target && target !== host) {
+      const to = new URL(req.url);
+      to.host = target;
+      to.pathname = stripPrefix(owner, path);
+      return NextResponse.redirect(to);
+    }
+    return NextResponse.next();
+  }
+
   const rewritten = rewriteFor(surface, path);
   if (!rewritten || rewritten === path) return NextResponse.next();
 
@@ -89,6 +137,13 @@ export function middleware(req: NextRequest) {
 
 function rewriteFor(surface: Surface, path: string): string | null {
   switch (surface) {
+    case "dashboard":
+      // Rooted at the player's own home. Profile and notifications belong here
+      // too — they are about *you*, which is what this surface is.
+      if (path === "/") return "/dashboard";
+      if (path.startsWith("/dashboard")) return path;
+      return `/dashboard${path}`;
+
     case "ctf":
       // The CTF host is rooted at the events index: ctf.…/ is the event list,
       // ctf.…/summer-2026 is one event. Teams belong here too — a team only
@@ -110,6 +165,11 @@ function rewriteFor(surface: Surface, path: string): string | null {
       return null;
 
     case "app":
+      // Everything else keeps its own paths; only the bare root needs a home,
+      // and the landing page is not it.
+      if (path === "/") return ROOT_PATH.app;
+      return null;
+
     default:
       return null;
   }
@@ -120,3 +180,29 @@ export const config = {
   // this keeps them from entering the middleware at all.
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
+
+
+/**
+ * The hostname a surface lives on, derived from the current one.
+ *
+ * Taken from the request rather than from configuration so it works on
+ * localhost, on a staging domain and in production without three sets of
+ * values to keep in step.
+ */
+function hostFor(surface: Surface, currentHost: string): string | null {
+  const [name, port] = currentHost.split(":");
+  if (!name) return null;
+  // Strip an existing surface label to get back to the root domain.
+  const root = name.replace(/^(dashboard|ctf|bugbounty|bb|app|www)\./, "");
+  const label = surface === "landing" ? "" : surface === "bugbounty" ? "bugbounty." : `${surface}.`;
+  const target = `${label}${root}`;
+  return port ? `${target}:${port}` : target;
+}
+
+/** Drop the prefix a surface owns, since it becomes that host's root. */
+function stripPrefix(surface: Surface, path: string): string {
+  const prefix = ROOT_PATH[surface];
+  if (surface === "app" || prefix === "/" || !path.startsWith(prefix)) return path;
+  const rest = path.slice(prefix.length);
+  return rest === "" ? "/" : rest;
+}

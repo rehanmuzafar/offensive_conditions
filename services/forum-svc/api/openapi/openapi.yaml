@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — Forum Service
+  title: Offense Conditions — Forum Service
   version: 0.1.0
   description: |
     Forum API: categories, threads, posts, votes, subscriptions, reputation,
     moderation reports.
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:

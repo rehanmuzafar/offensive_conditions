@@ -1,6 +1,6 @@
-# Offensive Conditions — API Gateway & Service Mesh
+# Offense Conditions — API Gateway & Service Mesh
 
-This directory contains the edge + mesh layer for the Offensive Conditions
+This directory contains the edge + mesh layer for the Offense Conditions
 platform. It has two distinct concerns:
 
 1. **North-South**: Public clients (browsers, mobile, third parties) hit

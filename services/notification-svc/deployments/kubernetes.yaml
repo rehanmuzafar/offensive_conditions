@@ -36,7 +36,7 @@ data:
   AUTH_JWT_ISSUER: "https://auth.offensiveconditions.org"
   AUTH_JWT_AUDIENCE: "offcon-api"
   EMAIL_FROM_ADDRESS: "noreply@offensiveconditions.org"
-  EMAIL_FROM_NAME: "Offensive Conditions"
+  EMAIL_FROM_NAME: "Offense Conditions"
   EMAIL_REPLY_TO: "support@offensiveconditions.org"
   EMAIL_PROVIDER_PRIMARY: "resend"
   EMAIL_PROVIDER_FAILOVER: "sendgrid"

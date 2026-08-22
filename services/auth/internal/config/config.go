@@ -325,7 +325,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("SMTP_PORT", 587)
 	v.SetDefault("SMTP_USE_TLS", true)
-	v.SetDefault("SMTP_FROM_NAME", "Offensive Conditions")
+	v.SetDefault("SMTP_FROM_NAME", "Offense Conditions")
 	v.SetDefault("SMTP_TEMPLATES_DIR", "./templates/email")
 
 	v.SetDefault("RATE_LIMIT_LOGIN_PER_MINUTE", 10)

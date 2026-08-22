@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: Offensive Conditions — User Service API
+  title: Offense Conditions — User Service API
   description: |
     Profiles, teams, friendships, follows, search, and GDPR rights for the
-    Offensive Conditions platform.
+    Offense Conditions platform.
 
     All endpoints (except `/livez` and `/readyz`) require a Bearer JWT issued
     by the auth service.
@@ -14,7 +14,7 @@ info:
     ```
   version: 0.1.0
   contact:
-    name: Offensive Conditions Engineering
+    name: Offense Conditions Engineering
     email: eng@offensiveconditions.org
 servers:
   - url: https://api.offensiveconditions.org

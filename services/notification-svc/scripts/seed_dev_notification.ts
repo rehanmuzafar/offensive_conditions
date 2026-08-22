@@ -68,7 +68,7 @@ function loadMjmlTemplates(): TemplateSeed[] {
     const eventTypeMap: Record<string, { event_type: string; subject: string; vars: string[] }> = {
       'auth.welcome': {
         event_type: 'auth.user.registered',
-        subject: 'Welcome, {{username}}, to Offensive Conditions',
+        subject: 'Welcome, {{username}}, to Offense Conditions',
         vars: ['username', 'onboarding_url', 'unsubscribe_url'],
       },
       'scoring.first_blood': {

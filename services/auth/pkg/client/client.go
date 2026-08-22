@@ -1,4 +1,4 @@
-// Package authclient provides a Go client for the Offensive Conditions auth service.
+// Package authclient provides a Go client for the Offense Conditions auth service.
 //
 // Other microservices use this to validate JWTs, fetch user info, and revoke sessions
 // via gRPC with mTLS.

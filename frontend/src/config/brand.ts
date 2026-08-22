@@ -65,7 +65,7 @@ export const BRAND: BrandConfig = {
 
   favicon: "/favicon.ico",
   name: "OFFCON",
-  fullName: "Offensive Conditions",
+  fullName: "Offense Conditions",
   tagline: "Forge yourself in offensive security.",
   siteUrl: "https://offensiveconditions.org",
   contactEmail: "support@offensiveconditions.org",

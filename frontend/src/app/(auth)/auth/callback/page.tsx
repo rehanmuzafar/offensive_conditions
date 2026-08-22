@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { surfaceLinks } from "@/lib/surfaces";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldX } from "lucide-react";
 import Link from "next/link";
@@ -69,7 +70,11 @@ function CallbackInner() {
         // Clear sensitive data from the URL before pushing to history.
         window.history.replaceState(null, "", "/auth/callback");
         await cinematic;
-        router.replace("/dashboard");
+        // The OAuth provider always returns to the origin registered with it,
+        // so the callback lands wherever that is — not necessarily where the
+        // sign-in started. A full navigation puts the player on the dashboard
+        // surface regardless.
+        window.location.replace(surfaceLinks.dashboard());
       }
     })();
   }, [router, setSession, setUser]);

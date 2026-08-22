@@ -1,6 +1,6 @@
 # Auth Service
 
-The authentication service for Offensive Conditions. Handles registration, login, JWT issuance, refresh token rotation, 2FA, OAuth, email verification, and password reset.
+The authentication service for Offense Conditions. Handles registration, login, JWT issuance, refresh token rotation, 2FA, OAuth, email verification, and password reset.
 
 ## Stack
 - **Language:** Go 1.22

@@ -225,7 +225,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
         event_type: 'system.webhook_test',
         channels: ['webhook'],
         variables: {
-          message: 'This is a test event from Offensive Conditions.',
+          message: 'This is a test event from Offense Conditions.',
           test: true,
         },
       });

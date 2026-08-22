@@ -1,6 +1,6 @@
 # Notification Service
 
-Centralised notification fan-out for the Offensive Conditions platform.
+Centralised notification fan-out for the Offense Conditions platform.
 Consumes domain events from Kafka, applies per-user routing + preferences,
 and delivers via email, in-app, and outbound webhook channels.
 

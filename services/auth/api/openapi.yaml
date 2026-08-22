@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions Auth API
+  title: Offense Conditions Auth API
   description: |
-    Authentication and identity management for the Offensive Conditions platform.
+    Authentication and identity management for the Offense Conditions platform.
     Handles registration, login, JWT issuance, 2FA, OAuth, sessions, and password management.
   version: 1.0.0
   contact:
-    name: Offensive Conditions
+    name: Offense Conditions
     url: https://offensiveconditions.org
 servers:
   - url: https://api.offensiveconditions.org

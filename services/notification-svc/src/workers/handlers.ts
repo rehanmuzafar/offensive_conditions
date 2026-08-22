@@ -138,7 +138,7 @@ export function createEmailWorker(): Worker<EmailJobData> {
       try {
         const result = await sendEmail({
           to: d.email_address,
-          subject: rendered.subject ?? `Notification from Offensive Conditions`,
+          subject: rendered.subject ?? `Notification from Offense Conditions`,
           html: rendered.body_html ?? '',
           text: rendered.body_text,
           tags: [

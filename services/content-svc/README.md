@@ -1,6 +1,6 @@
 # Content Service
 
-Owns all learning content on the Offensive Conditions platform — machines,
+Owns all learning content on the Offense Conditions platform — machines,
 challenges, learning paths (tracks), tags, categories, ratings, and reviews.
 
 ## Responsibilities

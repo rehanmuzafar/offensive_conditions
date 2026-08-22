@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions Lab Orchestrator
+  title: Offense Conditions Lab Orchestrator
   description: |
     Spawns, manages, and tears down lab instances for cybersecurity training.
     Backends: Kubernetes (Linux containers) and Proxmox (KVM VMs).
   version: 0.1.0
   contact:
-    name: Offensive Conditions
+    name: Offense Conditions
 servers:
   - url: https://orchestrator.offensiveconditions.org
     description: Production

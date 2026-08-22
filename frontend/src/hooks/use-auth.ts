@@ -15,6 +15,7 @@ import { playSignInTransition } from "@/components/landing/lib/transition";
 import { authApi } from "@/lib/auth-api";
 import { ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
+import { surfaceLinks } from "@/lib/surfaces";
 import type { AuthTokens, AuthUser, OAuthProvider, RegisterPayload, Role } from "@/types/auth";
 
 /** Decode the (unverified) claims from a JWT access token's payload. */
@@ -86,7 +87,10 @@ export function useLogin() {
       }
 
       await cinematic;
-      router.push("/dashboard");
+      // A full navigation, not router.push: the dashboard is a different
+      // origin. Pushing "/dashboard" from ctf.<domain> resolves to
+      // /ctf/dashboard, which does not exist.
+      window.location.href = surfaceLinks.dashboard();
     },
     onError: (err) => {
       const code = err instanceof ApiError ? err.code : undefined;
@@ -105,7 +109,6 @@ export function useLogin() {
 
 export function useVerifyTwoFactor() {
   const setSession = useAuthStore((s) => s.setSession);
-  const router = useRouter();
 
   return useMutation({
     mutationFn: ({ challengeId, code }: { challengeId: string; code: string }) =>
@@ -113,7 +116,8 @@ export function useVerifyTwoFactor() {
     onSuccess: ({ tokens, user }) => {
       setSession(tokens, user);
       toast.success("Verified — welcome back");
-      router.push("/dashboard");
+      // Cross-surface, same reason as the password path above.
+      window.location.href = surfaceLinks.dashboard();
     },
     onError: () => toast.error("Invalid or expired code."),
   });

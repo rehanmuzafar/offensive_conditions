@@ -30,7 +30,7 @@ const PLANS: PlanSeed[] = [
   {
     code: 'free',
     name: 'Free',
-    description: 'Try Offensive Conditions with limited access.',
+    description: 'Try Offense Conditions with limited access.',
     tier: 'free',
     billing_cycle: 'monthly',
     base_price_cents: 0,

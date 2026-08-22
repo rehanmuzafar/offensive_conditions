@@ -15,7 +15,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-[68px] items-center border-b border-line px-5">
-        {/* No sub-label here: "OFFENSIVE CONDITIONS" at its display tracking
+        {/* No sub-label here: "OFFENSE CONDITIONS" at its display tracking
             does not fit a 248px rail and wrapped onto two lines. */}
         <Logo size={28} showSub={false} />
       </div>

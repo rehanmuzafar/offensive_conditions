@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — CTF Service
+  title: Offense Conditions — CTF Service
   version: 0.1.0
   description: |
     HTTP + WebSocket API for time-bound competitive hacking events. Internal
     gRPC is documented in `proto/ctf.proto`.
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:

@@ -65,7 +65,7 @@ const EnvSchema = z.object({
 
   // Email providers
   EMAIL_FROM_ADDRESS: z.string().email().default('noreply@offensiveconditions.org'),
-  EMAIL_FROM_NAME: z.string().default('Offensive Conditions'),
+  EMAIL_FROM_NAME: z.string().default('Offense Conditions'),
   EMAIL_REPLY_TO: z.string().email().optional(),
   EMAIL_PROVIDER_PRIMARY: z.enum(['resend', 'sendgrid', 'mock']).default('resend'),
   EMAIL_PROVIDER_FAILOVER: z.enum(['resend', 'sendgrid', 'mock', 'none']).default('none'),

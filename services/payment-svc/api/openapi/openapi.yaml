@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — Payment Service
+  title: Offense Conditions — Payment Service
   version: 0.1.0
   description: |
     Stripe-backed billing: plans, subscriptions, invoices, refunds, coupons,
     and webhook receivers. JWT-protected except for `/v1/plans*` and the
     Stripe webhook endpoint.
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:

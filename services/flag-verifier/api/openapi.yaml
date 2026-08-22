@@ -1,13 +1,13 @@
 openapi: 3.1.0
 info:
-  title: Offensive Conditions Flag Verifier API
+  title: Offense Conditions Flag Verifier API
   description: |
     The Flag Verifier validates HMAC-signed flags submitted by users, rate-limits
     brute-force attempts, persists every submission for audit, and emits Kafka
     events for the scoring service.
   version: 0.1.0
   contact:
-    name: Offensive Conditions Engineering
+    name: Offense Conditions Engineering
     email: engineering@offensiveconditions.org
 servers:
   - url: https://api.offensiveconditions.org/flags

@@ -1,7 +1,7 @@
 {
   "name": "@offcon/notification-svc",
   "version": "0.1.0",
-  "description": "Offensive Conditions notification fan-out service",
+  "description": "Offense Conditions notification fan-out service",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20.0.0" },

@@ -43,7 +43,7 @@ export const EVENT_ROUTES: Record<string, NotificationSpec> = {
     channels: ['email', 'in_app'],
     templateCode: 'auth.welcome',
     priority: 'normal',
-    inAppTitle: 'Welcome to Offensive Conditions',
+    inAppTitle: 'Welcome to Offense Conditions',
     inAppBody: 'Glad to have you, {{username}}. Start with the beginner track.',
     actionUrlTemplate: '/onboarding',
     icon: 'sparkles',

@@ -1,6 +1,6 @@
 # Lab Orchestrator
 
-The orchestrator is the **core** of Offensive Conditions. It spawns, manages, and tears down lab instances — pods on Kubernetes for Linux boxes/challenges, KVM VMs on Proxmox for Windows machines and AD labs.
+The orchestrator is the **core** of Offense Conditions. It spawns, manages, and tears down lab instances — pods on Kubernetes for Linux boxes/challenges, KVM VMs on Proxmox for Windows machines and AD labs.
 
 ## Architecture
 

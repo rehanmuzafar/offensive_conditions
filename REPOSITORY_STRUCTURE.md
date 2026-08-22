@@ -1,4 +1,4 @@
-# Offensive Conditions — Repository Structure
+# Offense Conditions — Repository Structure
 
 > Monorepo layout for the entire platform. Designed for clear ownership, independent service deployment, and shared tooling.
 

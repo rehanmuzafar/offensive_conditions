@@ -1,6 +1,6 @@
 # OFFCON — Documentation
 
-Working documentation for **OFFCON** (Offensive Conditions), a cybersecurity
+Working documentation for **OFFCON** (Offense Conditions), a cybersecurity
 training and CTF platform at **offensiveconditions.org**.
 
 Start here, then follow the file that matches what you need.

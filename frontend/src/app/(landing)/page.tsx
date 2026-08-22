@@ -10,7 +10,7 @@ import Enlist from "@/components/landing/sections/Enlist";
 export const metadata: Metadata = {
   /* `absolute` bypasses the root layout's "%s · OFFCON" template — on the front
      door the brand name should appear once, not twice. */
-  title: { absolute: "OFFCON — Offensive Conditions" },
+  title: { absolute: "OFFCON — Offense Conditions" },
   description:
     "The arena where ethical hackers are forged. Hands-on labs, live CTF competitions and battle-ready machines in isolated sandboxes.",
 };

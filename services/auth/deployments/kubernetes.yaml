@@ -1,5 +1,5 @@
 # =============================================================================
-# Offensive Conditions — Auth Service Kubernetes Manifests
+# Offense Conditions — Auth Service Kubernetes Manifests
 # =============================================================================
 # Production deployment. Apply via Kustomize overlays for env-specific config.
 # =============================================================================
@@ -78,7 +78,7 @@ data:
   SMTP_PORT: "587"
   SMTP_USER: "apikey"
   SMTP_FROM: "no-reply@offensiveconditions.org"
-  SMTP_FROM_NAME: "Offensive Conditions"
+  SMTP_FROM_NAME: "Offense Conditions"
   SMTP_USE_TLS: "true"
   LOG_LEVEL: "info"
   LOG_FORMAT: "json"

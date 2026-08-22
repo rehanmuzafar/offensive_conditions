@@ -1,7 +1,7 @@
 {
   "name": "@offcon/payment-svc",
   "version": "0.1.0",
-  "description": "Offensive Conditions payment service",
+  "description": "Offense Conditions payment service",
   "private": true,
   "type": "module",
   "engines": {

@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — Writeup Service
+  title: Offense Conditions — Writeup Service
   version: 0.1.0
   description: |
     Long-form solution writeups with moderation queue, gating, voting,
     bookmarks, and threaded comments.
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:

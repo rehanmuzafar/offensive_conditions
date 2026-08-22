@@ -1,7 +1,7 @@
 version: '3.9'
 
 # =============================================================================
-# Offensive Conditions — Local Development Database Stack
+# Offense Conditions — Local Development Database Stack
 # =============================================================================
 # Provides PostgreSQL, Redis, MinIO for local development.
 # Production deployments use managed services (RDS, ElastiCache) or

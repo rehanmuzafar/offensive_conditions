@@ -2,7 +2,7 @@
   "name": "@offcon/frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Offensive Conditions — web frontend (Next.js + TypeScript)",
+  "description": "Offense Conditions — web frontend (Next.js + TypeScript)",
   "engines": {
     "node": ">=20.0.0"
   },

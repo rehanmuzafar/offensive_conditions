@@ -1,6 +1,6 @@
 # OFFCON Frontend
 
-The web frontend for Offensive Conditions — **Next.js 15 (App Router) + React 19 +
+The web frontend for Offense Conditions — **Next.js 15 (App Router) + React 19 +
 TypeScript + Tailwind**. Premium-dark aesthetic with a full **light/dark theme
 system** baked in from day one.
 

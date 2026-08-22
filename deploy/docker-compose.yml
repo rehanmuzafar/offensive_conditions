@@ -379,8 +379,14 @@ services:
         # proxy reaches the edge container (localhost inside the container
         # is the container's own loopback, not the host machine).
         NEXT_PUBLIC_API_BASE_URL: http://edge:8080
+        # Root the four surfaces hang off. Set even in development so
+        # dashboard./ctf./bugbounty. are real origins locally and a
+        # cross-surface link is exercised the way it will be in production.
+        # Browsers resolve *.localhost to 127.0.0.1 with no hosts-file entry.
+        NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-localhost:3000}"
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://edge:8080
+      NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-localhost:3000}"
       PORT: "3000"
     ports: ["3000:3000"]
     depends_on: [edge]

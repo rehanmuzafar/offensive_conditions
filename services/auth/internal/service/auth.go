@@ -550,7 +550,7 @@ func (s *AuthService) sendVerificationEmail(ctx context.Context, userID uuid.UUI
 
 	return s.mail.Send(ctx, email.Message{
 		To:       emailAddr,
-		Subject:  "Verify your Offensive Conditions account",
+		Subject:  "Verify your Offense Conditions account",
 		Template: "verify_email.html",
 		Data: map[string]any{
 			"VerifyURL": fmt.Sprintf("%s/verify?token=%s", s.cfg.OAuth.CallbackBase, rawToken),
@@ -624,7 +624,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, emailAddr string, m Re
 
 	_ = s.mail.Send(ctx, email.Message{
 		To:       user.Email,
-		Subject:  "Reset your Offensive Conditions password",
+		Subject:  "Reset your Offense Conditions password",
 		Template: "password_reset.html",
 		Data: map[string]any{
 			"ResetURL":  fmt.Sprintf("%s/reset-password?token=%s", s.cfg.OAuth.CallbackBase, rawToken),

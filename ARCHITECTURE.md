@@ -1,4 +1,4 @@
-# Offensive Conditions — Platform Architecture
+# Offense Conditions — Platform Architecture
 
 > A cybersecurity training and CTF ecosystem combining HackTheBox, TryHackMe, pwn.college, and bug bounty marketplace capabilities.
 
@@ -28,7 +28,7 @@
 ## 1. Executive Summary
 
 ### 1.1 Product Vision
-Offensive Conditions is an offensive cybersecurity training platform offering:
+Offense Conditions is an offensive cybersecurity training platform offering:
 - **Vulnerable Machines** (HTB-style): Standalone hackable boxes
 - **Learning Paths** (THM-style): Guided structured curriculum
 - **Dojo Challenges** (pwn.college-style): Modular skill-based exercises
@@ -1399,7 +1399,7 @@ X-RateLimit-Reset: 1747840000
 
 ## Appendix B: Open Questions
 
-1. **Branding/Legal:** Trademark verification for "Offensive Conditions"
+1. **Branding/Legal:** Trademark verification for "Offense Conditions"
 2. **Payment processing:** Pakistan-based or US/UK entity? Affects Stripe availability
 3. **Differentiator:** What is the unique value vs HTB? (pricing, region focus, content niche?)
 4. **Content production:** In-house team or community contributions?

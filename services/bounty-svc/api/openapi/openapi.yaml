@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
-  title: Offensive Conditions — Bounty Service
+  title: Offense Conditions — Bounty Service
   version: 0.1.0
   description: |
     Bug bounty platform. Companies publish programs, researchers submit
     vulnerability reports, triagers validate and award payouts via Stripe
     Connect (calls payment-svc).
   contact:
-    name: Offensive Conditions Platform Team
+    name: Offense Conditions Platform Team
     email: platform@offensiveconditions.org
 
 servers:
