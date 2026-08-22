@@ -222,15 +222,23 @@ The app is served from four hostnames, routed by `frontend/src/middleware.ts`:
 
 | Host | Locally | What |
 |------|---------|------|
-| `offensiveconditions.org` | `localhost:3000` | landing page |
-| `dashboard.…` | `dashboard.localhost:3000` | where a signed-in player lands |
-| `ctf.…` | `ctf.localhost:3000` | events, teams, arena, scoreboards |
-| `bugbounty.…` | `bugbounty.localhost:3000` | programs, reports, hacktivity |
-| `app.…` | `app.localhost:3000` | tracks, machines, forum, writeups |
+| `offensiveconditions.org` | `lvh.me:3000` | landing page |
+| `dashboard.…` | `dashboard.lvh.me:3000` | where a signed-in player lands |
+| `ctf.…` | `ctf.lvh.me:3000` | events, teams, arena, scoreboards |
+| `bugbounty.…` | `bugbounty.lvh.me:3000` | programs, reports, hacktivity |
+| `app.…` | `app.lvh.me:3000` | tracks, machines, forum, writeups |
 
-**The subdomains work locally with no setup.** Browsers resolve `*.localhost`
-to 127.0.0.1 on their own — no hosts-file entry, no DNS. Open
-`http://ctf.localhost:3000` and you are on the CTF surface.
+**Use `lvh.me`, not `localhost`.** Every subdomain of `lvh.me` resolves to
+127.0.0.1 in public DNS, so there is still no hosts file to edit — but unlike
+`localhost` it is a real registrable domain, which is what the shared session
+cookie needs.
+
+`*.localhost` looks like it should work and does not. Chrome accepts a cookie
+with `Domain=localhost` when it is written on `localhost`, never sends it to
+`dashboard.localhost`, and **silently rejects the write** when it comes from a
+subdomain. The session can then never be stored, the auth guard reads that as
+signed out, and signing in leads straight back to the login page — an infinite
+loop rather than a visible error. Verified in Chrome, not assumed.
 
 A path that belongs to another surface redirects there rather than 404ing, so
 old single-origin links keep working: `localhost:3000/dashboard` sends you to

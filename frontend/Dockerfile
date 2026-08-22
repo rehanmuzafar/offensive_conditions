@@ -9,7 +9,11 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
-RUN npm install
+# npm opens a lot of connections at once, and on a flaky link that shows up as
+# ECONNRESET part-way through rather than as a clean failure. Fewer sockets and
+# real retries turn a network blip into a slower install instead of a dead
+# build.
+RUN npm config set fetch-retries 5  && npm config set fetch-retry-maxtimeout 120000  && npm config set maxsockets 5  && npm install --no-audit --no-fund
 
 # ---- builder: compile the Next.js app ----
 FROM node:20-alpine AS builder

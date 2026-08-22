@@ -1,7 +1,7 @@
 /**
  * Host-based routing for the four surfaces.
  *
- *   offensiveconditions.org           the landing page
+ *   offensiveconditions.org           the landing page (lvh.me in development)
  *   dashboard.offensiveconditions.org where a signed-in player lands
  *   ctf.offensiveconditions.org       events, teams, arena, scoreboards
  *   bugbounty.offensiveconditions.org programs, reports, hacktivity

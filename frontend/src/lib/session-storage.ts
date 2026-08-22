@@ -8,8 +8,18 @@
  * out — one account, four sign-ins.
  *
  * A cookie scoped to the parent domain is shared by every subdomain, which is
- * the whole point. `Domain=localhost` covers `ctf.localhost` and the rest;
- * `Domain=offensiveconditions.org` covers the real ones.
+ * the whole point — but only for a real registrable domain.
+ *
+ * `localhost` is not one. Chrome accepts `Domain=localhost` when the cookie is
+ * written *on* `localhost`, refuses to send it to `dashboard.localhost`, and
+ * silently rejects the write outright when it comes *from* a subdomain. That
+ * last part is what turned a missing session into an infinite login loop: the
+ * session could never be stored, so the guard bounced to /login forever. Tested
+ * in Chrome, not assumed.
+ *
+ * Development therefore uses `lvh.me`, which is a real domain whose every
+ * subdomain resolves to 127.0.0.1 — no hosts file, and cookies behave exactly
+ * as they will on `offensiveconditions.org`.
  *
  * SECURITY: this cookie is readable by JavaScript, so an XSS on any surface can
  * take the session — exactly as true of the localStorage it replaces, so this
@@ -72,6 +82,24 @@ function write(name: string, value: string): void {
     location.protocol === "https:" ? "Secure" : "",
   ].filter(Boolean);
   document.cookie = attrs.join("; ");
+
+  // A browser can refuse the Domain attribute — `localhost` is the case that
+  // taught us this — and the refusal is silent. Without a fallback the session
+  // is simply never stored, which the auth guard reads as "signed out" and
+  // answers with a redirect to /login, from which signing in leads straight
+  // back. Falling back to a host-only cookie keeps that surface working; the
+  // session just does not follow you to the next one.
+  if (domain && !document.cookie.includes(`${name}=`)) {
+    document.cookie = [
+      `${name}=${encodeURIComponent(value)}`,
+      "Path=/",
+      `Max-Age=${MAX_AGE}`,
+      "SameSite=Lax",
+      location.protocol === "https:" ? "Secure" : "",
+    ]
+      .filter(Boolean)
+      .join("; ");
+  }
 }
 
 function remove(name: string): void {
