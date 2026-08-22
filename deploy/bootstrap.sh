@@ -180,7 +180,32 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 4. What is still the operator's job
+# 4. Local TLS
+# -----------------------------------------------------------------------------
+# The surfaces live on lvh.me, a real domain — which browsers upgrade to https.
+# Without a certificate Firefox answers SSL_ERROR_RX_RECORD_TOO_LONG rather than
+# loading anything. mkcert issues one trusted by this machine only.
+echo "==> Local TLS"
+mkdir -p "$SECRETS_DIR/tls"
+if [[ -f "$SECRETS_DIR/tls/lvh.pem" ]]; then
+  info "certificate already present — keeping it"
+elif command -v mkcert >/dev/null 2>&1; then
+  mkcert -install >/dev/null 2>&1 || true
+  if mkcert -cert-file "$SECRETS_DIR/tls/lvh.pem" \
+            -key-file "$SECRETS_DIR/tls/lvh-key.pem" \
+            "lvh.me" "*.lvh.me" "localhost" 127.0.0.1 >/dev/null 2>&1; then
+    ok "issued a certificate for lvh.me and its subdomains"
+  else
+    warn "mkcert failed — https will not work; http://localhost:3000 still will"
+  fi
+else
+  warn "mkcert is not installed (brew install mkcert nss) — https will not work."
+  info "http://localhost:3000 still works, but the session will not be shared"
+  info "across subdomains from there."
+fi
+
+# -----------------------------------------------------------------------------
+# 5. What is still the operator's job
 # -----------------------------------------------------------------------------
 echo "==> Optional integrations"
 for var in STRIPE_SECRET_KEY SMTP_PASSWORD OAUTH_GOOGLE_CLIENT_SECRET; do

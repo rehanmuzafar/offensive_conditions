@@ -362,9 +362,21 @@ services:
   # ==========================================================================
   edge:
     image: nginx:1.27-alpine
-    ports: ["8080:8080"]
+    # TLS as well as plain HTTP. The surfaces live on a real domain (see
+    # NEXT_PUBLIC_ROOT_DOMAIN) and browsers upgrade a real domain to https, so
+    # something has to answer TLS or Firefox reports
+    # SSL_ERROR_RX_RECORD_TOO_LONG.
+    #
+    # 8443 by default rather than 443: a security workstation often already has
+    # something on 443 — an intercepting proxy, a lab listener — and taking it
+    # would break their tooling. Set EDGE_TLS_PORT=443 if yours is free.
+    ports: ["8080:8080", "${EDGE_TLS_PORT:-8443}:443"]
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # Shared by both listeners so a route cannot exist on one and not the other.
+      - ./api-routes.conf:/etc/nginx/conf.d/api-routes.conf:ro
+      # Issued by the developer's own mkcert CA — see SETUP.md. Not in git.
+      - ./secrets/tls:/secrets/tls:ro
     depends_on: [auth, orchestrator, scoring, ctf-svc, forum-svc, content-svc, user-svc]
     networks: [offcon]
 
@@ -383,10 +395,10 @@ services:
         # of it resolves to 127.0.0.1 with no hosts-file entry, and unlike
         # `localhost` it is a real registrable domain — which is what a shared
         # session cookie needs. See lib/session-storage.
-        NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-lvh.me:3000}"
+        NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-lvh.me}"
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://edge:8080
-      NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-lvh.me:3000}"
+      NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-lvh.me}"
       PORT: "3000"
     ports: ["3000:3000"]
     depends_on: [edge]

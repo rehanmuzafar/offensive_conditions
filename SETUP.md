@@ -163,6 +163,26 @@ docker compose exec frontend sh -c \
 Zero means it did not make it. Rebuild with `docker build --no-cache` and the
 `--build-arg` flags spelled out.
 
+### If `npm install` dies with ECONNRESET during a build
+
+The host having working internet is not the same as the Docker VM having it.
+npm opens hundreds of connections at once, and a link that serves a single
+request fine can reset part-way through that.
+
+Check the VM rather than your laptop:
+
+```bash
+docker run --rm alpine wget -q -O /dev/null -T 15 https://registry.npmjs.org/next \
+  && echo OK || echo FAIL
+```
+
+If that fails, or the build keeps resetting, try in this order:
+
+1. `docker build --network=host ...` — skips the bridge network
+2. `colima restart` (or restart Docker Desktop) — rebuilds the VM's networking.
+   Containers stop and come back; volumes, and therefore the database, are
+   untouched.
+
 ### If the frontend build dies downloading an SWC package
 
 ```
@@ -228,17 +248,32 @@ The app is served from four hostnames, routed by `frontend/src/middleware.ts`:
 | `bugbounty.…` | `bugbounty.lvh.me:3000` | programs, reports, hacktivity |
 | `app.…` | `app.lvh.me:3000` | tracks, machines, forum, writeups |
 
-**Use `lvh.me`, not `localhost`.** Every subdomain of `lvh.me` resolves to
+Open **https://lvh.me:8443**. Everything is served over TLS locally, with a
+certificate from your own mkcert CA — `./setup.sh` generates it.
+
+The port is 8443 rather than 443 because a security workstation often already
+has something on 443. If yours is free, set `EDGE_TLS_PORT=443` in
+`deploy/.env`, rebuild the frontend with `NEXT_PUBLIC_ROOT_DOMAIN=lvh.me`, and
+the port disappears from every URL.
+
+**Why TLS, and why not `localhost`.** Every subdomain of `lvh.me` resolves to
 127.0.0.1 in public DNS, so there is still no hosts file to edit — but unlike
 `localhost` it is a real registrable domain, which is what the shared session
 cookie needs.
 
-`*.localhost` looks like it should work and does not. Chrome accepts a cookie
+Two separate constraints pin this down. `*.localhost` looks like it should
+work and does not: Chrome accepts a cookie
 with `Domain=localhost` when it is written on `localhost`, never sends it to
 `dashboard.localhost`, and **silently rejects the write** when it comes from a
 subdomain. The session can then never be stored, the auth guard reads that as
 signed out, and signing in leads straight back to the login page — an infinite
 loop rather than a visible error. Verified in Chrome, not assumed.
+
+And a real domain is one browsers upgrade: Firefox turns `http://dashboard.lvh.me`
+into `https://` and, against a plain HTTP server, reports
+`SSL_ERROR_RX_RECORD_TOO_LONG`. So the local stack serves real TLS. That also
+removes the last differences from production — `Secure` cookies behave the
+same, and nothing is special-cased for development.
 
 A path that belongs to another surface redirects there rather than 404ing, so
 old single-origin links keep working: `localhost:3000/dashboard` sends you to
