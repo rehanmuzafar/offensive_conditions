@@ -23,7 +23,8 @@
 import { usePathname } from "next/navigation";
 
 import { AuthGuard } from "@/app/(app)/_components/auth-guard";
-import { AppTopbar } from "@/app/(app)/_components/app-topbar";
+import { SurfaceTopbar } from "@/components/shell/surface-topbar";
+import { UserControls } from "@/components/shell/user-controls";
 import { BountyRail } from "@/components/bounty/shell/rail";
 import { BountySidebar, type SidebarGroup } from "@/components/bounty/shell/sidebar";
 import { cn } from "@/lib/cn";
@@ -39,8 +40,9 @@ export default function BountyLayout({ children }: { children: React.ReactNode }
         <BountyRail />
         {hasSidebar && <BountySidebar groups={groups} />}
 
+        <SurfaceTopbar label="BUG BOUNTY" home="/bounty" right={<UserControls />} />
+
         <div className={cn("pl-[68px]", hasSidebar && "lg:pl-[316px]")}>
-          <AppTopbar onOpenSidebar={() => {}} />
           <main className="mx-auto w-full max-w-[1500px] px-4 py-6 lg:px-7">{children}</main>
         </div>
       </div>

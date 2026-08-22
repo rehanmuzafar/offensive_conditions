@@ -163,6 +163,26 @@ docker compose exec frontend sh -c \
 Zero means it did not make it. Rebuild with `docker build --no-cache` and the
 `--build-arg` flags spelled out.
 
+### If the frontend build dies downloading an SWC package
+
+```
+Downloading swc package @next/swc-linux-arm64-gnu...
+TypeError: terminated ... SocketError: other side closed
+```
+
+Next is fetching a compiler binary that should already be in `node_modules`,
+which means the cached `deps` layer was built without it. Docker keeps a
+separate cache per builder, so a layer that is fine under one can be stale
+under another — `docker buildx ls` shows which you are on. Build once with the
+args spelled out to repopulate it:
+
+```bash
+docker build -t offcon-frontend \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=http://edge:8080 \
+  --build-arg NEXT_PUBLIC_ROOT_DOMAIN=localhost:3000 \
+  frontend
+```
+
 ---
 
 ## 6. Useful commands

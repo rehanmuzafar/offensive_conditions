@@ -13,6 +13,8 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
+import { sharedSessionStorage } from "@/lib/session-storage";
+
 import type { AuthUser, AuthTokens } from "@/types/auth";
 
 interface AuthState {
@@ -85,15 +87,18 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "offcon-auth",
-      storage: createJSONStorage(() => localStorage),
+      // A cookie on the parent domain, not localStorage: localStorage is scoped
+      // to one origin, and the surfaces are four of them. See session-storage.
+      storage: createJSONStorage(() => sharedSessionStorage),
       // The auth service returns the refresh token in the login body and does
       // not set an httpOnly cookie, so the silent-refresh-on-boot flow only
       // works if we persist it ourselves.
       //
-      // SECURITY: a refresh token in localStorage is readable by any XSS on
-      // this origin. The stronger design is for auth to set an httpOnly,
-      // SameSite=Strict cookie and read it server-side on /v1/auth/refresh —
-      // switch to that and drop this persistence before public launch.
+      // SECURITY: this cookie is readable by page scripts, so an XSS on any
+      // surface can lift the session. That was equally true of the localStorage
+      // this replaces. The destination is auth-svc setting an httpOnly cookie
+      // on the parent domain and reading it on /v1/auth/refresh — do that
+      // before public launch.
       partialize: (s) => ({ user: s.user, refreshToken: s.refreshToken }),
     },
   ),

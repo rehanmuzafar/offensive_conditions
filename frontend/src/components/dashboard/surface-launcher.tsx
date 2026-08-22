@@ -63,7 +63,17 @@ export function SurfaceLauncher() {
             // A plain anchor, not next/link: these cross an origin, so there is
             // no client-side navigation to preserve and Link would only add a
             // prefetch that cannot work.
-            <a key={d.label} href={d.href} className="group block">
+            //
+            // New tab, because moving between products is a context switch
+            // rather than a step: someone opening the CTF arena from here
+            // usually wants their dashboard still sitting where they left it.
+            <a
+              key={d.label}
+              href={d.href}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="group block"
+            >
               <Card className="edge-iridescent h-full p-5 transition-transform duration-300 group-hover:-translate-y-1">
                 <span
                   className={cn(

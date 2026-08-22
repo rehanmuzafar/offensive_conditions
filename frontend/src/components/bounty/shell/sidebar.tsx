@@ -54,7 +54,7 @@ export function BountySidebar({ groups }: { groups: SidebarGroup[] }) {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-[68px] z-30 hidden border-r border-line bg-bg/60 backdrop-blur-sm transition-[width] duration-200 lg:block",
+        "fixed inset-y-0 left-[68px] top-14 z-20 hidden border-r border-line bg-bg/60 backdrop-blur-sm transition-[width] duration-200 lg:block",
         collapsed ? "w-[52px]" : "w-[248px]",
       )}
     >

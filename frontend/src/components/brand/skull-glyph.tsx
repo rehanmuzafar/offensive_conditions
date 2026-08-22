@@ -11,13 +11,20 @@
  * inside it, so masking with it yields a circle. This is the silhouette itself,
  * which is what lets it take a colour.
  */
-export function SkullGlyph({ className }: { className?: string }) {
+export function SkullGlyph({
+  className,
+  style,
+}: {
+  className?: string;
+  style?: React.CSSProperties;
+}) {
   return (
     <svg
       viewBox="-1.15 -1.3 2.3 2.1"
       aria-hidden
       focusable="false"
       className={className}
+      style={style}
       fill="currentColor"
       /* evenodd, so the eye and nose contours read as holes rather than
          painting over the skull. */

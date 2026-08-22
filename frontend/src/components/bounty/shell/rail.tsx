@@ -22,7 +22,6 @@ import {
   ClipboardCheck,
   LayoutGrid,
   LineChart,
-  Sparkles,
   Target,
 } from "lucide-react";
 
@@ -56,16 +55,11 @@ export function BountyRail() {
   return (
     <nav
       aria-label="Bug bounty sections"
-      className="fixed inset-y-0 left-0 z-40 flex w-[68px] flex-col items-center gap-1 border-r border-line bg-bg-elevated py-3"
+      // Starts below the topbar, which now carries the mark. The rail used to
+      // hold a sparkles glyph up here — HackerOne's AI badge, which is theirs
+      // and means nothing on this platform.
+      className="fixed inset-y-0 left-0 top-14 z-30 flex w-[68px] flex-col items-center gap-1 border-r border-line bg-bg-elevated py-3"
     >
-      <Link
-        href="/bounty"
-        aria-label="OFFCON bug bounty"
-        className="mb-3 grid h-10 w-10 place-items-center rounded-xl text-accent transition-transform duration-300 hover:scale-105"
-      >
-        <Sparkles className="h-5 w-5" />
-      </Link>
-
       {RAIL_ITEMS.map((item) => {
         const active = isActive(pathname, item);
         const Icon = item.icon;
