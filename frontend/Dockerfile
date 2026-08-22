@@ -18,8 +18,17 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 # NEXT_PUBLIC_* are inlined at build time; CI passes the prod value.
+# NEXT_PUBLIC_* is inlined by Next at build time, so every one of them needs an
+# ARG here as well as a build arg in compose. A value passed by compose with no
+# matching ARG is silently dropped: the image builds, boots healthy, and the
+# variable is simply empty in the bundle.
 ARG NEXT_PUBLIC_API_BASE_URL=https://api.offensiveconditions.org
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+
+# Root domain the surfaces hang off. Empty means "one origin", which is what
+# collapses every cross-surface link back to a plain path.
+ARG NEXT_PUBLIC_ROOT_DOMAIN=
+ENV NEXT_PUBLIC_ROOT_DOMAIN=${NEXT_PUBLIC_ROOT_DOMAIN}
 RUN npm run build
 
 # ---- runner: minimal standalone runtime ----

@@ -4,6 +4,8 @@
  */
 
 import type { LucideIcon } from "lucide-react";
+
+import { link } from "@/lib/surfaces";
 import {
   ShieldCheck,
   LayoutDashboard,
@@ -43,16 +45,29 @@ export const MARKETING_NAV: NavItem[] = [
 ];
 
 /** Authenticated app sidebar. */
+/**
+ * The signed-in sidebar.
+ *
+ * Entries that live on another surface are written with `link()` so they point
+ * at that host directly. The middleware would redirect a bare `/ctf` to the CTF
+ * host anyway, but making every sidebar click a redirect is a round trip the
+ * user can feel — and `next/link` would prefetch a URL that only ever answers
+ * with a 307.
+ *
+ * Settings, notifications and billing stay relative: they are shared across
+ * every surface (see SHARED_PREFIXES in middleware.ts) and resolve wherever
+ * you already are.
+ */
 export const APP_NAV: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, auth: true },
-  { label: "Machines", href: "/machines", icon: Server, auth: true },
-  { label: "CTF Arena", href: "/ctf", icon: Flag, auth: true },
-  { label: "Tracks", href: "/tracks", icon: Route, auth: true },
-  { label: "Teams", href: "/teams", icon: Users, auth: true },
-  { label: "Leaderboard", href: "/leaderboard", icon: Trophy, auth: true },
-  { label: "Forum", href: "/forum", icon: MessagesSquare, auth: true },
-  { label: "Writeups", href: "/writeups", icon: BookOpen, auth: true },
-  { label: "Bug Bounties", href: "/bounty", icon: Target, auth: true },
+  { label: "Dashboard", href: link("dashboard", "/dashboard"), icon: LayoutDashboard, auth: true },
+  { label: "Machines", href: link("app", "/machines"), icon: Server, auth: true },
+  { label: "CTF Arena", href: link("ctf", "/ctf"), icon: Flag, auth: true },
+  { label: "Tracks", href: link("app", "/tracks"), icon: Route, auth: true },
+  { label: "Teams", href: link("ctf", "/teams"), icon: Users, auth: true },
+  { label: "Leaderboard", href: link("app", "/leaderboard"), icon: Trophy, auth: true },
+  { label: "Forum", href: link("app", "/forum"), icon: MessagesSquare, auth: true },
+  { label: "Writeups", href: link("app", "/writeups"), icon: BookOpen, auth: true },
+  { label: "Bug Bounties", href: link("bugbounty", "/bounty"), icon: Target, auth: true },
   { label: "Notifications", href: "/notifications", icon: Bell, auth: true },
   { label: "Billing", href: "/billing", icon: CreditCard, auth: true },
   { label: "Settings", href: "/settings", icon: Settings, auth: true },

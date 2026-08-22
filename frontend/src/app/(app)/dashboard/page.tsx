@@ -21,6 +21,8 @@ import { TierBadge } from "@/components/ui/identity";
 import { Skeleton } from "@/components/ui/card";
 import { useDashboard } from "@/hooks/use-content";
 import { useAuthStore } from "@/stores/auth-store";
+import { SurfaceLauncher } from "@/components/dashboard/surface-launcher";
+import { surfaceLinks } from "@/lib/surfaces";
 import { formatNumber, formatRelative } from "@/lib/format";
 import type { ActivityItem } from "@/types/content";
 
@@ -40,12 +42,14 @@ export default function DashboardPage() {
           </h1>
           <p className="mt-1 text-[15px] text-text-dim">Here&apos;s where you stand today.</p>
         </div>
-        <Link href="/machines">
+        <a href={surfaceLinks.app("/machines")}>
           <Button>
             <Crosshair className="h-[18px] w-[18px]" /> Find a target
           </Button>
-        </Link>
+        </a>
       </div>
+
+      <SurfaceLauncher />
 
       {/* stat cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

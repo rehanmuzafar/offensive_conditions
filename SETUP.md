@@ -144,6 +144,25 @@ The symptom is a login that fails with "could not sign you in" while
 `curl http://localhost:8080/v1/auth/login` works fine. If you see that, rebuild
 through compose.
 
+### After changing a build argument, check it landed
+
+Every `NEXT_PUBLIC_*` needs three things to reach the browser: an `ARG` in
+`frontend/Dockerfile`, a build arg in compose, and a rebuild that does not
+reuse a cached `npm run build`. Miss any one and the variable is simply empty
+in the bundle — the image builds, the container is healthy, and the feature
+that depends on it fails silently.
+
+Verify rather than assume:
+
+```bash
+cd deploy
+docker compose exec frontend sh -c \
+  "grep -rlo 'localhost:3000' /app/.next/static/chunks | wc -l"
+```
+
+Zero means it did not make it. Rebuild with `docker build --no-cache` and the
+`--build-arg` flags spelled out.
+
 ---
 
 ## 6. Useful commands

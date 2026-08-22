@@ -23,7 +23,14 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {APP_NAV.map((item) => {
           const Icon = item.icon!;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          // Nav hrefs are absolute once the surfaces are split across hosts, so
+          // comparing them to a pathname would never match and nothing would
+          // ever look selected. Compare on the path portion instead.
+          const target = item.href.startsWith("http")
+            ? new URL(item.href).pathname
+            : item.href;
+          const active =
+            target !== "/" && (pathname === target || pathname.startsWith(target + "/"));
           return (
             <Link
               key={item.href}
