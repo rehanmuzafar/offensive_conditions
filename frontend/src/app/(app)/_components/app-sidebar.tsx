@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { Logo } from "@/components/brand/logo";
+import { OffconMark } from "@/components/brand/offcon-mark";
 import { APP_NAV } from "@/config/nav";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/cn";
@@ -17,7 +17,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex h-[68px] items-center border-b border-line px-5">
         {/* No sub-label here: "OFFENSE CONDITIONS" at its display tracking
             does not fit a 248px rail and wrapped onto two lines. */}
-        <Logo size={28} showSub={false} />
+        <OffconMark height={24} />
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">

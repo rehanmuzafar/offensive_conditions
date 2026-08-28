@@ -11,7 +11,7 @@ import { useRouter, usePathname } from "next/navigation";
 
 import { useAuthStore } from "@/stores/auth-store";
 import { refreshAccessToken } from "@/providers/auth-bootstrap";
-import { Logo } from "@/components/brand/logo";
+import { OffconMark } from "@/components/brand/offcon-mark";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -59,7 +59,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <div className="grid min-h-screen place-items-center">
         <div className="flex flex-col items-center gap-4">
-          <Logo size={42} showSub={false} href={null} />
+          <OffconMark height={34} />
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
       </div>

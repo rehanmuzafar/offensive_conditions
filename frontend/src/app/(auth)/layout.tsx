@@ -14,7 +14,7 @@ import Link from "next/link";
 import AmbientScene from "@/components/landing/canvas/AmbientScene";
 import PointerTracker from "@/components/landing/PointerTracker";
 import { SignInTransition } from "@/components/auth/sign-in-transition";
-import { Logo } from "@/components/brand/logo";
+import { OffconMark } from "@/components/brand/offcon-mark";
 import { ThemeToggle } from "@/components/brand/theme-toggle";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -49,7 +49,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         />
 
         <div className="bracket-frame relative m-8 flex h-[calc(100%-4rem)] flex-col justify-between p-10">
-          <Logo size={34} href="/" />
+          <OffconMark height={28} />
 
           <div className="max-w-md">
             <div className="mb-6 flex items-center gap-3 text-[10.5px] uppercase tracking-widest text-text-faint">
@@ -97,7 +97,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="relative flex items-center justify-between p-6">
           {/* mobile logo */}
           <div className="lg:hidden">
-            <Logo size={30} />
+            <OffconMark height={24} />
           </div>
           <div className="ml-auto">
             <ThemeToggle />

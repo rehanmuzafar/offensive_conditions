@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 
-import { Logo } from "@/components/brand/logo";
+import { OffconMark } from "@/components/brand/offcon-mark";
 import { ThemeToggle } from "@/components/brand/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { MARKETING_NAV } from "@/config/nav";
@@ -21,7 +21,7 @@ export function MarketingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-bg/70 backdrop-blur-xl">
       <nav className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between px-6">
-        <Logo size={34} />
+        <OffconMark height={28} />
 
         {/* desktop links */}
         <div className="hidden items-center gap-9 lg:flex">
