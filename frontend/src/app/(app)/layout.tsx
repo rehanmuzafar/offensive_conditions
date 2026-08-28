@@ -1,92 +1,50 @@
-"use client";
-
 /**
- * The shell for every signed-in page outside the bug bounty surface.
+ * Picks the shell from the surface, which the middleware has already decided.
  *
- * One layout, three shapes, chosen from the path — because the route groups do
- * not line up with the hostnames. `/dashboard`, `/machines` and `/ctf` all live
- * under this group but belong to three different products, and the middleware
- * has already decided which host serves which.
+ * A server component on purpose. The surface is a property of the *hostname*,
+ * and the client cannot see it: `usePathname()` returns the URL the browser
+ * shows, not the path the middleware rewrote to — so on `ctf.<domain>/` it
+ * reads "/", matches neither /dashboard nor /ctf, and every surface fell
+ * through to the Academy shell. That is why the dashboard and the CTF arena
+ * both wore "OFFCON ACADEMY" and the Academy's sidebar.
  *
- * What each shape is for:
- *
- *   dashboard  A landing page. Three cards do the navigating, so a sidebar
- *              beside them would be a second copy of the same choice.
- *   academy    Machines, tracks, writeups and the forum — a catalogue you
- *              browse, which is what earns a persistent section list.
- *   ctf        Events and teams. A short top nav; the arena has its own chrome
- *              once you are inside an event.
- *
- * The old global sidebar is gone. It listed all twelve destinations on every
- * page of every surface — the shape of a product with one home, and there are
- * four now.
+ * Reading the header the middleware set answers the question directly, and
+ * does it before the first paint rather than after a hydration correction.
  */
 
-import { usePathname } from "next/navigation";
+import { headers } from "next/headers";
 
-import { AppAmbient } from "./_components/app-ambient";
-import { AuthGuard } from "./_components/auth-guard";
-import { AcademySidebar } from "@/components/shell/academy-sidebar";
-import { SurfaceTopbar, type TopbarLink } from "@/components/shell/surface-topbar";
-import { UserControls } from "@/components/shell/user-controls";
-import { cn } from "@/lib/cn";
+import { AppShell, type Shape } from "./_components/app-shell";
 
-type Shape = "dashboard" | "academy" | "ctf";
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const surface = (await headers()).get("x-offcon-surface");
+  const shape = shapeFor(surface);
 
-const CTF_LINKS: TopbarLink[] = [
-  { href: "/ctf", label: "Events", exact: true },
-  { href: "/teams", label: "Teams" },
-  { href: "/leaderboard", label: "Leaderboard" },
-];
-
-const DASHBOARD_LINKS: TopbarLink[] = [
-  { href: "/dashboard", label: "Home", exact: true },
-  { href: "/settings", label: "Settings" },
-];
-
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const shape = shapeFor(pathname);
-
-  const config = {
-    dashboard: { label: undefined, home: "/dashboard", links: DASHBOARD_LINKS },
-    academy: { label: "ACADEMY", home: "/machines", links: [] as TopbarLink[] },
-    ctf: { label: "CTF", home: "/ctf", links: CTF_LINKS },
-  }[shape];
-
+  // The attribute is outside the shell, and therefore outside the auth gate, so
+  // which surface the server decided on is visible without a session — from
+  // devtools, or from a curl during a deploy check. It is also a CSS hook if a
+  // surface ever needs to differ below the shell.
   return (
-    <AuthGuard>
-      <div className="app-aurora min-h-screen">
-        {/* One canvas for every page under this shell; see AppAmbient. */}
-        <AppAmbient />
-
-        <SurfaceTopbar
-          label={config.label}
-          home={config.home}
-          links={config.links}
-          right={<UserControls />}
-        />
-
-        {shape === "academy" && <AcademySidebar />}
-
-        <main
-          className={cn(
-            "mx-auto w-full px-4 py-6 lg:px-6",
-            // The dashboard is a landing page and reads better centred; the
-            // catalogue surfaces want the width for their grids and tables.
-            shape === "dashboard" ? "max-w-[1100px]" : "max-w-[1600px]",
-            shape === "academy" && "lg:pl-[248px]",
-          )}
-        >
-          {children}
-        </main>
-      </div>
-    </AuthGuard>
+    <div data-surface={shape} className="contents">
+      <AppShell shape={shape}>{children}</AppShell>
+    </div>
   );
 }
 
-function shapeFor(pathname: string): Shape {
-  if (pathname.startsWith("/dashboard")) return "dashboard";
-  if (pathname.startsWith("/ctf") || pathname.startsWith("/teams")) return "ctf";
-  return "academy";
+/**
+ * Surfaces map to shells, not one-to-one.
+ *
+ * "app" is the Academy, and the landing surface only reaches this group when
+ * everything is collapsed onto one origin — in which case the Academy shell is
+ * the sensible default, since that is where most of these routes live.
+ */
+function shapeFor(surface: string | null): Shape {
+  switch (surface) {
+    case "dashboard":
+      return "dashboard";
+    case "ctf":
+      return "ctf";
+    default:
+      return "academy";
+  }
 }

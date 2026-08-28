@@ -56,8 +56,41 @@ export const settingsApi = {
   createApiKey: (name: string, scopes: string[]) =>
     api.post<{ key: string; apiKey: ApiKey }>("/v1/me/api-keys", { body: { name, scopes } }),
   revokeApiKey: (id: string) => api.delete<void>(`/v1/me/api-keys/${id}`),
-  updateProfile: (body: { username?: string; country?: string; bio?: string }) =>
-    api.patch<void>("/v1/me", { body }),
+  /**
+   * The profile as user-svc holds it.
+   *
+   * The auth store is not a substitute: it carries what the token and
+   * /auth/me expose, which does not include the display name or the bio. The
+   * settings form used to seed itself from the store and therefore opened with
+   * an empty bio, then saved that emptiness over whatever was there.
+   */
+  getProfile: async (): Promise<{ displayName: string; country: string; bio: string }> => {
+    const r = await api.get<{
+      display_name?: string | null;
+      country_code?: string | null;
+      bio?: string | null;
+    }>("/v1/me");
+    return {
+      displayName: r.display_name ?? "",
+      country: r.country_code ?? "",
+      bio: r.bio ?? "",
+    };
+  },
+
+  /**
+   * user-svc takes snake_case, and its field names are not the ones the form
+   * used. `username` and `country` were simply dropped on the floor — the
+   * request succeeded and changed nothing, which is why edits came back on the
+   * next load.
+   */
+  updateProfile: (body: { displayName?: string; country?: string; bio?: string }) =>
+    api.patch<void>("/v1/me", {
+      body: {
+        display_name: body.displayName,
+        country_code: body.country || undefined,
+        bio: body.bio,
+      },
+    }),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<void>("/v1/auth/change-password", { body: { currentPassword, newPassword } }),
   getVpnConfig: (region?: string) =>

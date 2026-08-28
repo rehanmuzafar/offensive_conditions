@@ -124,15 +124,24 @@ export function middleware(req: NextRequest) {
   }
 
   const rewritten = rewriteFor(surface, path);
-  if (!rewritten || rewritten === path) return NextResponse.next();
+
+  // The header goes on every response, rewritten or not. The shell reads it to
+  // decide which navigation to render, and a surface that happens to need no
+  // rewrite still has to be identifiable — otherwise it falls back to whatever
+  // the default is, which is how the dashboard ended up wearing the Academy's
+  // sidebar.
+  // Set on the *request*, not just the response: the shell is a server
+  // component and reads it through headers(), which sees what the request
+  // carried. A response header would never reach it.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-offcon-surface", surface);
+  const init = { request: { headers: requestHeaders } };
+
+  if (!rewritten || rewritten === path) return NextResponse.next(init);
 
   const next = url.clone();
   next.pathname = rewritten;
-  const res = NextResponse.rewrite(next);
-  // Lets a layout or page render differently per surface without re-parsing
-  // the Host header everywhere.
-  res.headers.set("x-offcon-surface", surface);
-  return res;
+  return NextResponse.rewrite(next, init);
 }
 
 function rewriteFor(surface: Surface, path: string): string | null {

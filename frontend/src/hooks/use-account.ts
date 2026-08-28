@@ -101,6 +101,10 @@ export function useProgramUpdates(slug: string) {
   });
 }
 
+export function useMyProfile() {
+  return useQuery({ queryKey: ["my-profile"], queryFn: () => settingsApi.getProfile() });
+}
+
 export function useMyPayouts() {
   return useQuery({ queryKey: ["payouts"], queryFn: () => bountyApi.myPayouts() });
 }

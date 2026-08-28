@@ -20,7 +20,7 @@ export function SiteFooter() {
             {/* The skull silhouette, not the circular disc: at footer size the
                 disc's field of digits turns to noise, and the skull is the part
                 that reads as the mark. */}
-            <OffconMark size={26} />
+            <OffconMark height={24} />
             <p className="mt-4 max-w-[280px] text-[14px] text-text-dim">
               The arena where ethical hackers are forged. Hands-on offensive
               security training for everyone, from first box to black-badge.

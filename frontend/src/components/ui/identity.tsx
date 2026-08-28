@@ -58,6 +58,9 @@ const TIER_LABEL: Record<Tier, string> = {
   elite_hacker: "Elite Hacker",
   guru: "Guru",
   elite_operator: "Elite Operator",
+  shadow_operator: "Shadow Operator",
+  phantom: "Phantom",
+  legend: "Legend",
 };
 
 export function TierBadge({ tier, className }: { tier: Tier; className?: string }) {

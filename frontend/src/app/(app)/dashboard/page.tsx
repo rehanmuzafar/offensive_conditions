@@ -17,10 +17,10 @@ import {
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress";
-import { TierBadge } from "@/components/ui/identity";
 import { Skeleton } from "@/components/ui/card";
 import { useDashboard } from "@/hooks/use-content";
 import { useAuthStore } from "@/stores/auth-store";
+import { RANKS, standingFor } from "@/lib/ranks";
 import { SurfaceLauncher } from "@/components/dashboard/surface-launcher";
 import { surfaceLinks } from "@/lib/surfaces";
 import { formatNumber, formatRelative } from "@/lib/format";
@@ -68,31 +68,11 @@ export default function DashboardPage() {
               {isLoading || !data ? (
                 <Skeleton className="h-24 w-full" />
               ) : (
-                <>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-display text-[18px] font-bold">Your rank</span>
-                      <TierBadge tier={data.user.tier} />
-                    </div>
-                    <span className="font-display text-[22px] font-extrabold text-gradient">
-                      {formatNumber(data.user.points)} pts
-                    </span>
-                  </div>
-                  {data.user.nextTier && (
-                    <div className="mt-4">
-                      <div className="mb-2 flex items-center justify-between text-[13px] text-text-dim">
-                        <span>Progress to next tier</span>
-                        <span>
-                          <b className="text-text">{formatNumber(data.user.nextTier.pointsNeeded)}</b> pts to go
-                        </span>
-                      </div>
-                      <ProgressBar
-                        value={data.user.points}
-                        max={data.user.points + data.user.nextTier.pointsNeeded}
-                      />
-                    </div>
-                  )}
-                </>
+                <RankCard
+                  points={data.user.points}
+                  machinesOwned={data.stats.machinesOwned}
+                  challengesSolved={data.stats.challengesSolved}
+                />
               )}
             </CardBody>
           </Card>
@@ -273,5 +253,72 @@ function QuickLink({ href, icon, title, subtitle }: { href: string; icon: React.
       </div>
       <ArrowRight className="h-4 w-4 text-text-faint" />
     </Link>
+  );
+}
+
+
+/**
+ * Where the player stands on the ladder.
+ *
+ * The card used to read "Your rank" beside a points total and nothing else —
+ * it never named a rank, which made the heading a lie. It also ranked on
+ * points alone, so the two other things the dashboard measures counted for
+ * nothing.
+ *
+ * See lib/ranks for the ladder and how the three inputs combine.
+ */
+function RankCard({
+  points,
+  machinesOwned,
+  challengesSolved,
+}: {
+  points: number;
+  machinesOwned: number;
+  challengesSolved: number;
+}) {
+  const standing = standingFor({ points, machinesOwned, challengesSolved });
+  const position = RANKS.indexOf(standing.rank) + 1;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="font-display text-[22px] font-extrabold tracking-[-0.4px]">
+            {standing.rank.label}
+          </span>
+          <span className="rounded-md border border-line px-1.5 py-0.5 text-[11.5px] text-text-faint">
+            Rank {position} of {RANKS.length}
+          </span>
+        </div>
+        <span className="font-display text-[22px] font-extrabold text-gradient">
+          {formatNumber(standing.score)}
+        </span>
+      </div>
+
+      {/* What the score is made of — otherwise the number is unexplained, which
+          is what made the old card feel arbitrary. */}
+      <p className="mt-1 text-[12.5px] text-text-faint">
+        {formatNumber(points)} pts · {formatNumber(machinesOwned)} machines ·{" "}
+        {formatNumber(challengesSolved)} challenges
+      </p>
+
+      {standing.next ? (
+        <div className="mt-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[13px] text-text-dim">
+            <span>
+              Next: <b className="text-text">{standing.next.label}</b>
+            </span>
+            <span>
+              <b className="text-text">{formatNumber(standing.toNext)}</b> to go
+            </span>
+          </div>
+          <ProgressBar value={standing.progress * 100} max={100} />
+        </div>
+      ) : (
+        <p className="mt-4 text-[13px] text-text-dim">
+          Top of the ladder. Nothing above this one.
+        </p>
+      )}
+    </>
   );
 }

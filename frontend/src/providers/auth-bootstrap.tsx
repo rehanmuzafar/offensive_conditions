@@ -18,6 +18,7 @@ import { useEffect } from "react";
 import { setTokenGetter, setTokenRefresher } from "@/lib/api";
 import { authApi } from "@/lib/auth-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { sharedSessionStorage } from "@/lib/session-storage";
 
 // Wire the getter immediately at module load (before any request fires).
 setTokenGetter(() => useAuthStore.getState().accessToken);
@@ -25,12 +26,27 @@ setTokenGetter(() => useAuthStore.getState().accessToken);
 /**
  * Exchange the stored refresh token for a new access token.
  *
- * The service rotates the refresh token on every call, so the new one must be
- * stored — replaying a spent token trips its reuse detection and revokes the
- * whole family. Returns null when the session is genuinely over.
+ * The service rotates the token on every call and treats a replay as an
+ * attack: reusing a spent one revokes the entire family and signs the account
+ * out everywhere.
+ *
+ * That makes this dangerous across tabs, and the product opens tabs on purpose
+ * — every cross-surface link does. Each tab ran its own renewal timer holding
+ * its own copy of the token in memory, so at the fifteen-minute mark two tabs
+ * would refresh at once: the first rotated the token, the second replayed the
+ * spent one, and the server signed the user out of everything. That is the
+ * "logged out after ten or fifteen minutes" report, and the interval was the
+ * access token's lifetime rather than anything to do with idleness.
+ *
+ * Two things fix it. The exchange is serialised across tabs with a Web Lock, so
+ * only one is ever in flight; and the token is read from shared storage inside
+ * that lock rather than from this tab's memory, so a tab that was waiting picks
+ * up whatever the winner just stored instead of the copy it started with.
  */
-export async function refreshAccessToken(): Promise<string | null> {
-  const stored = useAuthStore.getState().refreshToken;
+async function exchange(): Promise<string | null> {
+  // Deliberately re-read here: another tab may have rotated the token while
+  // this call was queued behind the lock.
+  const stored = readPersistedRefreshToken() ?? useAuthStore.getState().refreshToken;
   if (!stored) return null;
   try {
     const res = await authApi.refresh(stored);
@@ -39,6 +55,33 @@ export async function refreshAccessToken(): Promise<string | null> {
     return res.access_token;
   } catch {
     useAuthStore.getState().clear();
+    return null;
+  }
+}
+
+export async function refreshAccessToken(): Promise<string | null> {
+  // navigator.locks is absent on older browsers and in non-secure contexts;
+  // falling back to an unserialised exchange is what every tab used to do, so
+  // it is no worse there.
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return navigator.locks.request("offcon-token-refresh", exchange);
+  }
+  return exchange();
+}
+
+/**
+ * The refresh token as it currently sits in shared storage.
+ *
+ * Zustand's persisted copy is the only thing every tab agrees on — each tab's
+ * in-memory state is a snapshot from whenever it last wrote.
+ */
+function readPersistedRefreshToken(): string | null {
+  try {
+    const raw = sharedSessionStorage.getItem("offcon-auth");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw as string);
+    return parsed?.state?.refreshToken ?? null;
+  } catch {
     return null;
   }
 }

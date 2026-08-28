@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8763 1699"
+     role="img" aria-label="OFFCON" color="#F4F4F5">
+  <title>OFFCON</title>
+  <!--
+    Letters: Sansation Bold, converted to outlines. SIL Open Font License.
+    Skull:   the contour createSkullShape() extrudes for the 3D mark.
+
+    The letters use currentColor, so this is one file for both grounds: opened
+    on its own it takes the color attribute above and reads on dark, and inlined
+    in a page it inherits whatever the surrounding text colour is.
+  -->
+  <defs>
+    <linearGradient id="offcon-skull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C8B4FF"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(110 1550.00) scale(1 -1)" fill="currentColor">
+    <path transform="translate(0 0)" d="M818 220Q1250 220 1250 719Q1250 1210 818 1210Q375 1210 375 719Q375 220 818 220ZM100 713Q100 1440 818 1440Q1525 1440 1525 713Q1525 -10 818 -10Q132 -10 100 713Z"/>
+    <path transform="translate(1625 0)" d="M1089 1430V1202H413V842H1055V605H410V0H150V1430Z"/>
+    <path transform="translate(2789 0)" d="M1089 1430V1202H413V842H1055V605H410V0H150V1430Z"/>
+    <path transform="translate(3953 0)" d="M1290 60Q1105 -10 870 -10Q100 -10 100 735Q100 1440 870 1440Q1105 1440 1290 1370V1130Q1105 1210 890 1210Q375 1210 375 735Q375 220 890 220Q1105 220 1290 300Z"/>
+    <path fill="url(#offcon-skull)" fill-rule="evenodd"
+          transform="translate(6155.50 665.82) scale(620.9850 -620.9850)"
+          d="M0 -1.2C0.62 -1.2 1.02 -0.88 1.02 -0.34C1.02 -0.02 0.96 0.16 0.9 0.3C0.82 0.46 0.7 0.57 0.57 0.61L0.5325 0.66C0.5325 0.91 0.3475 0.91 0.3475 0.66L0.3125 0.66C0.3125 1.035 0.1275 1.035 0.1275 0.66L0.0925 0.66C0.0925 1.135 -0.0925 1.135 -0.0925 0.66L-0.1275 0.66C-0.1275 1.0225 -0.3125 1.0225 -0.3125 0.66L-0.3475 0.66C-0.3475 0.8975 -0.5325 0.8975 -0.5325 0.66L-0.57 0.61C-0.7 0.57 -0.82 0.46 -0.9 0.3C-0.96 0.16 -1.02 -0.02 -1.02 -0.34C-1.02 -0.88 -0.62 -1.2 0 -1.2ZM-0.45 -0.47 L-0.1642 -0.305 L-0.1642 0.025 L-0.45 0.19 L-0.7358 0.025 L-0.7358 -0.305 ZM0.45 -0.47 L0.7358 -0.305 L0.7358 0.025 L0.45 0.19 L0.1642 0.025 L0.1642 -0.305 ZM0 0.21Q0.07 0.34 0.1 0.47Q0 0.4284 -0.1 0.47Q-0.07 0.34 0 0.21Z"/>
+    <path transform="translate(6968 0)" d="M150 0V1430H415L1170 388V1430H1425V0H1160L405 1064V0Z"/>
+  </g>
+</svg>
