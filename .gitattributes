@@ -1,0 +1,39 @@
+# Line endings.
+#
+# Git for Windows installs with core.autocrlf=true by default, which rewrites
+# LF to CRLF on checkout. A shell script with CRLF endings does not run — bash
+# reads the carriage return as part of the command and fails with
+# `$'\r': command not found`, which reads like a corrupt file rather than a
+# line-ending problem. Since ./setup.sh is the first thing anyone runs, that is
+# the whole onboarding broken.
+#
+# So: text is normalised to LF in the repository, and anything executed by a
+# shell or copied into a Linux container keeps LF on checkout regardless of
+# platform.
+
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.bash      text eol=lf
+Dockerfile  text eol=lf
+*.Dockerfile text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.conf      text eol=lf
+*.sql       text eol=lf
+.env.example text eol=lf
+
+# Windows-only files keep CRLF so they open properly in Notepad.
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Never touched.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.woff2     binary
+*.pem       binary
+*.ttf       binary

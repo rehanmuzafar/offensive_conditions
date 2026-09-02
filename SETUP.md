@@ -63,6 +63,65 @@ the database means it races the thing it is migrating.
 
 ---
 
+## Running on Windows
+
+**Docker Desktop is not required.** The project needs a Linux container runtime
+and a bash shell, and WSL2 gives you both without it.
+
+```powershell
+wsl --install -d Ubuntu          # once, then reboot
+```
+
+Then, **inside the Ubuntu shell**, install Docker Engine from Docker's own
+repository (the `docker.io` package in Ubuntu's archive is usually old) and add
+yourself to the docker group:
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER"     # log out and back in for this to take
+sudo service docker start           # WSL has no systemd by default
+```
+
+From there it is the same as anywhere else:
+
+```bash
+git clone https://github.com/rehanmuzafar/offensive_conditions.git
+cd offensive_conditions && ./setup.sh
+```
+
+Docker Desktop also works and is simpler to start; it just is not necessary,
+and its licence is not free for larger companies. Podman is a poorer fit —
+`podman-compose` is not a drop-in for the compose file this project uses.
+
+### Three things that catch people out
+
+**Clone inside the WSL filesystem**, at `~/offensive_conditions`, not under
+`/mnt/c/...`. Bind mounts across the Windows boundary are slow enough to be
+felt on every rebuild, and file permissions do not survive the crossing —
+which matters here because the orchestrator's socket mount is permission-
+sensitive.
+
+**Line endings.** Git for Windows defaults to `core.autocrlf=true`, which
+rewrites shell scripts to CRLF on checkout, and bash then fails with
+`$'\r': command not found` — a message that reads like a corrupt file. The
+repository's `.gitattributes` pins them to LF, so this is handled; if you
+cloned before that existed, `git rm --cached -r . && git reset --hard` will
+re-checkout with the right endings.
+
+**The TLS certificate lives in the wrong trust store.** `setup.sh` runs mkcert
+inside WSL, so the CA is trusted by WSL — but your browser is a Windows
+program and knows nothing about it. Install the CA on the Windows side too:
+
+```bash
+mkcert -CAROOT                  # in WSL: prints the directory
+```
+
+Copy `rootCA.pem` from there to Windows and import it into
+**Certificates → Trusted Root Certification Authorities**, or install mkcert on
+Windows (`choco install mkcert`) and run `mkcert -install` there.
+
+---
+
 ## 3. Secrets — why there is no `.env` in the repo
 
 `deploy/.env` and `deploy/secrets/` hold database passwords and the JWT signing
