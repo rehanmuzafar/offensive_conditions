@@ -13,7 +13,7 @@
  * navigation stays client-side there too.
  */
 
-export type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app";
+export type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app" | "admin";
 
 /**
  * Root domain the four hosts hang off. Empty in development, which is what
@@ -24,6 +24,7 @@ const ROOT = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "";
 const HOSTS: Record<Surface, string> = {
   landing: ROOT,
   dashboard: ROOT && `dashboard.${ROOT}`,
+  admin: ROOT && `admin.${ROOT}`,
   ctf: ROOT && `ctf.${ROOT}`,
   bugbounty: ROOT && `bugbounty.${ROOT}`,
   app: ROOT && `app.${ROOT}`,
@@ -33,6 +34,7 @@ const HOSTS: Record<Surface, string> = {
 const STRIP: Record<Surface, string> = {
   landing: "",
   dashboard: "/dashboard",
+  admin: "/admin",
   ctf: "/ctf",
   bugbounty: "/bounty",
   app: "",
@@ -66,6 +68,7 @@ export const singleOrigin = ROOT === "";
 export const surfaceLinks = {
   landing: (path = "/") => link("landing", path),
   dashboard: (path = "/dashboard") => link("dashboard", path),
+  admin: (path = "/admin") => link("admin", path),
   ctf: (path = "/ctf") => link("ctf", path),
   bugbounty: (path = "/bounty") => link("bugbounty", path),
   app: (path = "/machines") => link("app", path),

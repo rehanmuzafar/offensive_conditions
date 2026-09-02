@@ -44,6 +44,8 @@ function shapeFor(surface: string | null): Shape {
       return "dashboard";
     case "ctf":
       return "ctf";
+    case "admin":
+      return "admin";
     default:
       return "academy";
   }

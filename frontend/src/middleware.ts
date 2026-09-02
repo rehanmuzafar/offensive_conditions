@@ -6,6 +6,7 @@
  *   ctf.offensiveconditions.org       events, teams, arena, scoreboards
  *   bugbounty.offensiveconditions.org programs, reports, hacktivity
  *   app.offensiveconditions.org       tracks, machines, forum, writeups
+ *   admin.offensiveconditions.org     staff only — triage, moderation, pricing
  *
  * One Next app, not four. Four apps would mean four builds, four deploys and
  * four copies of the design system drifting apart — and the auth session has to
@@ -46,7 +47,7 @@ const SHARED_PREFIXES = [
   "/icon.png",
 ];
 
-type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app";
+type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app" | "admin";
 
 /**
  * Which surface a hostname belongs to.
@@ -57,6 +58,7 @@ type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app";
  */
 export function surfaceForHost(host: string): Surface {
   const name = (host.split(":")[0] ?? "").toLowerCase();
+  if (name.startsWith("admin.")) return "admin";
   if (name.startsWith("dashboard.")) return "dashboard";
   if (name.startsWith("ctf.")) return "ctf";
   if (name.startsWith("bugbounty.") || name.startsWith("bb.")) return "bugbounty";
@@ -90,6 +92,7 @@ const OWNER: Record<string, Surface> = {
 /** Where a surface sends someone who arrives at its root. */
 const ROOT_PATH: Record<Surface, string> = {
   landing: "/",
+  admin: "/admin",
   dashboard: "/dashboard",
   ctf: "/ctf",
   bugbounty: "/bounty",
@@ -153,6 +156,15 @@ function rewriteFor(surface: Surface, path: string): string | null {
       if (path.startsWith("/dashboard")) return path;
       return `/dashboard${path}`;
 
+    case "admin":
+      // Rooted at the panel itself, so admin.<domain> lands on it rather than
+      // on whatever the fallback surface happens to serve. /admin stays in
+      // SHARED_PREFIXES too, so the existing links from inside the product
+      // keep working on whichever host the reader is already on.
+      if (path === "/") return "/admin";
+      if (path.startsWith("/admin")) return path;
+      return `/admin${path}`;
+
     case "ctf":
       // The CTF host is rooted at the events index: ctf.…/ is the event list,
       // ctf.…/summer-2026 is one event. Teams belong here too — a team only
@@ -202,8 +214,8 @@ function hostFor(surface: Surface, currentHost: string): string | null {
   const [name, port] = currentHost.split(":");
   if (!name) return null;
   // Strip an existing surface label to get back to the root domain.
-  const root = name.replace(/^(dashboard|ctf|bugbounty|bb|app|www)\./, "");
-  const label = surface === "landing" ? "" : surface === "bugbounty" ? "bugbounty." : `${surface}.`;
+  const root = name.replace(/^(admin|dashboard|ctf|bugbounty|bb|app|www)\./, "");
+  const label = surface === "landing" ? "" : `${surface}.`;
   const target = `${label}${root}`;
   return port ? `${target}:${port}` : target;
 }

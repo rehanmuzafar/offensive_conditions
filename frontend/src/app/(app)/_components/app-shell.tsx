@@ -35,7 +35,7 @@ const CTF_LINKS: TopbarLink[] = [
   { href: "/leaderboard", label: "Leaderboard" },
 ];
 
-export type Shape = "dashboard" | "academy" | "ctf";
+export type Shape = "dashboard" | "academy" | "ctf" | "admin";
 
 const DASHBOARD_LINKS: TopbarLink[] = [
   { href: "/dashboard", label: "Home", exact: true },
@@ -53,6 +53,8 @@ export function AppShell({
     dashboard: { label: undefined, home: "/dashboard", links: DASHBOARD_LINKS },
     academy: { label: "ACADEMY", home: "/machines", links: [] as TopbarLink[] },
     ctf: { label: "CTF", home: "/ctf", links: CTF_LINKS },
+    // Admin renders its own section nav, so the bar carries only the mark.
+    admin: { label: "ADMIN", home: "/admin", links: [] as TopbarLink[] },
   }[shape];
 
   return (
