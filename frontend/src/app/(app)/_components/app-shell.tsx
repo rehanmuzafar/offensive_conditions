@@ -59,7 +59,7 @@ export function AppShell({
     <AuthGuard>
       <div className="app-aurora min-h-screen">
         {/* One canvas for every page under this shell; see AppAmbient. */}
-        <AppAmbient />
+        <AppAmbient shape={shape} />
 
         <SurfaceTopbar
           label={config.label}
