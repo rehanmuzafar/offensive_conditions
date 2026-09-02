@@ -301,11 +301,20 @@ The app is served from four hostnames, routed by `frontend/src/middleware.ts`:
 
 | Host | Locally | What |
 |------|---------|------|
-| `offensiveconditions.org` | `lvh.me:3000` | landing page |
-| `dashboard.…` | `dashboard.lvh.me:3000` | where a signed-in player lands |
-| `ctf.…` | `ctf.lvh.me:3000` | events, teams, arena, scoreboards |
-| `bugbounty.…` | `bugbounty.lvh.me:3000` | programs, reports, hacktivity |
-| `app.…` | `app.lvh.me:3000` | tracks, machines, forum, writeups |
+| `offensiveconditions.org` | `lvh.me:8443` | landing page |
+| `dashboard.…` | `dashboard.lvh.me:8443` | where a signed-in player lands |
+| `ctf.…` | `ctf.lvh.me:8443` | events, teams, arena, scoreboards |
+| `bugbounty.…` | `bugbounty.lvh.me:8443` | programs, reports, hacktivity |
+| `app.…` | `app.lvh.me:8443` | tracks, machines, forum, writeups |
+| `admin.…` | `admin.lvh.me:8443` | staff only — triage, moderation, pricing |
+
+`/admin` also resolves on every other host, so links to it from inside the
+product keep working wherever the reader already is. The panel needs one of
+`admin`, `moderator`, `ctf_organizer` or `triager`; without one it redirects to
+the dashboard, which looks like a routing fault and is not.
+
+The ports say 8443 because that is where the edge terminates TLS — see below
+for why it is not 443.
 
 Open **https://lvh.me:8443**. Everything is served over TLS locally, with a
 certificate from your own mkcert CA — `./setup.sh` generates it.
