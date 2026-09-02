@@ -14,9 +14,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Bug, GraduationCap, LayoutDashboard, LayoutGrid, Swords } from "lucide-react";
+import { Bug, GraduationCap, LayoutDashboard, LayoutGrid, ShieldAlert, Swords } from "lucide-react";
 
 import { surfaceLinks } from "@/lib/surfaces";
+import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/cn";
 
 const SURFACES = [
@@ -41,9 +42,28 @@ const SURFACES = [
   },
 ];
 
+/**
+ * Staff-only, and kept below a rule rather than mixed into the four products —
+ * it is a different kind of destination, and someone reaching for "CTF" should
+ * not land on a moderation queue because the list grew.
+ *
+ * Gated on the same roles the admin section itself checks. Showing it to
+ * someone who would only be bounced back to the dashboard is worse than hiding
+ * it: it reads as a broken link rather than as a place they cannot go.
+ */
+const ADMIN_ROLES = ["admin", "moderator", "ctf_organizer", "triager"] as const;
+
+const ADMIN_ENTRY = {
+  href: surfaceLinks.admin(),
+  label: "Admin panel",
+  blurb: "Triage, moderation and pricing",
+  icon: ShieldAlert,
+};
+
 export function SurfaceSwitcher() {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const isStaff = useAuthStore((s) => s.hasRole(...ADMIN_ROLES));
 
   // Close on an outside click or Escape. Both, because a menu that only closes
   // one way is a menu people end up clicking twice.
@@ -108,6 +128,31 @@ export function SurfaceSwitcher() {
               </a>
             );
           })}
+
+          {isStaff && (
+            <>
+              <p className="border-t border-line px-4 pb-2 pt-2.5 text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">
+                Staff
+              </p>
+              <a
+                href={ADMIN_ENTRY.href}
+                target="_blank"
+                rel="noreferrer noopener"
+                onClick={() => setOpen(false)}
+                className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-white/5"
+              >
+                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-warning/40 bg-warning/10 text-warning">
+                  <ADMIN_ENTRY.icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-display text-[13.5px] font-semibold text-text">
+                    {ADMIN_ENTRY.label}
+                  </span>
+                  <span className="block text-[12px] text-text-faint">{ADMIN_ENTRY.blurb}</span>
+                </span>
+              </a>
+            </>
+          )}
         </div>
       )}
     </div>
