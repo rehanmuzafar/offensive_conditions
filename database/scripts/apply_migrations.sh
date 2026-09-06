@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Offense Conditions — Apply All Migrations
+# Offensive Conditions — Apply All Migrations
 # =============================================================================
 # Applies migrations for every schema in dependency order.
 # Uses golang-migrate. Install: https://github.com/golang-migrate/migrate

@@ -1,4 +1,4 @@
-# OFFCON — Offense Conditions
+# OFFCON — Offensive Conditions
 
 A full-scale cybersecurity training platform (HackTheBox / TryHackMe style):
 12 backend microservices, a Next.js web frontend, an API gateway, full

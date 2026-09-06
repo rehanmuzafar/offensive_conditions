@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
-  title: Offense Conditions Scoring API
+  title: Offensive Conditions Scoring API
   description: |
     The Scoring service computes points, ELO ratings, leaderboards, and badges
-    for the Offense Conditions platform. Most data is consumed via Kafka events
+    for the Offensive Conditions platform. Most data is consumed via Kafka events
     from the lab orchestrator and CTF services; this API is read-mostly for
     dashboards and profile views.
   version: 0.1.0
   contact:
-    name: Offense Conditions Engineering
+    name: Offensive Conditions Engineering
     email: engineering@offensiveconditions.org
 servers:
   - url: https://api.offensiveconditions.org/scoring

@@ -341,6 +341,16 @@ body {
     transition: opacity 0.35s ease;
     border-radius: inherit;
 
+    /* Declared so the browser allocates this layer once, up front.
+       
+       A `mask` forces its own compositing layer, so while the ring was masked
+       it was always promoted and always stable. Removing the mask left it
+       promoted only while the opacity transition runs — so every hover
+       promoted and then demoted it, and repainting that area made the icons
+       sitting under it blink. Saying the opacity will animate takes the churn
+       out: it is one layer either way, and this is a one-pixel ring. */
+    will-change: opacity;
+
     /* Four 1px strips rather than a full-box gradient punched through with
        `mask-composite: exclude`.
        
