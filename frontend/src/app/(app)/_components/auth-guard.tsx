@@ -59,7 +59,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <div className="grid min-h-screen place-items-center">
         <div className="flex flex-col items-center gap-4">
-          <OffconMark height={34} />
+          <OffconMark height={48} lockup />
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
       </div>

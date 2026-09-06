@@ -21,7 +21,7 @@ export function MarketingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-bg/70 backdrop-blur-xl">
       <nav className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between px-6">
-        <OffconMark height={28} />
+        <OffconMark height={38} lockup />
 
         {/* desktop links */}
         <div className="hidden items-center gap-9 lg:flex">

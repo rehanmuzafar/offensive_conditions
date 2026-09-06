@@ -49,7 +49,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         />
 
         <div className="bracket-frame relative m-8 flex h-[calc(100%-4rem)] flex-col justify-between p-10">
-          <OffconMark height={28} />
+          <OffconMark height={40} lockup />
 
           <div className="max-w-md">
             <div className="mb-6 flex items-center gap-3 text-[10.5px] uppercase tracking-widest text-text-faint">
@@ -97,7 +97,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="relative flex items-center justify-between p-6">
           {/* mobile logo */}
           <div className="lg:hidden">
-            <OffconMark height={24} />
+            <OffconMark height={34} lockup />
           </div>
           <div className="ml-auto">
             <ThemeToggle />
