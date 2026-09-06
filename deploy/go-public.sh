@@ -114,12 +114,16 @@ else
   # HTTP-01 over port 80, which the router must forward. A wildcard would need
   # DNS-01 and an API token for the registrar; naming each host keeps this to
   # one step, and there are six of them.
-  ARGS=(certonly --standalone --non-interactive --agree-tos -d "$DOMAIN")
+  # webroot, not standalone: standalone wants port 80 to itself, which the
+  # edge is already holding. Sharing the directory also means renewal needs no
+  # downtime — certbot drops a file in and nginx serves it.
+  ARGS=(certonly --webroot -w /var/www/certbot --non-interactive --agree-tos -d "$DOMAIN")
   for s in "${SUBS[@]}"; do ARGS+=(-d "$s.$DOMAIN"); done
   [[ -n "$EMAIL" ]] && ARGS+=(-m "$EMAIL") || ARGS+=(--register-unsafely-without-email)
 
-  docker run --rm -p 80:80 \
+  docker run --rm \
     -v "$PWD/secrets/letsencrypt:/etc/letsencrypt" \
+    -v "$PWD/secrets/certbot-webroot:/var/www/certbot" \
     certbot/certbot "${ARGS[@]}"
 
   cp "secrets/letsencrypt/live/$DOMAIN/fullchain.pem" "secrets/tls/live-$DOMAIN.pem"

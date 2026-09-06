@@ -370,13 +370,19 @@ services:
     # 8443 by default rather than 443: a security workstation often already has
     # something on 443 — an intercepting proxy, a lab listener — and taking it
     # would break their tooling. Set EDGE_TLS_PORT=443 if yours is free.
-    ports: ["8080:8080", "${EDGE_TLS_PORT:-8443}:443"]
+    # Port 80 is published so the ACME challenge can be answered and so a bare
+    # http:// request redirects instead of failing. On macOS the built-in
+    # Apache claims this port when Web Sharing has ever been switched on;
+    # it has to be stopped or this container cannot bind.
+    ports: ["80:80", "8080:8080", "${EDGE_TLS_PORT:-8443}:443"]
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       # Shared by both listeners so a route cannot exist on one and not the other.
       - ./api-routes.conf:/etc/nginx/conf.d/api-routes.conf:ro
       # Issued by the developer's own mkcert CA — see SETUP.md. Not in git.
       - ./secrets/tls:/secrets/tls:ro
+      # Written by certbot, read by the acme-challenge location above.
+      - ./secrets/certbot-webroot:/var/www/certbot:ro
     depends_on: [auth, orchestrator, scoring, ctf-svc, forum-svc, content-svc, user-svc]
     networks: [offcon]
 
