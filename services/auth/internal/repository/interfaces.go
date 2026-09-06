@@ -20,6 +20,7 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	GetByUsername(ctx context.Context, username string) (*User, error)
 	UpdatePassword(ctx context.Context, userID uuid.UUID, newHash string) error
+	UpdateUsername(ctx context.Context, userID uuid.UUID, username string) error
 	UpdateStatus(ctx context.Context, userID uuid.UUID, status UserStatus) error
 	UpdateEmailVerified(ctx context.Context, userID uuid.UUID, verified bool) error
 	UpdateTFAEnabled(ctx context.Context, userID uuid.UUID, enabled bool) error

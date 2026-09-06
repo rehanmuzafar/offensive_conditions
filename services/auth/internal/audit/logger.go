@@ -205,6 +205,18 @@ func (l *Logger) PasswordChanged(ctx context.Context, userID uuid.UUID, ip netip
 	})
 }
 
+// UsernameChanged records a rename. Both handles are kept: support cannot
+// trace a report about "some user called X" once X belongs to nobody.
+func (l *Logger) UsernameChanged(ctx context.Context, userID uuid.UUID, from, to string, ip netip.Addr, requestID string) {
+	l.Write(ctx, Event{
+		ActorType: ActorUser, ActorID: &userID, ActorIP: ip,
+		Action: "user.username_changed", Category: CategoryAuth, Severity: SeverityNotice,
+		TargetType: "user", TargetID: &userID,
+		Metadata:  map[string]any{"from": from, "to": to},
+		RequestID: requestID, Outcome: OutcomeSuccess,
+	})
+}
+
 func (l *Logger) TFAEnabled(ctx context.Context, userID uuid.UUID, ip netip.Addr, requestID string) {
 	l.Write(ctx, Event{
 		ActorType: ActorUser, ActorID: &userID, ActorIP: ip,

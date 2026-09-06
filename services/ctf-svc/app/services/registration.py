@@ -476,6 +476,19 @@ class RegistrationService:
         )
         return result.scalar_one_or_none()
 
+    async def list_my_event_ids(self, *, user_id: UUID) -> list[UUID]:
+        """Events this player has entered.
+
+        A plain lookup because registration is per player: every entry carries
+        the user_id of the person who made it, including entries made under a
+        team. Returning ids rather than events keeps this out of the event
+        listing's own filtering and sorting — the caller already has the events.
+        """
+        rows = await self.session.execute(
+            select(EventParticipant.event_id).where(EventParticipant.user_id == user_id)
+        )
+        return [r[0] for r in rows.all()]
+
     async def list_participants(
         self, event_id: UUID, *, limit: int = 100, offset: int = 0
     ) -> tuple[list[EventParticipant], int]:

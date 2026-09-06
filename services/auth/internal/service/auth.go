@@ -20,6 +20,7 @@ import (
 	"github.com/offensive-conditions/auth/internal/ratelimit"
 	"github.com/offensive-conditions/auth/internal/repository"
 	"github.com/offensive-conditions/auth/internal/tokens"
+	"github.com/offensive-conditions/auth/internal/validators"
 )
 
 // AuthService is the primary application service orchestrating auth flows.
@@ -677,6 +678,47 @@ func (s *AuthService) ResetPassword(ctx context.Context, rawToken, newPassword s
 // =============================================================================
 // Password Change (authenticated)
 // =============================================================================
+
+// ChangeUsername renames the account.
+//
+// Unlike a password change this does not revoke sessions: the handle is public
+// and changing it proves nothing about who is holding the session, so signing
+// everyone out would be noise rather than safety.
+//
+// The uniqueness check here is a courtesy that produces a good error message;
+// the unique index is what actually decides it, because two people can pass
+// this check in the same instant.
+func (s *AuthService) ChangeUsername(ctx context.Context, userID uuid.UUID, next string, m RequestMeta) error {
+	next = strings.TrimSpace(next)
+	if !validators.IsUsername(next) {
+		return autherrors.New(autherrors.CodeValidation,
+			"3-32 characters, starting with a letter; letters, numbers, hyphen and underscore")
+	}
+
+	current, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(current.Username, next) {
+		// Same handle in a different case is still a rename worth doing —
+		// only an exact match is a no-op.
+		if current.Username == next {
+			return nil
+		}
+	} else if existing, err := s.users.GetByUsername(ctx, next); err == nil && existing != nil {
+		return autherrors.New(autherrors.CodeConflict, "that username is taken")
+	}
+
+	if err := s.users.UpdateUsername(ctx, userID, next); err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			return autherrors.New(autherrors.CodeConflict, "that username is taken")
+		}
+		return err
+	}
+
+	s.audit.UsernameChanged(ctx, userID, current.Username, next, m.IP, m.RequestID)
+	return nil
+}
 
 func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, current, next string, m RequestMeta) error {
 	user, err := s.users.GetByID(ctx, userID)

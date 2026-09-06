@@ -105,6 +105,16 @@ export const authApi = {
     };
   },
 
+  /**
+   * Rename the account.
+   *
+   * auth-svc rather than user-svc: auth.users owns the column, and user-svc
+   * reads it through a join rather than keeping a copy, so nothing else has to
+   * be told about the change.
+   */
+  changeUsername: (username: string) =>
+    api.patch<{ username: string }>("/v1/auth/me/username", { body: { username } }),
+
   setAccountType: (body: {
     accountType: "hacker" | "company";
     companyName?: string;

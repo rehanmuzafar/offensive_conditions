@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { useAuthStore } from "@/stores/auth-store";
 import { ctfApi, forumApi, writeupApi, type ThreadQuery, type WriteupQuery } from "@/lib/community-api";
 import {
   mockCtfEvents,
@@ -222,6 +223,17 @@ export function useMyParticipation(eventId: string | undefined) {
    team, so every teammate reads and writes the same cache entry — which is
    also what lets the socket invalidate it for all of them at once.
    ------------------------------------------------------------------------ */
+
+export function useJoinedEventIds() {
+  const token = useAuthStore((s) => s.accessToken);
+  return useQuery({
+    queryKey: ["ctf-joined-events"],
+    queryFn: () => ctfApi.joinedEventIds(),
+    // Signed out there is nothing to have joined, and the request would 401.
+    enabled: Boolean(token),
+    retry: false,
+  });
+}
 
 export function useChallengeInstance(slug: string, challengeId: string | undefined) {
   return useQuery({

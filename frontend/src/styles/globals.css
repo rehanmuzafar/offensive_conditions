@@ -336,25 +336,31 @@ body {
     content: "";
     position: absolute;
     inset: 0;
-    padding: 1px;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.35s ease;
-    background: linear-gradient(
-      120deg,
-      #a5f3fc 0%,
-      rgb(var(--accent)) 35%,
-      #f5d0fe 60%,
-      #bef264 100%
-    );
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    mask-composite: exclude;
+    border-radius: inherit;
+
+    /* Four 1px strips rather than a full-box gradient punched through with
+       `mask-composite: exclude`.
+       
+       The mask technique is the usual way to draw a gradient ring, and it
+       worked — until the element was composited. A card that lifts on hover
+       (`hover:-translate-y-1`) is promoted to its own layer for the duration of
+       that transition, and while promoted the mask stopped being applied, so
+       the *whole card* filled with the gradient for as long as the lift lasted.
+       Cards on the dashboard, the CTF list and the machines grid all do this.
+
+       These strips cannot fail that way: `background-size` bounds each layer to
+       one pixel, so the worst a compositing bug can do is move a hairline. The
+       corner colours are matched to where the old 120deg diagonal put them —
+       cyan top-left, accent top-right, pink bottom-left, lime bottom-right — so
+       the ring reads as one continuous sweep, exactly as before. */
+    background:
+      linear-gradient(90deg, #a5f3fc, rgb(var(--accent))) top / 100% 1px no-repeat,
+      linear-gradient(90deg, #f5d0fe, #bef264) bottom / 100% 1px no-repeat,
+      linear-gradient(180deg, #a5f3fc, #f5d0fe) left / 1px 100% no-repeat,
+      linear-gradient(180deg, rgb(var(--accent)), #bef264) right / 1px 100% no-repeat;
   }
   .edge-iridescent:hover::after,
   .edge-iridescent:focus-within::after {

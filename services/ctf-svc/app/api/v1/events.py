@@ -82,6 +82,20 @@ async def list_events(
     )
 
 
+@router.get("/joined", response_model=list[UUID])
+async def my_joined_events(
+    claims: Claims = Depends(get_claims),
+    reg: RegistrationService = Depends(get_registration_service),
+) -> list[UUID]:
+    """Ids of the events the caller has entered.
+
+    Declared before /{event_id} routes so "joined" is not swallowed as an event
+    id — FastAPI matches in declaration order, and a literal segment that comes
+    after a parameterised one is unreachable.
+    """
+    return await reg.list_my_event_ids(user_id=claims.user_id)
+
+
 @router.get("/{event_id}", response_model=EventRead)
 async def get_event(
     event_id: UUID,

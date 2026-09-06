@@ -232,6 +232,23 @@ export function useAccountIdentity() {
   });
 }
 
+export function useChangeUsername() {
+  const setUser = useAuthStore.getState().setUser;
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (username: string) => authApi.changeUsername(username),
+    onSuccess: (res) => {
+      const user = useAuthStore.getState().user;
+      if (user) setUser({ ...user, username: res.username });
+      // The handle appears on the profile, the leaderboard and every roster.
+      qc.invalidateQueries();
+      toast.success("Username updated");
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Couldn't change your username."),
+  });
+}
+
 export function useSetAccountType() {
   const qc = useQueryClient();
   return useMutation({

@@ -104,7 +104,7 @@ export function OffconMark({
   }
 
   return (
-    <span className={cn("flex items-baseline gap-2", className)}>
+    <span className={cn("flex items-center", className)}>
       <svg
         viewBox={VIEWBOX}
         height={height}
@@ -131,12 +131,28 @@ export function OffconMark({
   </g>
       </svg>
       {label && (
-        <span
-          className="font-display text-[13px] font-semibold uppercase tracking-wide text-text-faint"
-          style={{ fontSize: Math.max(10, height * 0.46) }}
-        >
-          {label}
-        </span>
+        <>
+          {/* A rule, not a gap. Set beside the wordmark with only space between
+              them the label read as a stray word; the divider says the two are
+              one lockup and the label names this surface. */}
+          <span
+            aria-hidden
+            className="shrink-0 self-stretch border-l border-line-strong"
+            style={{ marginInline: height * 0.34 }}
+          />
+          <span
+            className="whitespace-nowrap font-display font-semibold uppercase text-text-dim"
+            style={{
+              // 0.72 of the mark's height, against 0.46 before. The label is a
+              // sibling of the wordmark rather than a footnote to it, and at
+              // twelve pixels beside a twenty-six pixel logo it read as one.
+              fontSize: Math.max(13, height * 0.72),
+              letterSpacing: "0.06em",
+            }}
+          >
+            {label}
+          </span>
+        </>
       )}
     </span>
   );

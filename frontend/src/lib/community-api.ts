@@ -412,6 +412,14 @@ export const ctfApi = {
      a teammate who did not spawn it still gets the address from `getInstance`.
      ---------------------------------------------------------------------- */
 
+  /**
+   * Ids of the events the caller has entered.
+   *
+   * Ids rather than events: the list is already loaded and filtering it here
+   * keeps one source of truth for an event's shape, ordering and card.
+   */
+  joinedEventIds: () => api.get<string[]>("/v1/ctf/events/joined"),
+
   getInstance: async (slug: string, challengeId: string): Promise<ChallengeInstance | null> => {
     const eventId = await eventIdFor(slug);
     const res = await api.get<RawInstance | null>(
