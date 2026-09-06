@@ -36,29 +36,49 @@ warn() { printf '  %s!%s %s\n' "$YELLOW" "$RESET" "$*"; }
 
 SUBS=(dashboard ctf bugbounty app admin)
 
+TLS_PORT="$(grep -E "^EDGE_TLS_PORT=" .env | cut -d= -f2)"
+TLS_PORT="${TLS_PORT:-8443}"
+
 # --- 0. is the domain actually pointed here? ---------------------------------
+# Note on this connection: outbound traffic leaves on a different address than
+# the one inbound arrives on (a shared pool for egress, a static address for
+# ingress). So "what does api.ipify.org say" is the wrong question — it reports
+# the egress address and would reject a perfectly good setup. What matters is
+# whether a connection from the internet lands here, so that is what gets
+# tested: the domain is resolved, and the edge is probed through it.
 step "Checking DNS"
-PUBLIC_IP="$(curl -s --max-time 10 https://api.ipify.org || true)"
-RESOLVED="$(dig +short "$DOMAIN" | tail -1 || true)"
+RESOLVED="$(dig +short "$DOMAIN" A | tail -1 || true)"
 if [[ -z "$RESOLVED" ]]; then
-  echo "  $DOMAIN does not resolve yet. Add the A records first:" >&2
-  printf '    %-28s A  %s\n' "@" "$PUBLIC_IP" >&2
-  for s in "${SUBS[@]}"; do printf '    %-28s A  %s\n' "$s" "$PUBLIC_IP" >&2; done
+  echo "  $DOMAIN has no A record yet. Add these at the registrar first:" >&2
+  printf '    %-12s A  <your inbound IP>\n' "@" >&2
+  for s in "${SUBS[@]}"; do printf '    %-12s A  <your inbound IP>\n' "$s" >&2; done
   exit 1
 fi
-if [[ "$RESOLVED" != "$PUBLIC_IP" ]]; then
-  warn "$DOMAIN resolves to $RESOLVED but this machine is $PUBLIC_IP"
-  warn "carry on only if that is deliberate (a proxy in front, for example)"
-fi
 ok "$DOMAIN -> $RESOLVED"
+
+for s in "${SUBS[@]}"; do
+  r="$(dig +short "$s.$DOMAIN" A | tail -1 || true)"
+  if [[ -z "$r" ]]; then
+    echo "  $s.$DOMAIN has no A record — that surface would be unreachable." >&2
+    exit 1
+  fi
+done
+ok "all ${#SUBS[@]} subdomains resolve"
+
+step "Checking the edge answers on $RESOLVED"
+CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
+        "https://$RESOLVED:${TLS_PORT}/" -H "Host: $DOMAIN" || true)"
+if [[ "$CODE" == "000" ]]; then
+  echo "  nothing answered on $RESOLVED:$TLS_PORT" >&2
+  echo "  check the router forwards external 443 to this machine on $TLS_PORT" >&2
+  exit 1
+fi
+ok "edge answers (HTTP $CODE)"
 
 # --- 1. environment ----------------------------------------------------------
 step "Environment"
 cp .env ".env.bak-$(date +%s)"
 ok "backed up .env"
-
-TLS_PORT="$(grep -E "^EDGE_TLS_PORT=" .env | cut -d= -f2)"
-TLS_PORT="${TLS_PORT:-8443}"
 
 ORIGINS="https://$DOMAIN"
 for s in "${SUBS[@]}"; do ORIGINS+=" https://$s.$DOMAIN"; done
