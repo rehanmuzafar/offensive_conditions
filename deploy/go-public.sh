@@ -34,7 +34,10 @@ step() { printf '\n%s==> %s%s\n' "$BOLD" "$*" "$RESET"; }
 ok()   { printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
 warn() { printf '  %s!%s %s\n' "$YELLOW" "$RESET" "$*"; }
 
-SUBS=(dashboard ctf bugbounty app admin)
+# www is here for the certificate and the origin allowlist. It is not a
+# surface — the middleware maps any unrecognised host to the landing page,
+# which is exactly where www should land.
+SUBS=(www dashboard ctf bugbounty app admin)
 
 TLS_PORT="$(grep -E "^EDGE_TLS_PORT=" .env | cut -d= -f2)"
 TLS_PORT="${TLS_PORT:-8443}"
@@ -65,15 +68,26 @@ for s in "${SUBS[@]}"; do
 done
 ok "all ${#SUBS[@]} subdomains resolve"
 
-step "Checking the edge answers on $RESOLVED"
+# Probe 443, not $TLS_PORT. $TLS_PORT is what the edge binds on the LAN; from
+# the internet the router publishes it as 443, and 443 is what a visitor — and
+# the check below — actually connects to. Probing the internal port against the
+# public address tests a path nobody uses and fails on a working setup.
+step "Checking the edge answers from outside"
 CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
-        "https://$RESOLVED:${TLS_PORT}/" -H "Host: $DOMAIN" || true)"
+        "https://$RESOLVED/" -H "Host: $DOMAIN" || true)"
 if [[ "$CODE" == "000" ]]; then
-  echo "  nothing answered on $RESOLVED:$TLS_PORT" >&2
-  echo "  check the router forwards external 443 to this machine on $TLS_PORT" >&2
+  echo "  nothing answered on $RESOLVED:443" >&2
+  echo "  the router should forward external 443 to this machine on $TLS_PORT" >&2
   exit 1
 fi
-ok "edge answers (HTTP $CODE)"
+ok "edge answers on 443 (HTTP $CODE)"
+
+CODE80="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://$RESOLVED/" || true)"
+if [[ "$CODE80" == "000" ]]; then
+  echo "  nothing answered on $RESOLVED:80 — the ACME challenge needs it" >&2
+  exit 1
+fi
+ok "port 80 answers (HTTP $CODE80)"
 
 # --- 1. environment ----------------------------------------------------------
 step "Environment"
@@ -98,8 +112,21 @@ set_var HTTP_CORS_ORIGINS "$ORIGINS"
 # Development values that must not face the internet. The rate limits were
 # 1000/minute so local testing never tripped them; on a public login form that
 # is an open door for credential stuffing.
-set_var APP_ENV production
-set_var DEPLOY_ENV production
+# APP_ENV deliberately stays "development", and that is not an oversight.
+#
+# Setting it to production turns on a config validator in auth, user-svc,
+# scoring, flag-verifier and orchestrator that refuses to start without
+# infrastructure this compose stack does not contain: a Postgres with TLS
+# (DB_SSLMODE must not be "disable"), a Vault (flag-verifier requires
+# VAULT_ENABLED=true), and a populated FLAG_HMAC_SECRET. Flipping the flag
+# without those does not harden anything — every one of those services
+# crash-loops and the site returns 502.
+#
+# The validator is right and the services are correct to refuse. Meeting it
+# properly is a separate piece of work that belongs on a real server. What is
+# set below is the hardening that needs no missing infrastructure.
+set_var GRPC_ENABLE_REFLECTION false
+set_var AUTH_INSECURE false
 set_var RATE_LIMIT_LOGIN_PER_MINUTE 5
 set_var RATE_LIMIT_REGISTER_PER_HOUR 5
 set_var RATE_LIMIT_PASSWORD_RESET_PER_HOUR 3
@@ -148,6 +175,15 @@ p.write_text(s)
 PY
 ok "edge serves $DOMAIN"
 
+# nginx.conf is a bind mount, so rewriting it changes nothing by itself and
+# `compose up -d` will not recreate a container whose only change is the
+# contents of a mounted file. Without this the new certificate sits on disk
+# while the old one is still being served.
+docker compose exec -T edge nginx -t >/dev/null 2>&1 \
+  && docker compose exec -T edge nginx -s reload >/dev/null 2>&1 \
+  && ok "edge reloaded" \
+  || { docker compose restart edge >/dev/null 2>&1; ok "edge restarted"; }
+
 # --- 4. rebuild and restart --------------------------------------------------
 # The root domain is inlined by Next at build time, so the frontend has to be
 # rebuilt — restarting it with a new variable changes nothing.
@@ -160,7 +196,7 @@ cat <<EOF
 
   ${GREEN}Live at https://$DOMAIN${RESET}
 
-  Forward these on the router to $PUBLIC_IP -> 192.168.100.21:
+  Forward these on the router to this machine:
     external 80/tcp   -> 80     certificate issue and renewal, port 80 is
                                 fixed by the ACME HTTP-01 challenge and
                                 cannot be moved
@@ -174,5 +210,7 @@ cat <<EOF
     * the orchestrator mounts the host Docker socket — anything that reaches
       its internal API can start a container on this machine
     * the database still holds test users and test events
+    * APP_ENV is still development — see the note in this script; real
+      production mode needs Postgres over TLS, a Vault, and FLAG_HMAC_SECRET
 
 EOF
