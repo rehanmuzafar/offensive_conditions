@@ -65,9 +65,40 @@ function read(name: string): string | null {
   return null;
 }
 
+/**
+ * Delete a host-only cookie of this name, if the browser is holding one.
+ *
+ * A host-only cookie and a `Domain=`-scoped cookie of the same name are two
+ * separate cookies and the browser sends both. `document.cookie` lists the more
+ * specific one first, so `read` above returns the host-only value and the
+ * shared session is written, ignored, and written again — every surface asks
+ * for its own sign-in even though the shared cookie is sitting right there.
+ *
+ * They appear whenever NEXT_PUBLIC_ROOT_DOMAIN did not match the host serving
+ * the page: the browser rejects `Domain=` for a domain it is not under, the
+ * fallback in `write` stores a host-only cookie instead, and that cookie
+ * outlives the misconfiguration that created it. Moving from lvh.me to the real
+ * domain is exactly that situation, so every account signed in during the
+ * switch is carrying one.
+ *
+ * Clearing it on write means nobody has to know to clear their cookies, and a
+ * future domain change heals itself the same way.
+ *
+ * Omitting `Domain` is what makes this target the host-only cookie and leave
+ * the shared one alone — a deletion matches on name, domain and path.
+ */
+function dropHostOnly(name: string): void {
+  document.cookie = `${name}=; Path=/; Max-Age=0`;
+}
+
 function write(name: string, value: string): void {
   if (typeof document === "undefined") return;
   const domain = cookieDomain();
+
+  // Before the write, not after: the shared cookie is worthless while a
+  // host-only one of the same name is still shadowing it on this host.
+  if (domain) dropHostOnly(name);
+
   const attrs = [
     `${name}=${encodeURIComponent(value)}`,
     "Path=/",
@@ -105,6 +136,11 @@ function write(name: string, value: string): void {
 function remove(name: string): void {
   if (typeof document === "undefined") return;
   const domain = cookieDomain();
+
+  // Both variants, or signing out on a subdomain leaves the host-only cookie
+  // behind and the next visit reads a session the user thought they ended.
+  dropHostOnly(name);
+
   document.cookie = [
     `${name}=`,
     "Path=/",
