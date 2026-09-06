@@ -59,7 +59,24 @@ export function Tilt({
       onPointerMove={onMove}
       onPointerLeave={onLeave}
       className={cn("transition-transform duration-300 ease-out will-change-transform", className)}
-      style={{ transformStyle: "preserve-3d" }}
+      /*
+       * Flat, not preserve-3d.
+       *
+       * `preserve-3d` puts every descendant in the wrapper's 3D space and sorts
+       * them by depth instead of paint order. Nothing in these cards has a Z
+       * position, so there was nothing to gain — but two things inside them
+       * cannot live in a 3D context at all: the glass surface, whose
+       * `backdrop-filter` forces a flattening, and the iridescent ring, which
+       * is an absolutely-positioned overlay. The renderer resolved that
+       * conflict differently frame to frame, which is what made the icons blink
+       * while the card tilted.
+       *
+       * The mask on the ring used to force a flatten of its own and was
+       * accidentally holding this together; removing it exposed the conflict.
+       * Dropping preserve-3d fixes the cause rather than restoring the
+       * accident. The tilt is unaffected — the rotation is on this element, and
+       * children are meant to be painted flat into it.
+       */
     >
       {children}
     </div>
