@@ -57,6 +57,9 @@ step "Environment"
 cp .env ".env.bak-$(date +%s)"
 ok "backed up .env"
 
+TLS_PORT="$(grep -E "^EDGE_TLS_PORT=" .env | cut -d= -f2)"
+TLS_PORT="${TLS_PORT:-8443}"
+
 ORIGINS="https://$DOMAIN"
 for s in "${SUBS[@]}"; do ORIGINS+=" https://$s.$DOMAIN"; done
 
@@ -72,7 +75,6 @@ set_var() {
 
 set_var NEXT_PUBLIC_ROOT_DOMAIN "$DOMAIN"
 set_var HTTP_CORS_ORIGINS "$ORIGINS"
-set_var EDGE_TLS_PORT 443
 # Development values that must not face the internet. The rate limits were
 # 1000/minute so local testing never tripped them; on a public login form that
 # is an open door for credential stuffing.
@@ -134,9 +136,14 @@ cat <<EOF
 
   ${GREEN}Live at https://$DOMAIN${RESET}
 
-  Forward these on the router to this machine:
-    80/tcp   -> needed for certificate renewal
-    443/tcp  -> the site
+  Forward these on the router to $PUBLIC_IP -> 192.168.100.21:
+    external 80/tcp   -> 80     certificate issue and renewal, port 80 is
+                                fixed by the ACME HTTP-01 challenge and
+                                cannot be moved
+    external 443/tcp  -> $TLS_PORT   the site
+
+  The edge listens on $TLS_PORT rather than 443 so it never contends with
+  anything else on this machine. Visitors still use 443; the router maps it.
 
   ${YELLOW}Still open before this is safe to leave running:${RESET}
     * the refresh token is in a cookie page scripts can read
