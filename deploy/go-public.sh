@@ -125,9 +125,26 @@ set_var HTTP_CORS_ORIGINS "$ORIGINS"
 # The validator is right and the services are correct to refuse. Meeting it
 # properly is a separate piece of work that belongs on a real server. What is
 # set below is the hardening that needs no missing infrastructure.
+# The OAuth callback. Its default is http://localhost:8001/v1/auth/oauth —
+# the auth container's own address, which resolves for nothing but itself.
+# Google sends the user there after consent, so leaving it unset means every
+# social sign-in ends on a page that cannot load. It must also be registered
+# as an authorised redirect URI in the provider's console, which is a manual
+# step nobody can do from here.
+set_var OAUTH_CALLBACK_BASE "https://$DOMAIN/v1/auth/oauth"
+
+# Without this the services call RemoteAddr the client, and behind the edge
+# that is always the edge — one rate-limit bucket shared by the whole internet.
+set_var HTTP_TRUSTED_PROXIES "172.16.0.0/12"
+
 set_var GRPC_ENABLE_REFLECTION false
 set_var AUTH_INSECURE false
-set_var RATE_LIMIT_LOGIN_PER_MINUTE 5
+# 120, not the 5 a per-IP limit would deserve. Docker's published ports on
+# macOS rewrite the source address before nginx ever sees it, so every request
+# arrives from the bridge gateway and one counter covers all visitors. A tight
+# number here locks out the site instead of an attacker. Lower it once the
+# stack runs somewhere the original address survives.
+set_var RATE_LIMIT_LOGIN_PER_MINUTE 120
 set_var RATE_LIMIT_REGISTER_PER_HOUR 5
 set_var RATE_LIMIT_PASSWORD_RESET_PER_HOUR 3
 set_var RATE_LIMIT_EMAIL_VERIFY_PER_HOUR 10

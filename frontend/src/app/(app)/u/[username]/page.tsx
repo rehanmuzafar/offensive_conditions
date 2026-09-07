@@ -12,6 +12,7 @@ import { useCtfStats, useProfile } from "@/hooks/use-profile";
 import { useAuthStore } from "@/stores/auth-store";
 import { formatDate } from "@/lib/format";
 import type { Tier } from "@/types";
+import { surfaceLinks } from "@/lib/surfaces";
 
 // auth-svc emits subscription tiers (free/…); fall back to a valid skill-rank
 // so the tier badge always renders.
@@ -53,9 +54,19 @@ export default function ProfilePage() {
           No operator with the handle <span className="font-semibold text-text">@{username}</span> exists,
           or their profile is private.
         </p>
-        <Link href="/leaderboard">
-          <Button variant="ghost" className="mt-6">Back to leaderboard</Button>
-        </Link>
+        {/*
+          The dashboard, not the leaderboard. This screen is where you land
+          after the handle you were looking at stopped existing — a rename, a
+          deleted account, a stale link someone shared. The leaderboard is a
+          list of other people, which is no help when the person you came for
+          is gone; the dashboard is the one page that is always yours.
+
+          An <a> rather than <Link>: the dashboard is a different origin, and
+          the router cannot navigate there on the client.
+        */}
+        <a href={surfaceLinks.dashboard()}>
+          <Button variant="ghost" className="mt-6">Back to dashboard</Button>
+        </a>
       </div>
     );
   }

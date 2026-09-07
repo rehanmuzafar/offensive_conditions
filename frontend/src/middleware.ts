@@ -119,7 +119,26 @@ export function middleware(req: NextRequest) {
     // already resolves correctly there.
     if (target && target !== host) {
       const to = new URL(req.url);
-      to.host = target;
+
+      // hostname and port are set separately, and deliberately so.
+      //
+      // `to.host = target` reads like it replaces both halves. It does not:
+      // when the value carries no port the URL spec leaves the existing one
+      // alone, and `req.url` is the address nginx used to reach this process
+      // — which carries the port Next listens on inside the container. The
+      // result was a public redirect to https://app.<domain>:3000/leaderboard,
+      // a port nothing outside this machine can reach. Setting the port
+      // explicitly, empty included, is what makes the target authoritative.
+      const [targetName = target, targetPort = ""] = target.split(":");
+
+      // Also from the proxy rather than from req.url: nginx terminates TLS and
+      // speaks plain http to this process, so req.url says http and the
+      // redirect would bounce the visitor through an extra hop back to https.
+      const proto = req.headers.get("x-forwarded-proto");
+      if (proto) to.protocol = proto;
+
+      to.hostname = targetName;
+      to.port = targetPort;
       to.pathname = stripPrefix(owner, path);
       return NextResponse.redirect(to);
     }

@@ -14,6 +14,8 @@ import { use } from "react";
 import { ProgramAside } from "@/components/bounty/program-aside";
 import { Card, Skeleton } from "@/components/ui/card";
 import { useProgram } from "@/hooks/use-account";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default function ProgramLayout({
   children,
@@ -41,6 +43,15 @@ export default function ProgramLayout({
         <p className="mt-1.5 text-[13.5px] text-text-dim">
           It may be private, paused, or the link may be wrong.
         </p>
+        {/*
+          This screen had no way out of it. Every route under /bounty/[slug]
+          renders inside this layout, so a stale or revoked program link left
+          the visitor holding a card with nothing to click. Back to the programs
+          list — the one page still there when this program is not.
+        */}
+        <Link href="/bounty">
+          <Button variant="ghost" className="mt-6">Browse programs</Button>
+        </Link>
       </Card>
     );
   }
