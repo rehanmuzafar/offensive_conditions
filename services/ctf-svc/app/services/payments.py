@@ -26,6 +26,7 @@ from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.models.event import Event, EventParticipant, EventTeamEntry
+from app.services.safepay import SafepayClient
 
 log = get_logger("payments")
 
@@ -319,11 +320,35 @@ class PaymentService:
                     "payment description, then wait for an organiser to confirm."
                 ),
             }
+        elif self.provider == "safepay":
+            client = SafepayClient(self._s)
+            if not client.configured:
+                # No keys means no session to send anyone to. Saying so beats a
+                # plausible-looking URL that leads nowhere.
+                payload["instructions"] = {
+                    "method": "redirect",
+                    "redirect_url": None,
+                    "note": "safepay keys are not configured yet",
+                }
+            else:
+                tracker = await client.create_tracker(
+                    amount_minor=event.entry_fee_cents,
+                    currency=event.currency,
+                    reference=reference,
+                )
+                # Stored now rather than on the webhook: if the payer completes
+                # the payment and the webhook is delayed or lost, this is what
+                # lets the entry be matched to the transaction by hand.
+                entry.provider_reference = tracker
+                await self.session.flush()
+
+                payload["reference"] = tracker
+                payload["instructions"] = {
+                    "method": "redirect",
+                    "redirect_url": client.checkout_url(tracker),
+                    "note": "",
+                }
         else:
-            # Deliberately not a fabricated redirect. Until the gateway's keys
-            # are configured there is no session to send anyone to, and handing
-            # back a plausible-looking URL would turn a clear failure into a
-            # payment that appears to start and then goes nowhere.
             payload["instructions"] = {
                 "method": "redirect",
                 "redirect_url": None,

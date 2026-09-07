@@ -112,6 +112,24 @@ class Settings(BaseSettings):
     payout_bank_name: str = ""
     payout_iban: str = ""
 
+    # Safepay. The "public" key is not secret — it identifies the merchant on
+    # the checkout button — but the other two are, hence SecretStr, which keeps
+    # them out of logs and repr() by default.
+    safepay_environment: str = "sandbox"
+    safepay_merchant_key: str = ""
+    safepay_merchant_secret: SecretStr = SecretStr("")
+    safepay_webhook_secret: SecretStr = SecretStr("")
+
+    @computed_field
+    @property
+    def safepay_base_url(self) -> str:
+        """Sandbox and production are different hosts, not a flag on one host."""
+        return (
+            "https://api.getsafepay.com"
+            if self.safepay_environment.lower() == "production"
+            else "https://sandbox.api.getsafepay.com"
+        )
+
     auth_jwt_issuer: str = "https://auth.offensiveconditions.org"
     auth_jwt_audience: str = "offcon-api"
     auth_jwt_clock_skew_seconds: int = 5
