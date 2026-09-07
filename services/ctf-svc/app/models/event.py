@@ -509,3 +509,56 @@ class ChallengeInstance(Base):
         DateTime(timezone=True), nullable=False, server_default="NOW()"
     )
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EventTeamEntry(Base):
+    """A team's paid place in an event.
+
+    The entry fee belongs to the team, so it is recorded once per
+    (event, team) rather than once per player. A captain pays, and the team is
+    in — whoever the captain adds or removes afterwards inherits that, because
+    the roster is not what was bought.
+
+    `EventParticipant.payment_status` still exists and still describes a solo
+    player paying for themselves. The two do not overlap: a participant row
+    with a team_id takes its answer from here.
+    """
+
+    __tablename__ = "event_team_entries"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    team_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+
+    # Who paid, as a record rather than a live pointer — captaincy can change
+    # hands and that must not rewrite who the transaction belonged to.
+    paid_by_user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+    payment_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="pending", server_default="pending"
+    )
+    amount_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    currency: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
+    provider_reference: Mapped[str | None] = mapped_column(Text)
+
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+
+    @property
+    def settled(self) -> bool:
+        """Whether this entry lets the team play.
+
+        'not_required' is included deliberately: a free event still gets a row
+        so that "has this team entered?" has one answer everywhere, rather than
+        one answer for free events and another for paid ones.
+        """
+        return self.payment_status in ("paid", "not_required")

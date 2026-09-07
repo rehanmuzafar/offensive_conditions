@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.services.user_client import UserServiceClient
 from app.core.logging import get_logger
-from app.models import Event, EventParticipant
+from app.models import Event, EventParticipant, EventTeamEntry
 
 log = get_logger("registration")
 
@@ -265,6 +265,23 @@ class RegistrationService:
                 "you are already solo-registered; unregister first",
             )
 
+        # The entry fee is the team's, not each player's, so it is settled once
+        # here and inherited by whoever the captain fields later. This is also
+        # the check that was missing: register_team used to ignore the fee
+        # entirely, so paid events were free to anyone entering as a team.
+        paid_event = (event.entry_fee_cents or 0) > 0
+        entry = await self._team_entry(event_id, team_id)
+        if entry is None:
+            entry = EventTeamEntry(
+                event_id=event_id,
+                team_id=team_id,
+                paid_by_user_id=captain_id if paid_event else None,
+                payment_status="pending" if paid_event else "not_required",
+                amount_cents=event.entry_fee_cents or 0,
+                currency=event.currency if paid_event else None,
+            )
+            self.session.add(entry)
+
         participant = EventParticipant(
             event_id=event_id,
             participant_type="team",
@@ -278,11 +295,15 @@ class RegistrationService:
             await self.session.rollback()
             raise AppError(ErrorCode.ALREADY_REGISTERED, "team already registered")
 
-        await self.session.execute(
-            Event.__table__.update()
-            .where(Event.id == event_id)
-            .values(total_registered=Event.total_registered + 1)
-        )
+        # A seat that has not been paid for is held, not granted, so it does not
+        # count toward the event's total until the money settles. Confirming the
+        # payment is what increments this — see PaymentService.confirm.
+        if not paid_event:
+            await self.session.execute(
+                Event.__table__.update()
+                .where(Event.id == event_id)
+                .values(total_registered=Event.total_registered + 1)
+            )
         await self._recount_teams(event_id)
         await self.session.flush()
         log.info(
@@ -290,8 +311,31 @@ class RegistrationService:
             event_id=str(event_id),
             team_id=str(team_id),
             captain=str(captain_id),
+            payment_status=entry.payment_status,
         )
         return participant
+
+    async def _team_entry(self, event_id: UUID, team_id: UUID) -> EventTeamEntry | None:
+        """The team's entry row for this event, if it has one."""
+        result = await self.session.execute(
+            select(EventTeamEntry).where(
+                and_(
+                    EventTeamEntry.event_id == event_id,
+                    EventTeamEntry.team_id == team_id,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def team_has_entry(self, event_id: UUID, team_id: UUID) -> bool:
+        """Whether this team may play — the question every caller actually has.
+
+        Kept as one method so no caller has to know that 'paid' and
+        'not_required' both mean yes, or go looking for a row that a free event
+        still creates.
+        """
+        entry = await self._team_entry(event_id, team_id)
+        return entry is not None and entry.settled
 
     # =========================================================================
     # Unregister
@@ -356,15 +400,28 @@ class RegistrationService:
                     f"the team already has {taken} of {event.max_team_size} slots filled",
                 )
 
-        paid_event = (event.entry_fee_cents or 0) > 0
+        # A player added to a team does not owe anything. The team's entry was
+        # bought once, by the captain, and the roster is not what was bought —
+        # so this row is 'not_required' whatever the event costs. Marking it
+        # 'pending' was what made a mid-event substitution look unpaid, and it
+        # would have asked a captain to buy the same place twice.
+        #
+        # The team's own entry is what gates play, and it is checked when the
+        # captain registers the team, not here.
+        if not await self.team_has_entry(event_id, team_id):
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                "this team's entry is not settled yet — the captain needs to "
+                "complete payment before adding players",
+            )
+
         participant = EventParticipant(
             event_id=event_id,
             participant_type="team",
             user_id=user_id,
             team_id=team_id,
             team_name_at_event=team_name,
-            payment_status="pending" if paid_event else "not_required",
-            payment_currency=event.currency if paid_event else None,
+            payment_status="not_required",
         )
         self.session.add(participant)
         try:
@@ -373,12 +430,15 @@ class RegistrationService:
             await self.session.rollback()
             raise AppError(ErrorCode.ALREADY_REGISTERED, "that player is already entered")
 
-        if not paid_event:
-            await self.session.execute(
-                Event.__table__.update()
-                .where(Event.id == event_id)
-                .values(total_registered=Event.total_registered + 1)
-            )
+        # Counted unconditionally now. The old `if not paid_event` guard was
+        # holding the count back until this player paid, and this player never
+        # pays — the team's entry was settled before we got here, which the
+        # check above guarantees.
+        await self.session.execute(
+            Event.__table__.update()
+            .where(Event.id == event_id)
+            .values(total_registered=Event.total_registered + 1)
+        )
         await self._recount_teams(event_id)
         await self.session.flush()
         log.info(
