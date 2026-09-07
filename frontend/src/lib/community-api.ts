@@ -5,13 +5,16 @@
 import { api, ApiError } from "@/lib/api";
 import type { Paginated } from "@/types";
 import type {
-  CtfEvent,
+  ChallengeSolveResult,
   CtfChallenge,
+  CtfEvent,
   EventRoster,
   EventWriteup,
   MyWriteup,
+  PaymentMethod,
   ScoreboardRow,
-  ChallengeSolveResult,
+  TeamEntryStatus,
+  TeamPaymentIntent,
 } from "@/types/ctf";
 import type {
   ForumCategory,
@@ -65,6 +68,7 @@ interface ApiCtfEvent {
   id: string; slug: string; name: string; description: string | null;
   format: string; status: string; starts_at: string; ends_at: string;
   total_registered: number; total_teams: number; challenge_count: number;
+  entry_fee_cents?: number; currency?: string;
   scoreboard_visibility?: "public" | "participants" | "hidden";
   is_paused?: boolean;
   pause_starts_at?: string | null;
@@ -91,6 +95,8 @@ function mapCtfEvent(e: ApiCtfEvent, challengeCount?: number, isRegistered = fal
     startsAt: e.starts_at,
     endsAt: e.ends_at,
     participantCount: e.total_registered ?? 0,
+    entryFeeCents: e.entry_fee_cents ?? 0,
+    currency: e.currency ?? "USD",
     scoreboardVisibility: e.scoreboard_visibility ?? "public",
     isPaused: Boolean(e.is_paused),
     pauseStartsAt: e.pause_starts_at ?? null,
@@ -267,6 +273,53 @@ export const ctfApi = {
       `/v1/ctf/events/${await eventIdFor(slug)}/team-slots`,
     );
     return { maxTeamSize: res.max_team_size ?? null, counts: res.counts ?? {} };
+  },
+
+  /**
+   * Whether a team's entry fee is settled.
+   *
+   * Readable by any teammate, not just the captain: a player who cannot pay
+   * still needs to know whether they are waiting on someone who can.
+   */
+  teamEntryStatus: async (slug: string, teamId: string): Promise<TeamEntryStatus | null> => {
+    try {
+      const res = await api.get<RawTeamEntryStatus>(
+        `/v1/ctf/events/${await eventIdFor(slug)}/payment/team/${teamId}/status`,
+      );
+      return {
+        paymentStatus: res.payment_status,
+        settled: Boolean(res.settled),
+        amountCents: res.amount_cents ?? 0,
+        currency: res.currency ?? null,
+        paidByUserId: res.paid_by_user_id ?? null,
+      };
+    } catch {
+      // 404 means the team has not registered for this event at all, which is
+      // a normal state and not worth surfacing as an error.
+      return null;
+    }
+  },
+
+  /** Begin paying a team's entry fee. Captains only — the API enforces it. */
+  startTeamPayment: async (
+    slug: string,
+    teamId: string,
+    method: PaymentMethod,
+  ): Promise<TeamPaymentIntent> => {
+    const res = await api.post<RawTeamPaymentIntent>(
+      `/v1/ctf/events/${await eventIdFor(slug)}/payment/team/intent`,
+      { body: { team_id: teamId, method } },
+    );
+    return {
+      provider: res.provider,
+      method: res.method as PaymentMethod,
+      reference: res.reference,
+      amountCents: res.amount_cents,
+      currency: res.currency,
+      status: res.status,
+      methodsAvailable: (res.methods_available ?? []) as PaymentMethod[],
+      instructions: res.instructions ?? {},
+    };
   },
 
   /** The captain's team, marked with who is entered. */
@@ -528,3 +581,26 @@ export const writeupApi = {
   vote: (id: string, value: 1 | 0 | -1) =>
     api.post<void>(`/v1/writeups/${id}/vote`, { body: { value } }),
 };
+
+
+/* The wire shapes for paid-event endpoints. Snake case, exactly as the service
+   sends it; the mappers above are the only place the two spellings meet. */
+interface RawTeamEntryStatus {
+  team_id: string;
+  payment_status: string;
+  settled: boolean;
+  amount_cents: number;
+  currency: string | null;
+  paid_by_user_id: string | null;
+}
+
+interface RawTeamPaymentIntent {
+  provider: string;
+  method: string;
+  reference: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  methods_available: string[];
+  instructions: Record<string, unknown>;
+}

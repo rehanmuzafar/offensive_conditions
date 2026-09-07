@@ -38,6 +38,9 @@ export interface CtfEvent {
   startsAt: string;
   endsAt: string;
   participantCount: number;
+  /** Entry fee in minor units — 0 for a free event. Money is never a float. */
+  entryFeeCents: number;
+  currency: string;
   teamCount: number;
   challengeCount: number;
   prizePool: string | null;
@@ -148,4 +151,36 @@ export interface MyWriteup {
   /** How far down the board the requirement reaches; null means nobody owes one. */
   requiredTopN: number | null;
   allowedExtensions: string[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Paid events                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How a payer wants to settle, which is a different question from who
+ * processes it. One gateway can offer all three, so the provider is
+ * configuration and this is the only choice the player is asked to make.
+ */
+export type PaymentMethod = "card" | "jazzcash" | "easypaisa";
+
+export interface TeamEntryStatus {
+  paymentStatus: string;
+  /** True when the team may play — covers both 'paid' and a free event. */
+  settled: boolean;
+  amountCents: number;
+  currency: string | null;
+  paidByUserId: string | null;
+}
+
+export interface TeamPaymentIntent {
+  provider: string;
+  method: PaymentMethod;
+  /** Shown to the payer, and what a bank transfer is matched back by. */
+  reference: string;
+  amountCents: number;
+  currency: string;
+  status: string;
+  methodsAvailable: PaymentMethod[];
+  instructions: Record<string, unknown>;
 }

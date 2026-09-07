@@ -171,6 +171,24 @@ class RegistrationService:
         # the payment provider confirms, so the seat is held without granting
         # access. Free events register outright.
         paid_event = (event.entry_fee_cents or 0) > 0
+
+        # Two different things are being paid for depending on who is entering.
+        #
+        # A solo player buys their own seat, and their row carries the payment.
+        # A player entering under a team buys nothing: the team's entry was
+        # settled once by the captain and covers whoever is on the roster. So
+        # the fee is checked against the team here, and the row is marked
+        # 'not_required' — asking this player for money would be charging for
+        # the same place twice.
+        team_backed = team_id is not None and paid_event
+        if team_backed and not await self.team_has_entry(event_id, team_id):
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                "this team has not paid the entry fee yet — the captain needs "
+                "to complete payment before anyone can enter under it",
+            )
+
+        owes_payment = paid_event and not team_backed
         participant = EventParticipant(
             event_id=event_id,
             # "team" means this player is representing a team; the row is still
@@ -180,8 +198,8 @@ class RegistrationService:
             display_name=display_name,
             team_id=team_id,
             team_name_at_event=team_name,
-            payment_status="pending" if paid_event else "not_required",
-            payment_currency=event.currency if paid_event else None,
+            payment_status="pending" if owes_payment else "not_required",
+            payment_currency=event.currency if owes_payment else None,
         )
         self.session.add(participant)
         try:
@@ -190,8 +208,9 @@ class RegistrationService:
             await self.session.rollback()
             raise AppError(ErrorCode.ALREADY_REGISTERED, "already registered")
 
-        # Only completed registrations count toward the participant total.
-        if not paid_event:
+        # Only completed registrations count. A team-backed seat is complete on
+        # arrival — the team's entry was settled before we got here.
+        if not owes_payment:
             await self.session.execute(
                 Event.__table__.update()
                 .where(Event.id == event_id)

@@ -229,3 +229,36 @@ async def list_pending_team_payments(
         )
         for e in await svc.list_pending_teams(event_id)
     ]
+
+
+class TeamEntryStatus(BaseModel):
+    team_id: UUID
+    payment_status: str
+    settled: bool
+    amount_cents: int
+    currency: str | None
+    paid_by_user_id: UUID | None
+
+
+@router.get("/team/{team_id}/status", response_model=TeamEntryStatus)
+async def team_entry_status(
+    event_id: UUID,
+    team_id: UUID,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+) -> TeamEntryStatus:
+    """Whether a team's entry is settled.
+
+    Readable by any signed-in user, deliberately. Teammates need it to know
+    whether they are waiting on their captain, and it reveals nothing beyond
+    what the scoreboard already will — that this team is in the event.
+    """
+    entry = await svc.team_entry(event_id, team_id)
+    return TeamEntryStatus(
+        team_id=entry.team_id,
+        payment_status=entry.payment_status,
+        settled=entry.settled,
+        amount_cents=entry.amount_cents,
+        currency=entry.currency,
+        paid_by_user_id=entry.paid_by_user_id,
+    )

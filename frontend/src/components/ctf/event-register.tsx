@@ -15,11 +15,17 @@
  * taken, because "Alpha Squad 2/4" is the fact that decides whether entering
  * here is even possible — and, if the team is nearly full, whether a player
  * would rather enter under a different one.
+ *
+ * The entry fee is the one thing that is per team rather than per player. It is
+ * paid once, by the captain, and a paid event therefore has a second step: the
+ * team is registered first, then settled. The order matters — there is nothing
+ * to pay for until the team has an entry — and it is why the button reads
+ * "Continue" rather than "Register" when a fee applies.
  */
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Crown, Loader2, Users, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -29,15 +35,21 @@ import { ctfApi } from "@/lib/community-api";
 import { useCtfRegister } from "@/hooks/use-community";
 import { teamsApi, type Team } from "@/lib/teams-api";
 import { useAuthStore } from "@/stores/auth-store";
+import { TeamPaymentDialog, formatMoney } from "@/components/ctf/team-payment-dialog";
 
 export function EventRegister({
   slug,
   registered,
   teamPlay,
+  entryFeeCents = 0,
+  currency = "USD",
 }: {
   slug: string;
   registered: boolean;
   teamPlay: boolean;
+  /** Minor units. Above zero turns registration into a two-step flow. */
+  entryFeeCents?: number;
+  currency?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -53,8 +65,17 @@ export function EventRegister({
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Register</Button>
-      {open && <TeamPicker slug={slug} onClose={() => setOpen(false)} />}
+      <Button onClick={() => setOpen(true)}>
+        {entryFeeCents > 0 ? `Register · ${formatMoney(entryFeeCents, currency)}` : "Register"}
+      </Button>
+      {open && (
+        <TeamPicker
+          slug={slug}
+          entryFeeCents={entryFeeCents}
+          currency={currency}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -68,10 +89,30 @@ function SoloRegister({ slug }: { slug: string }) {
   );
 }
 
-function TeamPicker({ slug, onClose }: { slug: string; onClose: () => void }) {
+function TeamPicker({
+  slug,
+  entryFeeCents,
+  currency,
+  onClose,
+}: {
+  slug: string;
+  entryFeeCents: number;
+  currency: string;
+  onClose: () => void;
+}) {
   const me = useAuthStore((s) => s.user);
   const reg = useCtfRegister(slug);
   const [picked, setPicked] = useState<string | null>(null);
+
+  // For a paid event the fee comes first. A player cannot enter under a team
+  // whose entry is unsettled — the API refuses it — so registering before
+  // paying would just be an error message. The captain settles the entry, and
+  // everyone registers after that, including the captain.
+  const [paying, setPaying] = useState<{ id: string; name: string; captain: boolean } | null>(null);
+
+  const gate = useMutation({
+    mutationFn: async (teamId: string) => ctfApi.teamEntryStatus(slug, teamId),
+  });
 
   const teams = useQuery({ queryKey: ["my-teams"], queryFn: () => teamsApi.listMine() });
   const slots = useQuery({ queryKey: ["ctf-team-slots", slug], queryFn: () => ctfApi.teamSlots(slug) });
@@ -186,14 +227,50 @@ function TeamPicker({ slug, onClose }: { slug: string; onClose: () => void }) {
             Cancel
           </Button>
           <Button
-            loading={reg.isPending}
+            loading={reg.isPending || gate.isPending}
             disabled={!picked}
-            onClick={() => picked && reg.mutate(picked, { onSuccess: onClose })}
+            onClick={() => {
+              if (!picked) return;
+              const team = mine.find((t) => t.id === picked);
+
+              if (entryFeeCents <= 0 || !team) {
+                reg.mutate(picked, { onSuccess: onClose });
+                return;
+              }
+
+              // Settled already — a teammate arriving after the captain paid,
+              // or the captain coming back to take their own seat.
+              gate.mutate(picked, {
+                onSuccess: (status) => {
+                  if (status?.settled) {
+                    reg.mutate(picked, { onSuccess: onClose });
+                    return;
+                  }
+                  setPaying({
+                    id: team.id,
+                    name: team.name,
+                    captain: me?.id === team.owner_id,
+                  });
+                },
+              });
+            }}
           >
-            Register
+            {entryFeeCents > 0 ? "Continue" : "Register"}
           </Button>
         </footer>
       </div>
+
+      {paying && (
+        <TeamPaymentDialog
+          slug={slug}
+          teamId={paying.id}
+          teamName={paying.name}
+          amountCents={entryFeeCents}
+          currency={currency}
+          isCaptain={paying.captain}
+          onClose={onClose}
+        />
+      )}
     </div>
   );
 }

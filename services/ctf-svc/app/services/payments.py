@@ -247,10 +247,34 @@ class PaymentService:
         the only thing that can answer it. This method does not re-derive it,
         but it does record who paid.
         """
-        event, entry = await self._load_team(event_id, team_id)
+        event = (
+            await self.session.execute(select(Event).where(Event.id == event_id))
+        ).scalar_one_or_none()
+        if event is None:
+            raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
 
         if (event.entry_fee_cents or 0) <= 0:
             raise AppError(ErrorCode.VALIDATION, "this event is free")
+
+        # Created here rather than at registration, because for a paid event
+        # paying is what brings a team in: players cannot register under a team
+        # whose entry is unsettled, so the entry has to exist before anyone —
+        # including the captain — has a seat. The captain has already been
+        # verified by the API layer against user-svc.
+        entry = (
+            await self.session.execute(
+                select(EventTeamEntry).where(
+                    and_(
+                        EventTeamEntry.event_id == event_id,
+                        EventTeamEntry.team_id == team_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+        if entry is None:
+            entry = EventTeamEntry(event_id=event_id, team_id=team_id)
+            self.session.add(entry)
+            await self.session.flush()
         if entry.payment_status == "paid":
             raise AppError(ErrorCode.VALIDATION, "this team has already paid")
         if method not in SUPPORTED_METHODS:
@@ -363,6 +387,11 @@ class PaymentService:
             reference=entry.provider_reference,
             amount_cents=entry.amount_cents,
         )
+        return entry
+
+    async def team_entry(self, event_id: UUID, team_id: UUID) -> "EventTeamEntry":
+        """A team's entry, for callers that only want to read its state."""
+        _, entry = await self._load_team(event_id, team_id)
         return entry
 
     async def list_pending_teams(self, event_id: UUID) -> list["EventTeamEntry"]:
