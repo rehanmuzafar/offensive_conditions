@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import activity, chat, insights, payments, progress, challenges, events, health, team_stats, writeups, ws
+from app.api.v1 import activity, challenges, chat, events, health, insights, payments, progress, team_stats, webhooks, writeups, ws
 
 api_router = APIRouter()
 api_router.include_router(health.router)  # /livez, /readyz
@@ -10,6 +10,7 @@ api_router.include_router(health.router)  # /livez, /readyz
 v1 = APIRouter(prefix="/v1")
 v1.include_router(events.router)
 v1.include_router(payments.router)
+v1.include_router(webhooks.router)
 v1.include_router(progress.router)
 v1.include_router(chat.router)
 v1.include_router(activity.router)

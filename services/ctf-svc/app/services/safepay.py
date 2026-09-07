@@ -19,6 +19,7 @@ configuration change and never a code change.
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -125,3 +126,50 @@ class SafepayClient:
         if redirect_url:
             params["redirect_url"] = redirect_url
         return f"{self._base}/embedded/?{urlencode(params)}"
+
+    async def fetch_payment(self, tracker: str) -> dict[str, Any] | None:
+        """Ask Safepay what actually happened to a payment.
+
+        This is what a webhook is checked against, so it is deliberately the
+        only place the answer comes from. Returns the few fields that decide
+        whether an entry may be settled, flattened out of a response that nests
+        them three deep, or None when the question could not be answered — in
+        which case the caller settles nothing.
+        """
+        if not self.configured:
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.get(
+                    f"{self._base}/reporter/api/v2/payments/{tracker}",
+                    headers={
+                        "X-SFPY-MERCHANT-KEY": self._key,
+                        "X-SFPY-MERCHANT-SECRET": self._secret,
+                    },
+                )
+        except httpx.HTTPError as exc:
+            log.error("safepay_lookup_unreachable", tracker=tracker, error=str(exc))
+            return None
+
+        if res.status_code >= 400:
+            log.error("safepay_lookup_failed", tracker=tracker, status=res.status_code)
+            return None
+
+        try:
+            data = res.json()["data"]
+            base = (data.get("purchase_totals") or {}).get("base_amount") or {}
+            meta = data.get("metadata") or {}
+            order = meta.get("order_id") or {}
+            return {
+                "state": data.get("state"),
+                "amount": base.get("amount"),
+                "currency": base.get("currency"),
+                "api_key": (data.get("client") or {}).get("api_key"),
+                # Our own reference, which survives the round trip and is what
+                # a human uses to match a payment to a team by hand.
+                "order_id": order.get("value") if isinstance(order, dict) else order,
+            }
+        except (KeyError, TypeError, ValueError):
+            log.error("safepay_lookup_unexpected_shape", body=res.text[:400])
+            return None
