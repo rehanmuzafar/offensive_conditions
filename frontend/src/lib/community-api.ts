@@ -8,6 +8,7 @@ import type {
   ChallengeSolveResult,
   CtfChallenge,
   CtfEvent,
+  EventPrice,
   EventRoster,
   EventWriteup,
   MyWriteup,
@@ -300,6 +301,29 @@ export const ctfApi = {
     }
   },
 
+  /**
+   * What the event costs, in the viewer's currency where one is known.
+   *
+   * The region is sent from the profile rather than derived here, and it only
+   * affects the number shown — the charge is in the event's own currency, so a
+   * wrong or absent country costs nobody anything.
+   */
+  eventPrice: async (slug: string, region?: string | null): Promise<EventPrice> => {
+    const qs = region ? `?region=${encodeURIComponent(region)}` : "";
+    const res = await api.get<RawEventPrice>(
+      `/v1/ctf/events/${await eventIdFor(slug)}/payment/price${qs}`,
+    );
+    return {
+      baseCents: res.base_cents,
+      baseCurrency: res.base_currency,
+      displayCents: res.display_cents,
+      displayCurrency: res.display_currency,
+      converted: Boolean(res.converted),
+      displayMinorUnits: res.display_minor_units ?? 100,
+      baseMinorUnits: res.base_minor_units ?? 100,
+    };
+  },
+
   /** Begin paying a team's entry fee. Captains only — the API enforces it. */
   startTeamPayment: async (
     slug: string,
@@ -585,6 +609,16 @@ export const writeupApi = {
 
 /* The wire shapes for paid-event endpoints. Snake case, exactly as the service
    sends it; the mappers above are the only place the two spellings meet. */
+interface RawEventPrice {
+  base_cents: number;
+  base_currency: string;
+  display_cents: number;
+  display_currency: string;
+  converted: boolean;
+  display_minor_units: number;
+  base_minor_units: number;
+}
+
 interface RawTeamEntryStatus {
   team_id: string;
   payment_status: string;

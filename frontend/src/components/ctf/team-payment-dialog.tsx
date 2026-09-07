@@ -22,7 +22,7 @@ import { Building2, CreditCard, Loader2, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { ctfApi } from "@/lib/community-api";
-import type { PaymentMethod, TeamPaymentIntent } from "@/types/ctf";
+import type { EventPrice, PaymentMethod, TeamPaymentIntent } from "@/types/ctf";
 
 /**
  * Minor units to something a person reads.
@@ -30,12 +30,14 @@ import type { PaymentMethod, TeamPaymentIntent } from "@/types/ctf";
  * Intl handles the currency's own scale, which is the part worth not doing by
  * hand: dividing by 100 is right for PKR and USD and wrong for JPY.
  */
-export function formatMoney(cents: number, currency: string): string {
+export function formatMoney(cents: number, currency: string, minorUnits = 100): string {
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(cents / 100);
+    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(
+      cents / minorUnits,
+    );
   } catch {
     // An unknown currency code should not take the page down with it.
-    return `${(cents / 100).toFixed(2)} ${currency}`;
+    return `${(cents / minorUnits).toFixed(2)} ${currency}`;
   }
 }
 
@@ -51,6 +53,7 @@ export function TeamPaymentDialog({
   teamName,
   amountCents,
   currency,
+  price,
   isCaptain,
   onClose,
 }: {
@@ -59,6 +62,8 @@ export function TeamPaymentDialog({
   teamName: string;
   amountCents: number;
   currency: string;
+  /** Null while it loads, or when rates were unavailable. */
+  price: EventPrice | null;
   isCaptain: boolean;
   onClose: () => void;
 }) {
@@ -79,7 +84,16 @@ export function TeamPaymentDialog({
     },
   });
 
-  const amount = formatMoney(amountCents, currency);
+  // What will actually leave the captain's account, and what that is worth in
+  // their own money. Only the first is a promise.
+  const charged = formatMoney(
+    price?.baseCents ?? amountCents,
+    price?.baseCurrency ?? currency,
+    price?.baseMinorUnits,
+  );
+  const local = price?.converted
+    ? formatMoney(price.displayCents, price.displayCurrency, price.displayMinorUnits)
+    : null;
 
   return (
     <div
@@ -97,7 +111,10 @@ export function TeamPaymentDialog({
           <div>
             <h2 className="font-display text-[16px] font-bold tracking-mega">Entry fee</h2>
             <p className="mt-0.5 text-[12px] text-text-dim">
-              {teamName} · <span className="font-mono tabular-nums text-text">{amount}</span>
+              {teamName} ·{" "}
+              <span className="font-mono tabular-nums text-text">
+                {local ? `≈ ${local}` : charged}
+              </span>
             </p>
           </div>
           <button
@@ -158,6 +175,16 @@ export function TeamPaymentDialog({
               </p>
             )}
 
+            {local && (
+              /* The converted figure is a daily rate, not a quote. Saying which
+                 number is the bill — here, before the button — is the whole
+                 reason both are shown. */
+              <p className="mt-4 border border-line bg-surface px-3 py-2 text-[11.5px] leading-relaxed text-text-dim">
+                Charged as <span className="font-mono text-text">{charged}</span>. The{" "}
+                {local} figure is an approximate conversion, and your bank sets the final rate.
+              </p>
+            )}
+
             <p className="mt-4 text-[11.5px] leading-relaxed text-text-ghost">
               One payment covers the whole team. You can change who plays afterwards without
               paying again.
@@ -171,7 +198,7 @@ export function TeamPaymentDialog({
               Cancel
             </Button>
             <Button loading={pay.isPending} onClick={() => pay.mutate()}>
-              Pay {amount}
+              Pay {charged}
             </Button>
           </footer>
         )}

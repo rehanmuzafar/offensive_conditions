@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,9 @@ from app.core.errors import AppError, ErrorCode
 from app.db.session import get_session
 from app.services.payments import PaymentService
 from app.services.user_client import UserServiceClient
+from app.services.fx import FxService, currency_for_country, minor_units_for
+from app.models import Event
+from sqlalchemy import select
 
 router = APIRouter(prefix="/events/{event_id}/payment", tags=["payments"])
 
@@ -261,4 +264,93 @@ async def team_entry_status(
         amount_cents=entry.amount_cents,
         currency=entry.currency,
         paid_by_user_id=entry.paid_by_user_id,
+    )
+
+
+class EventPrice(BaseModel):
+    """What an event costs, and what that looks like to this viewer.
+
+    Two prices, deliberately. `base_*` is what will actually be charged, in the
+    currency the gateway settles. `display_*` is the same money expressed in
+    whatever the viewer thinks in, so the number means something before they
+    decide. When the two differ, `converted` is true and the UI is expected to
+    say "about" — the conversion is an approximation from a daily rate, and
+    presenting it as the bill would be a lie.
+    """
+
+    base_cents: int
+    base_currency: str
+    display_cents: int
+    display_currency: str
+    converted: bool
+    # How many minor units make one of display_currency: 100 for most, 1 for
+    # JPY, 1000 for KWD. Sent rather than derived on the client because the two
+    # would disagree — the browser's currency data follows display convention
+    # (it treats PKR as having no decimals) while amounts here are stored in
+    # ISO 4217 minor units, which for PKR is paisa. One authority, and it is
+    # whichever one the money is actually counted in.
+    display_minor_units: int
+    base_minor_units: int
+
+
+@router.get("/price", response_model=EventPrice)
+async def event_price(
+    event_id: UUID,
+    request: Request,
+    region: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> EventPrice:
+    """The entry fee, shown in the viewer's currency where one is known.
+
+    Unauthenticated on purpose: the price belongs on the event page, which
+    anyone can read, and asking someone to sign in to find out what something
+    costs is a poor way to sell it.
+    """
+    event = (
+        await session.execute(select(Event).where(Event.id == event_id))
+    ).scalar_one_or_none()
+    if event is None:
+        raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
+
+    base_cents = event.entry_fee_cents or 0
+    base_currency = (event.currency or "USD").upper()
+
+    # A free event has nothing to convert, and no country means USD, which is
+    # also the fallback for any country not in the table.
+    target = currency_for_country(region)
+    if base_cents <= 0 or target == base_currency:
+        return EventPrice(
+            base_cents=base_cents,
+            base_currency=base_currency,
+            display_cents=base_cents,
+            display_currency=base_currency,
+            converted=False,
+            display_minor_units=minor_units_for(base_currency),
+            base_minor_units=minor_units_for(base_currency),
+        )
+
+    fx = FxService(getattr(request.app.state, "redis", None))
+    converted = await fx.convert(base_cents, base_currency, target)
+
+    # Rates unavailable: show the real price rather than nothing. A currency
+    # service being down is not a reason to hide what an event costs.
+    if converted is None:
+        return EventPrice(
+            base_cents=base_cents,
+            base_currency=base_currency,
+            display_cents=base_cents,
+            display_currency=base_currency,
+            converted=False,
+            display_minor_units=minor_units_for(base_currency),
+            base_minor_units=minor_units_for(base_currency),
+        )
+
+    return EventPrice(
+        base_cents=base_cents,
+        base_currency=base_currency,
+        display_cents=converted,
+        display_currency=target,
+        converted=True,
+        display_minor_units=minor_units_for(target),
+        base_minor_units=minor_units_for(base_currency),
     )

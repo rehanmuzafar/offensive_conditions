@@ -184,3 +184,28 @@ export interface TeamPaymentIntent {
   methodsAvailable: PaymentMethod[];
   instructions: Record<string, unknown>;
 }
+
+/**
+ * An event's price as this viewer should see it.
+ *
+ * `base` is what gets charged. `display` is the same money in the viewer's own
+ * currency, converted from a rate refreshed once a day. When `converted` is
+ * true the two are different numbers for the same amount, and the UI has to
+ * say so — showing an approximation as if it were the bill is how people end
+ * up disputing a charge they thought they understood.
+ */
+export interface EventPrice {
+  baseCents: number;
+  baseCurrency: string;
+  displayCents: number;
+  displayCurrency: string;
+  converted: boolean;
+  /**
+   * Minor units per major unit for each currency — 100 for most, 1 for JPY,
+   * 1000 for KWD. Sent by the API rather than read from the browser's currency
+   * data, which follows display convention and disagrees: it treats PKR as
+   * having no decimals, while the amount here is counted in paisa.
+   */
+  displayMinorUnits: number;
+  baseMinorUnits: number;
+}

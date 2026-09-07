@@ -34,6 +34,7 @@ import { cn } from "@/lib/cn";
 import { ctfApi } from "@/lib/community-api";
 import { useCtfRegister } from "@/hooks/use-community";
 import { teamsApi, type Team } from "@/lib/teams-api";
+import type { EventPrice } from "@/types/ctf";
 import { useAuthStore } from "@/stores/auth-store";
 import { TeamPaymentDialog, formatMoney } from "@/components/ctf/team-payment-dialog";
 
@@ -52,6 +53,16 @@ export function EventRegister({
   currency?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const me = useAuthStore((s) => s.user);
+
+  // Only for a paid event, and only to change the number shown. The amount
+  // charged comes from the event itself, so this failing costs nothing.
+  const price = useQuery({
+    queryKey: ["ctf-price", slug, me?.country ?? null],
+    queryFn: () => ctfApi.eventPrice(slug, me?.country),
+    enabled: entryFeeCents > 0,
+    staleTime: 60 * 60 * 1000,
+  });
 
   if (registered) {
     return (
@@ -66,13 +77,20 @@ export function EventRegister({
   return (
     <>
       <Button onClick={() => setOpen(true)}>
-        {entryFeeCents > 0 ? `Register · ${formatMoney(entryFeeCents, currency)}` : "Register"}
+        {entryFeeCents > 0
+          ? `Register · ${formatMoney(
+              price.data?.displayCents ?? entryFeeCents,
+              price.data?.displayCurrency ?? currency,
+              price.data?.displayMinorUnits,
+            )}`
+          : "Register"}
       </Button>
       {open && (
         <TeamPicker
           slug={slug}
           entryFeeCents={entryFeeCents}
           currency={currency}
+          price={price.data ?? null}
           onClose={() => setOpen(false)}
         />
       )}
@@ -93,11 +111,13 @@ function TeamPicker({
   slug,
   entryFeeCents,
   currency,
+  price,
   onClose,
 }: {
   slug: string;
   entryFeeCents: number;
   currency: string;
+  price: EventPrice | null;
   onClose: () => void;
 }) {
   const me = useAuthStore((s) => s.user);
@@ -267,6 +287,7 @@ function TeamPicker({
           teamName={paying.name}
           amountCents={entryFeeCents}
           currency={currency}
+          price={price}
           isCaptain={paying.captain}
           onClose={onClose}
         />
