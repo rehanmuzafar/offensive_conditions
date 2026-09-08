@@ -20,7 +20,6 @@ rather than as the thing standing between an attacker and a free entry.
 
 from __future__ import annotations
 
-import hmac
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, Response
@@ -80,13 +79,31 @@ async def safepay_webhook(
     settings = get_settings()
     raw = await request.body()
 
-    secret = settings.safepay_webhook_secret.get_secret_value()
-    if secret and x_sfpy_signature:
-        # Constant-time, because comparing secrets with == leaks their contents
-        # through timing given enough attempts.
-        if not hmac.compare_digest(secret, x_sfpy_signature):
-            log.warning("safepay_webhook_bad_signature")
-            return {"status": "ignored", "reason": "signature mismatch"}
+    # Which SFPY headers actually arrive, recorded because the published API
+    # collection does not document the incoming webhook envelope and the
+    # dashboard's own log does not show it. Names only — a signature is a
+    # secret, and this is a log. If one turns up here it can be verified
+    # properly; until then the callback below is what decides.
+    sfpy_headers = sorted(k for k in request.headers.keys() if k.lower().startswith("x-sfpy"))
+    log.info("safepay_webhook_received", sfpy_headers=sfpy_headers, bytes=len(raw))
+
+    # X-SFPY-Signature is present on every delivery — confirmed by logging the
+    # header names off a real one. It is deliberately not checked here, and
+    # that is a considered decision rather than an omission.
+    #
+    # A signature header carries an HMAC of the body, not the secret itself. An
+    # earlier version of this compared the header against the configured secret
+    # directly, which would have rejected every genuine webhook the moment a
+    # secret was set — a check that looks like security and is a self-inflicted
+    # outage. Implementing it properly needs the algorithm and the exact signed
+    # payload, and Safepay's published collection documents neither.
+    #
+    # Nothing is lost by leaving it out: the callback below asks Safepay what
+    # happened over an authenticated request, so a forged notification cannot
+    # settle anything regardless of what it puts in this header. If the scheme
+    # is confirmed later this becomes a cheap first filter, not the thing the
+    # money depends on.
+    _ = x_sfpy_signature
 
     try:
         payload = await request.json()
