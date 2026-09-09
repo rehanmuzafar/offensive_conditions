@@ -15,9 +15,9 @@
  * organiser confirming a transfer is a real way to be paid, not a failure.
  */
 
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Building2, CreditCard, Loader2, Smartphone, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Building2, CheckCircle2, CreditCard, ExternalLink, Loader2, Smartphone, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -69,20 +69,64 @@ export function TeamPaymentDialog({
 }) {
   const [method, setMethod] = useState<PaymentMethod>("card");
   const [intent, setIntent] = useState<TeamPaymentIntent | null>(null);
+  const [awaiting, setAwaiting] = useState(false);
+  const qc = useQueryClient();
+
+  // Opened on the click itself, before any request. A tab opened later, from a
+  // promise callback, is a popup as far as the browser is concerned and gets
+  // blocked — so the tab is claimed while the click is still on the stack and
+  // pointed somewhere once the URL arrives.
+  const tab = useRef<Window | null>(null);
+
+  /**
+   * Watch for the payment landing, because the gateway will not tell us.
+   *
+   * Safepay's quick links take no return URL — every field tried for one was
+   * accepted with 200 and silently discarded, which was checked by reading the
+   * link back rather than trusting the status code. So there is nothing to
+   * redirect the payer home, and without this they would finish paying on a
+   * page belonging to someone else with no sign that it worked.
+   *
+   * Polling here is not a fallback for the webhook. The webhook is what settles
+   * the entry; this only notices that it has, so the two cannot disagree.
+   */
+  const watch = useQuery({
+    queryKey: ["team-entry-status", slug, teamId],
+    queryFn: () => ctfApi.teamEntryStatus(slug, teamId),
+    enabled: awaiting,
+    refetchInterval: 3000,
+  });
+
+  const settled = Boolean(watch.data?.settled);
+
+  useEffect(() => {
+    if (!settled) return;
+    // The captain is entered by the webhook that settles the payment, so what
+    // is stale here is the event itself, not just this dialog.
+    void qc.invalidateQueries({ queryKey: ["ctf-event", slug] });
+    void qc.invalidateQueries({ queryKey: ["ctf-events"] });
+  }, [settled, qc, slug]);
 
   const pay = useMutation({
     mutationFn: () => ctfApi.startTeamPayment(slug, teamId, method),
     onSuccess: (data) => {
       const url = data.instructions?.redirect_url;
-      // A gateway hands back somewhere to go. Bank details do not, and the
-      // panel below shows them instead.
       if (typeof url === "string" && url) {
-        window.location.href = url;
+        if (tab.current && !tab.current.closed) tab.current.location.href = url;
+        else window.open(url, "_blank", "noopener");
+        setAwaiting(true);
         return;
       }
+      // Bank details rather than a gateway: nothing to open, and the panel
+      // below shows what to transfer.
+      tab.current?.close();
       setIntent(data);
     },
+    onError: () => tab.current?.close(),
   });
+
+  // Kept so a payer who closed the tab by accident can get back to it.
+  const paymentUrl = pay.data?.instructions?.redirect_url;
 
   // What will actually leave the captain's account, and what that is worth in
   // their own money. Only the first is a promise.
@@ -133,6 +177,33 @@ export function TeamPaymentDialog({
               One entry covers everyone, so nobody else is charged — and the roster can still
               change afterwards.
             </p>
+          </div>
+        ) : settled ? (
+          <div className="px-5 py-10 text-center">
+            <CheckCircle2 className="mx-auto h-8 w-8 text-success" />
+            <p className="mt-3 font-display text-[15px] font-bold">Payment received</p>
+            <p className="mt-1.5 text-[12.5px] text-text-dim">
+              {teamName} is in, and you have been entered. Your teammates can register now.
+            </p>
+          </div>
+        ) : awaiting ? (
+          <div className="px-5 py-10 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-text-faint" />
+            <p className="mt-3 text-[13.5px] text-text">Waiting for the payment to complete</p>
+            <p className="mt-1.5 text-[12.5px] text-text-dim">
+              Finish paying in the tab that opened. This page updates on its own — there is
+              nothing to click here.
+            </p>
+            {typeof paymentUrl === "string" && paymentUrl && (
+              <a
+                href={paymentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-accent hover:underline"
+              >
+                Reopen the payment page <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
           </div>
         ) : intent ? (
           <BankInstructions intent={intent} />
@@ -192,12 +263,25 @@ export function TeamPaymentDialog({
           </div>
         )}
 
-        {isCaptain && !intent && (
+        {settled && (
+          <footer className="flex items-center justify-end border-t border-line px-5 py-4">
+            <Button onClick={onClose}>Done</Button>
+          </footer>
+        )}
+
+        {isCaptain && !intent && !awaiting && !settled && (
           <footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-4">
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button loading={pay.isPending} onClick={() => pay.mutate()}>
+            <Button
+              loading={pay.isPending}
+              onClick={() => {
+                // Claimed synchronously; see the note on `tab`.
+                tab.current = window.open("", "_blank");
+                pay.mutate();
+              }}
+            >
               Pay {charged}
             </Button>
           </footer>
