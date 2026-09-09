@@ -139,7 +139,7 @@ export function AuthBootstrap() {
         // reload replays a revoked token and the family gets killed.
         setRefreshToken(res.refresh_token);
         // Fetch fresh profile now that we have a token.
-        const user = await authApi.me();
+        const user = await authApi.meWithProfile();
         if (!cancelled) setUser(user);
       } catch {
         // Expired or revoked refresh token — stay logged out, that's fine.

@@ -52,6 +52,9 @@ class EventCreate(BaseModel):
     max_team_size: int | None = Field(default=4, ge=1, le=20)
     registration_starts_at: datetime
     registration_ends_at: datetime
+    # When true the field above is ignored and the event's own end is used,
+    # so players can still enter while it is running.
+    registration_until_end: bool = True
     starts_at: datetime
     ends_at: datetime
     scoreboard_freeze_at: datetime | None = None
@@ -131,6 +134,7 @@ class EventUpdate(BaseModel):
     registration_starts_at: datetime | None = None
     # Schedule extension only allowed before start
     registration_ends_at: datetime | None = None
+    registration_until_end: bool | None = None
     ends_at: datetime | None = None
 
 
@@ -148,6 +152,7 @@ class EventRead(BaseModel):
     max_team_size: int | None = None
     registration_starts_at: datetime
     registration_ends_at: datetime
+    registration_until_end: bool = True
     starts_at: datetime
     ends_at: datetime
     scoreboard_freeze_at: datetime | None = None

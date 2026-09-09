@@ -103,6 +103,7 @@ export interface AdminCtfEvent {
   max_team_size: number | null;
   registration_starts_at: string;
   registration_ends_at: string;
+  registration_until_end?: boolean;
   starts_at: string;
   ends_at: string;
   scoreboard_freeze_at: string | null;
@@ -144,6 +145,7 @@ export interface CtfEventCreateInput {
   max_team_size?: number | null;
   registration_starts_at: string;
   registration_ends_at: string;
+  registration_until_end?: boolean;
   starts_at: string;
   ends_at: string;
   scoreboard_freeze_at?: string | null;

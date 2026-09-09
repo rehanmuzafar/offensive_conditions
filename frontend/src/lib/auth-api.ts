@@ -4,6 +4,7 @@
  */
 
 import { api } from "@/lib/api";
+import { settingsApi } from "@/lib/account-api";
 import type {
   AccountIdentity,
   AuthTokens,
@@ -53,6 +54,29 @@ export const authApi = {
     ),
 
   /** Current user profile. The auth-svc returns snake_case fields — map them to AuthUser. */
+  /**
+   * The signed-in user, with their country filled in.
+   *
+   * auth-svc's /me returns `country: null` unconditionally — it does not hold
+   * the field. The country lives on the user-svc profile, and without it the
+   * price endpoint has no region to work from and quotes everyone in dollars.
+   * That is what made a PKR-priced event read "$9" to someone who had set
+   * their country to Pakistan.
+   *
+   * Merged here rather than at each call site so nothing else has to know that
+   * one user is assembled from two services. A profile that fails to load
+   * costs the country and nothing else — the session is still valid.
+   */
+  meWithProfile: async (): Promise<AuthUser> => {
+    const user = await authApi.me();
+    try {
+      const profile = await settingsApi.getProfile();
+      return { ...user, country: profile.country || null };
+    } catch {
+      return user;
+    }
+  },
+
   me: async (): Promise<AuthUser> => {
     const r = await api.get<{
       user_id: string;

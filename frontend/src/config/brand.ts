@@ -63,7 +63,11 @@ export const BRAND: BrandConfig = {
   logoMark: "/offcon-mark.png", // e.g. "/logo-mark.svg"
   // ⬆⬆⬆  (left null → inline SVG placeholder renders automatically)  ⬆⬆⬆
 
-  favicon: "/favicon.ico",
+  // SVG rather than .ico: the mark is a silhouette with cut-out sockets, and a
+  // 16px .ico loses the face. Every browser that matters has taken SVG icons
+  // for years, and one file covers every size a tab, bookmark or pinned shortcut
+  // asks for.
+  favicon: "/favicon.svg",
   name: "OFFCON",
   fullName: "Offensive Conditions",
   tagline: "Forge yourself in offensive security.",

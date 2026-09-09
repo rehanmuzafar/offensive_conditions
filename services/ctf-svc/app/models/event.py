@@ -50,6 +50,17 @@ class Event(Base, TimestampMixin):
     # Timing
     registration_starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     registration_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # When true, the column above is ignored and the event's own end is used.
+    # Kept rather than rewritten so switching back to a fixed cut-off restores
+    # the date the organiser set instead of quietly losing it.
+    registration_until_end: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    @property
+    def registration_closes_at(self) -> datetime:
+        """When registration actually shuts, whichever rule the event uses."""
+        return self.ends_at if self.registration_until_end else self.registration_ends_at
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scoreboard_freeze_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

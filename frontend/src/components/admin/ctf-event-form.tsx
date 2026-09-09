@@ -51,6 +51,9 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
   const [maxTeamSize, setMaxTeamSize] = useState(4);
   const [regStart, setRegStart] = useState(plusHours(0));
   const [regEnd, setRegEnd] = useState(plusHours(24));
+  // On by default. Closing entries before an event finishes turns away players
+  // who could still have played; organisers who need a fixed roster turn it off.
+  const [regUntilEnd, setRegUntilEnd] = useState(true);
   const [start, setStart] = useState(plusHours(24));
   const [end, setEnd] = useState(plusHours(72));
   const [tier, setTier] = useState<CtfRequiredTier>("free");
@@ -90,9 +93,13 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
     const re = new Date(regEnd).getTime();
     const st = new Date(start).getTime();
     const en = new Date(end).getTime();
-    if ([rs, re, st, en].some(Number.isNaN)) return "All four dates are required";
-    if (!(rs < re)) return "Registration must open before it closes";
-    if (!(re <= st)) return "Registration must close at or before the event starts";
+    // The closing date is only a date when the event uses one.
+    if ([rs, st, en].some(Number.isNaN)) return "Every date is required";
+    if (!regUntilEnd) {
+      if (Number.isNaN(re)) return "Every date is required";
+      if (!(rs < re)) return "Registration must open before it closes";
+      if (!(re <= st)) return "Registration must close at or before the event starts";
+    }
     if (!(st < en)) return "The event must start before it ends";
     if (isPaid && !(Number(fee) > 0)) return "A paid event needs an entry fee above 0";
     return null;
@@ -117,7 +124,10 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         solo_play: !teamPlay,
         max_team_size: teamPlay ? maxTeamSize : null,
         registration_starts_at: toIso(regStart),
-        registration_ends_at: toIso(regEnd),
+        // Still sent when registration runs to the end, so switching back to a
+        // fixed cut-off restores the date rather than starting from blank.
+        registration_ends_at: toIso(regUntilEnd ? end : regEnd),
+        registration_until_end: regUntilEnd,
         starts_at: toIso(start),
         ends_at: toIso(end),
         dynamic_scoring: dynamicScoring,
@@ -200,7 +210,29 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
           </div>
           <div>
             <label className={label}>Registration closes</label>
-            <input type="datetime-local" className={field} value={regEnd} onChange={(e) => { setRegEnd(e.target.value); if (new Date(e.target.value) > new Date(start)) setStart(e.target.value); }} />
+            <label className="mb-2 flex items-center gap-2 text-[12.5px] text-text-dim">
+              <input
+                type="checkbox"
+                checked={regUntilEnd}
+                onChange={(e) => setRegUntilEnd(e.target.checked)}
+              />
+              When the event ends
+            </label>
+            <input
+              type="datetime-local"
+              className={field}
+              value={regUntilEnd ? end : regEnd}
+              disabled={regUntilEnd}
+              onChange={(e) => {
+                setRegEnd(e.target.value);
+                if (new Date(e.target.value) > new Date(start)) setStart(e.target.value);
+              }}
+            />
+            <p className="mt-1 text-[11.5px] text-text-ghost">
+              {regUntilEnd
+                ? "Players can enter while the event is running — a late entrant just has less time on the clock."
+                : "Entries shut at this moment, whatever the event is still doing."}
+            </p>
           </div>
           <div>
             <label className={label}>Event starts</label>

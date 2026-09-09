@@ -41,7 +41,10 @@ class RegistrationService:
                 ErrorCode.EVENT_NOT_REGISTRATION_OPEN,
                 "registration not yet open",
             )
-        if now > event.registration_ends_at:
+        # registration_closes_at, not registration_ends_at: an event may be set
+        # to accept players right up to its own finish, in which case the stored
+        # cut-off is not the one in force.
+        if now > event.registration_closes_at:
             raise AppError(
                 ErrorCode.EVENT_NOT_REGISTRATION_OPEN,
                 "registration window closed",

@@ -80,7 +80,7 @@ export function useLogin() {
 
       // Replace the email-derived shell with the real profile (correct username/tier).
       try {
-        const full = await authApi.me();
+        const full = await authApi.meWithProfile();
         setUser(full);
       } catch {
         // Non-fatal: the topbar falls back to the email-derived username.
