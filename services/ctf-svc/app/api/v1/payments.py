@@ -171,13 +171,16 @@ async def create_team_payment_intent(
     idea of who leads a team is the one mistake that would let the wrong person
     spend the team's money.
     """
-    await UserServiceClient(get_settings()).get_team_for_registration(
+    team_name, _ = await UserServiceClient(get_settings()).get_team_for_registration(
         body.team_id, bearer=authorization or "", actor_id=claims.user_id
     )
     data = await svc.create_team_intent(
         event_id,
         team_id=body.team_id,
         captain_id=claims.user_id,
+        # Carried through so settling the payment can enter the captain. A
+        # webhook has no bearer token and cannot ask user-svc for this.
+        team_name=team_name,
         method=body.method,
     )
     return TeamIntentResponse(**data)

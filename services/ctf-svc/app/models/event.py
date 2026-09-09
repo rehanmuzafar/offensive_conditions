@@ -541,6 +541,10 @@ class EventTeamEntry(Base):
     # hands and that must not rewrite who the transaction belonged to.
     paid_by_user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
 
+    # Kept so a webhook can enter the captain without asking user-svc, which it
+    # cannot do: it arrives with no caller and no bearer token.
+    team_name: Mapped[str | None] = mapped_column(Text)
+
     payment_status: Mapped[str] = mapped_column(
         Text, nullable=False, default="pending", server_default="pending"
     )

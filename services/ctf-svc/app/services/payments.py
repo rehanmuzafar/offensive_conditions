@@ -239,6 +239,7 @@ class PaymentService:
         *,
         team_id: UUID,
         captain_id: UUID,
+        team_name: str | None = None,
         method: str = "card",
     ) -> dict[str, Any]:
         """Start payment for a team's entry.
@@ -291,6 +292,8 @@ class PaymentService:
 
         entry.payment_status = "pending"
         entry.paid_by_user_id = captain_id
+        if team_name:
+            entry.team_name = team_name
         entry.provider = self.provider
         entry.provider_reference = reference
         entry.amount_cents = event.entry_fee_cents
@@ -403,6 +406,47 @@ class PaymentService:
             .values(total_registered=Event.total_registered + 1)
         )
         await self.session.flush()
+
+        # Put the captain in the event.
+        #
+        # Without this, paying gets a team an entry and puts nobody in it: the
+        # captain is returned to the gateway's own page, and unless they find
+        # their way back and register, they have paid for a place they do not
+        # occupy. Registering here closes that gap at the only moment we know
+        # for certain both that the money arrived and who sent it.
+        #
+        # Deliberately only the captain. The rest of the roster still enters
+        # itself — the entry is what the team bought, and who plays under it is
+        # the captain's decision to make later.
+        if entry.paid_by_user_id:
+            already = (
+                await self.session.execute(
+                    select(EventParticipant.id).where(
+                        and_(
+                            EventParticipant.event_id == event_id,
+                            EventParticipant.user_id == entry.paid_by_user_id,
+                        )
+                    )
+                )
+            ).scalar_one_or_none()
+            if already is None:
+                self.session.add(
+                    EventParticipant(
+                        event_id=event_id,
+                        participant_type="team",
+                        user_id=entry.paid_by_user_id,
+                        team_id=team_id,
+                        team_name_at_event=entry.team_name,
+                        payment_status="not_required",
+                    )
+                )
+                await self.session.flush()
+                log.info(
+                    "captain_auto_registered",
+                    event_id=str(event_id),
+                    team_id=str(team_id),
+                    user_id=str(entry.paid_by_user_id),
+                )
 
         log.info(
             "team_payment_confirmed",
