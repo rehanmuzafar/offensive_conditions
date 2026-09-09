@@ -20,13 +20,13 @@ configuration change and never a code change.
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlencode
 
 import httpx
 
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
+from app.services.fx import minor_units_for
 
 log = get_logger("safepay")
 
@@ -42,19 +42,28 @@ class SafepayClient:
     def configured(self) -> bool:
         return bool(self._key and self._secret)
 
-    async def create_tracker(
+    async def create_checkout(
         self,
         *,
         amount_minor: int,
         currency: str,
         reference: str,
-    ) -> str:
-        """Open a payment session and return its tracker token.
+    ) -> tuple[str, str]:
+        """Open a hosted payment page and return (tracker, url).
 
-        The amount is sent in minor units, matching how it is stored — no
-        conversion here, because a rounding step between the price shown and the
-        amount charged is exactly the kind of thing nobody notices until the
-        numbers disagree.
+        A quick link rather than a tracker on its own. The tracker endpoint
+        exists and creates a payment session happily, but the checkout page it
+        is meant to be paired with is a minified single-page app whose
+        parameters are not documented anywhere — the obvious guess produced
+        "Unable to make request" and reading the bundle showed the name I had
+        taken for a checkout parameter was Google Analytics' transport setting.
+        Reverse-engineering someone's checkout to take money through it is the
+        wrong shape of solution.
+
+        The quick link is documented, works, and happens to fit better: it
+        returns the tracker up front, so the webhook still matches on the same
+        value it always did, and it carries our reference unchanged for anyone
+        reconciling a payment by hand.
         """
         if not self.configured:
             raise AppError(
@@ -62,27 +71,25 @@ class SafepayClient:
                 "safepay is selected but its keys are not configured",
             )
 
-        # metadata takes exactly two keys. Safepay validates the set and answers
-        # 500 with "unsupported meta key <name>" for anything else, so this is
-        # not a place to stash event or team ids — verified against sandbox,
-        # which rejected every other name tried.
-        #
-        # Nothing is lost by that: the tracker is written onto the team's entry
-        # as provider_reference the moment it is created, so a webhook is
-        # matched by the token rather than by anything carried here.
+        # Major units, not minor. Quick links take rupees where the rest of this
+        # codebase counts paisa, and sending the stored value straight through
+        # displayed ₨250,000.00 for a ₨2,500.00 fee — a hundred times the
+        # price, on a page a customer was about to pay from. Caught by reading
+        # the rendered page rather than the API's 200.
+        major = amount_minor / minor_units_for(currency)
+
         payload = {
-            "merchant_api_key": self._key,
-            "intent": "CYBERSOURCE",
-            "mode": "payment",
+            "amount": int(major) if major == int(major) else major,
             "currency": currency.upper(),
-            "amount": amount_minor,
-            "metadata": {"order_id": reference, "source": "offcon"},
+            "note": f"OFFCON entry fee — {reference}",
+            "workflow": "MANUAL",
+            "reference": reference,
         }
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 res = await client.post(
-                    f"{self._base}/order/payments/v3/",
+                    f"{self._base}/invoice/quick-links/v2/",
                     json=payload,
                     headers={
                         "X-SFPY-MERCHANT-KEY": self._key,
@@ -97,8 +104,8 @@ class SafepayClient:
             ) from exc
 
         if res.status_code >= 400:
-            # The body is logged and not returned: a gateway's error text can
-            # carry account details, and the payer can do nothing with it.
+            # Logged, not returned: a gateway's error text can carry account
+            # details, and the payer can do nothing with it.
             log.error(
                 "safepay_rejected",
                 status=res.status_code,
@@ -108,24 +115,24 @@ class SafepayClient:
             raise AppError(ErrorCode.INTERNAL, "the payment provider refused the request")
 
         try:
-            token = res.json()["data"]["tracker"]["token"]
-        except (KeyError, TypeError, ValueError):
+            data = res.json()["data"]
+            tracker = data["payment"][0]["sp_tracker"]
+            url = next(
+                m["recipient_view_url"]
+                for m in data["metadata"]
+                if m.get("recipient_view_url")
+            )
+        except (KeyError, IndexError, TypeError, ValueError, StopIteration):
             log.error("safepay_unexpected_shape", body=res.text[:500])
             raise AppError(ErrorCode.INTERNAL, "unexpected response from the payment provider")
 
-        log.info("safepay_tracker_created", tracker=token, reference=reference)
-        return str(token)
-
-    def checkout_url(self, tracker: str, *, redirect_url: str | None = None) -> str:
-        """Where to send the payer once a tracker exists."""
-        params: dict[str, str] = {
-            "beacon": tracker,
-            "env": "production" if self._s.safepay_environment.lower() == "production" else "sandbox",
-            "source": "custom",
-        }
-        if redirect_url:
-            params["redirect_url"] = redirect_url
-        return f"{self._base}/embedded/?{urlencode(params)}"
+        log.info(
+            "safepay_checkout_created",
+            tracker=tracker,
+            link=data.get("id"),
+            reference=reference,
+        )
+        return str(tracker), str(url)
 
     async def fetch_payment(self, tracker: str) -> dict[str, Any] | None:
         """Ask Safepay what actually happened to a payment.

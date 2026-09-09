@@ -331,7 +331,7 @@ class PaymentService:
                     "note": "safepay keys are not configured yet",
                 }
             else:
-                tracker = await client.create_tracker(
+                tracker, checkout_url = await client.create_checkout(
                     amount_minor=event.entry_fee_cents,
                     currency=event.currency,
                     reference=reference,
@@ -345,7 +345,7 @@ class PaymentService:
                 payload["reference"] = tracker
                 payload["instructions"] = {
                     "method": "redirect",
-                    "redirect_url": client.checkout_url(tracker),
+                    "redirect_url": checkout_url,
                     "note": "",
                 }
         else:
