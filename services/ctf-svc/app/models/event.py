@@ -78,10 +78,14 @@ class Event(Base, TimestampMixin):
     currency: Mapped[str] = mapped_column(Text, nullable=False, default="USD", server_default="USD")
     refund_policy: Mapped[str | None] = mapped_column(Text)
     # Whether to also show the fee converted into the viewer's own currency.
-    # Off by default: the base price is what gets charged, and showing exactly
-    # that is the answer that is never wrong.
+    #
+    # On by default, which is the opposite of what it started as. The gateway
+    # settles in PKR whatever the event is priced in, so quoting USD does not
+    # avoid a conversion — it only hides one. Pricing in PKR and showing the
+    # visitor an approximation in their own money keeps the charged figure and
+    # the displayed figure the same number.
     show_local_price: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
+        Boolean, nullable=False, default=True, server_default="true"
     )
     invitation_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     invitation_code: Mapped[str | None] = mapped_column(Text)
