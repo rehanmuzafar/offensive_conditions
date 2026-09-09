@@ -77,6 +77,12 @@ class Event(Base, TimestampMixin):
     entry_fee_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     currency: Mapped[str] = mapped_column(Text, nullable=False, default="USD", server_default="USD")
     refund_policy: Mapped[str | None] = mapped_column(Text)
+    # Whether to also show the fee converted into the viewer's own currency.
+    # Off by default: the base price is what gets charged, and showing exactly
+    # that is the answer that is never wrong.
+    show_local_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     invitation_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     invitation_code: Mapped[str | None] = mapped_column(Text)
     max_participants: Mapped[int | None] = mapped_column(Integer)

@@ -317,7 +317,9 @@ async def event_price(
 
     # A free event has nothing to convert, and no country means USD, which is
     # also the fallback for any country not in the table.
-    target = currency_for_country(region)
+    # An event that has not opted in shows its own currency to everyone, which
+    # is also what a free event and a matching currency do.
+    target = currency_for_country(region) if event.show_local_price else base_currency
     if base_cents <= 0 or target == base_currency:
         return EventPrice(
             base_cents=base_cents,
