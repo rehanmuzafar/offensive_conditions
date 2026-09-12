@@ -31,6 +31,11 @@ services:
   # Infrastructure
   # ==========================================================================
   postgres:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       # From .env, like every service's DB_PASSWORD. This was a literal, which
@@ -53,6 +58,11 @@ services:
     networks: [offcon]
 
   redis:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: redis:7-alpine
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     ports: ["6379:6379"]
@@ -66,6 +76,11 @@ services:
 
   # Kafka in KRaft mode — no Zookeeper needed (official Apache image)
   kafka:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: apache/kafka:3.9.0
     ports: ["9092:9092"]
     environment:
@@ -86,6 +101,11 @@ services:
     networks: [offcon]
 
   minio:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     # quay.io, not Docker Hub. MinIO's Docker Hub repository now answers
     # "pull access denied ... repository does not exist" for minio/minio, so a
     # machine without the image already cached cannot start the stack at all.
@@ -135,6 +155,11 @@ services:
     networks: [offcon]
 
   mailpit:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: axllent/mailpit:latest
     ports: ["8025:8025", "1025:1025"]
     networks: [offcon]
@@ -365,6 +390,11 @@ services:
   # stand-in for local dev; production uses the Istio gateway from Phase 14).
   # ==========================================================================
   edge:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: nginx:1.27-alpine
     # TLS as well as plain HTTP. The surfaces live on a real domain (see
     # NEXT_PUBLIC_ROOT_DOMAIN) and browsers upgrade a real domain to https, so
