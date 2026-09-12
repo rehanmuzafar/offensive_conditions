@@ -163,7 +163,7 @@ func (h *ProfileHandler) SetAccountType(c *gin.Context) {
 		c.Request.Context(), uid,
 		req.AccountType, strings.TrimSpace(req.CompanyName), strings.TrimSpace(req.CompanyWebsite),
 	); err != nil {
-		respondError(c, err)
+		respondError(c, asUErr(err))
 		return
 	}
 	c.JSON(200, gin.H{"account_type": req.AccountType, "onboarding_complete": true})

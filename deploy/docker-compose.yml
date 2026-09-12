@@ -86,7 +86,11 @@ services:
     networks: [offcon]
 
   minio:
-    image: minio/minio:latest
+    # quay.io, not Docker Hub. MinIO's Docker Hub repository now answers
+    # "pull access denied ... repository does not exist" for minio/minio, so a
+    # machine without the image already cached cannot start the stack at all.
+    # quay.io is where the project publishes them.
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       # From .env, so bootstrap.sh can generate them and keep every service's
