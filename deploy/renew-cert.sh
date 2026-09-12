@@ -15,8 +15,14 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-export PATH="/opt/homebrew/Cellar/docker/29.2.1/bin:$PATH"
-export DOCKER_HOST="unix:///Users/mac/.colima/default/docker.sock"
+# The colima paths this used to hard-code only existed on one laptop, and the
+# script silently did nothing anywhere else — including on the server that now
+# owns the certificate. Set them only when that laptop's socket is actually
+# present, so the same file works in both places.
+if [ -S "$HOME/.colima/default/docker.sock" ]; then
+  export PATH="/opt/homebrew/Cellar/docker/29.2.1/bin:$PATH"
+  export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+fi
 
 DOMAIN="$(grep -E '^NEXT_PUBLIC_ROOT_DOMAIN=' .env | cut -d= -f2)"
 [[ -n "$DOMAIN" ]] || { echo "no NEXT_PUBLIC_ROOT_DOMAIN in .env" >&2; exit 1; }
