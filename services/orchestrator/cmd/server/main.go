@@ -169,6 +169,7 @@ func run() error {
 		dockerBe, err := dockerbackend.New(dockerbackend.Options{
 			Host:        os.Getenv("DOCKER_HOST_ADDR"),
 			PublicHost:  os.Getenv("DOCKER_PUBLIC_HOST"),
+			PortRange:   os.Getenv("DOCKER_PORT_RANGE"),
 			Network:     os.Getenv("DOCKER_NETWORK"),
 			AllowEgress: os.Getenv("DOCKER_ALLOW_EGRESS") == "true",
 		})
@@ -178,6 +179,7 @@ func run() error {
 			k8sBe = dockerBe
 			logger.Info().
 				Str("public_host", os.Getenv("DOCKER_PUBLIC_HOST")).
+				Str("port_range", os.Getenv("DOCKER_PORT_RANGE")).
 				Msg("using Docker backend for container instances")
 		}
 	}

@@ -44,6 +44,11 @@ type Options struct {
 	// Egress, when false, starts containers with networking that cannot reach
 	// the internet — so the box cannot be used to attack third parties.
 	AllowEgress bool
+	// PortRange bounds the host ports challenges are published on, as
+	// "40000-40199". Without it Docker picks from the kernel's ephemeral
+	// range, which is far too wide to forward through a home router. Docker
+	// itself walks the range and takes the first free port.
+	PortRange string
 }
 
 type Backend struct {
@@ -59,6 +64,14 @@ func New(opts Options) (*Backend, error) {
 	if opts.PublicHost == "" {
 		return nil, fmt.Errorf("docker backend: PublicHost is required; " +
 			"the daemon cannot tell us the address players should connect to")
+	}
+	if opts.PortRange != "" {
+		lo, hi, err := parsePortRange(opts.PortRange)
+		if err != nil {
+			return nil, fmt.Errorf("docker backend: PortRange %q: %w", opts.PortRange, err)
+		}
+		// Normalise, so a stray space or reversed pair cannot reach Docker.
+		opts.PortRange = strconv.Itoa(lo) + "-" + strconv.Itoa(hi)
 	}
 
 	transport := &http.Transport{}
@@ -144,8 +157,9 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 	for _, p := range req.Ports {
 		key := strconv.Itoa(p) + "/tcp"
 		exposed[key] = struct{}{}
-		// An empty HostPort tells Docker to pick a free one.
-		bindings[key] = []map[string]string{{"HostPort": ""}}
+		// An empty HostPort tells Docker to pick a free one; a range
+		// confines that choice to ports the router actually forwards.
+		bindings[key] = []map[string]string{{"HostPort": b.opts.PortRange}}
 	}
 
 	hostConfig := map[string]any{
@@ -414,4 +428,29 @@ func sanitize(s string) string {
 		return "lab"
 	}
 	return b.String()
+}
+
+// parsePortRange reads "40000-40199" into its bounds. Both ends are inclusive
+// and must be real, ordered, non-privileged ports — a bad range here would
+// otherwise surface as an opaque Docker error at spawn time.
+func parsePortRange(v string) (int, int, error) {
+	lo, hi, ok := strings.Cut(strings.TrimSpace(v), "-")
+	if !ok {
+		return 0, 0, fmt.Errorf(`want "START-END"`)
+	}
+	start, err := strconv.Atoi(strings.TrimSpace(lo))
+	if err != nil {
+		return 0, 0, fmt.Errorf("start: %w", err)
+	}
+	end, err := strconv.Atoi(strings.TrimSpace(hi))
+	if err != nil {
+		return 0, 0, fmt.Errorf("end: %w", err)
+	}
+	if start < 1024 || end > 65535 {
+		return 0, 0, fmt.Errorf("must be within 1024-65535")
+	}
+	if start > end {
+		return 0, 0, fmt.Errorf("start %d is above end %d", start, end)
+	}
+	return start, end, nil
 }
