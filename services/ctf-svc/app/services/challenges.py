@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
-from app.models import Event, EventChallenge, EventSolve, HintUnlock
+from app.models import Event, EventChallenge, EventSolve, EventWave, HintUnlock
 from app.schemas import EventChallengeCreate, EventChallengeUpdate
 
 log = get_logger("challenges")
@@ -111,10 +111,10 @@ class ChallengeService:
                 ErrorCode.VALIDATION,
                 "a shared-host challenge needs the address players connect to",
             )
-        if data.delivery_type == "per_player":
+        if data.delivery_type == "per_team":
             if not data.image_ref:
                 raise AppError(
-                    ErrorCode.VALIDATION, "a per-player challenge needs a container image"
+                    ErrorCode.VALIDATION, "a per-team challenge needs a container image"
                 )
             if event.challenge_runtime == "static_only":
                 raise AppError(
@@ -123,9 +123,12 @@ class ChallengeService:
                     "challenges on cloud or on-site before adding a spawning challenge",
                 )
 
+        if data.wave_id is not None:
+            await self._check_wave_belongs(event_id, data.wave_id)
+
         body = data.model_dump()
         # requires_instance is derived, so the two can never disagree.
-        body["requires_instance"] = data.delivery_type == "per_player"
+        body["requires_instance"] = data.delivery_type == "per_team"
         body["files"] = [
             f if isinstance(f, dict) else f.model_dump() for f in body.get("files", [])
         ]
@@ -178,7 +181,6 @@ class ChallengeService:
         self, challenge_id: UUID, *, data: EventChallengeUpdate
     ) -> EventChallenge:
         challenge = await self.get(challenge_id)
-        # Block edits once event is live — except sort_order, is_hidden, hints (organizer flex)
         event = await self.session.get(Event, challenge.event_id)
         # A live event stays editable — fixing a broken description or a wrong
         # flag mid-CTF is normal. Once ended, everything freezes so the final
@@ -194,11 +196,24 @@ class ChallengeService:
                 )
 
         body = data.model_dump(exclude_unset=True)
+        # clear_wave is a flag, not a column — None on wave_id already means
+        # "field omitted", so taking a challenge out of its wave needs its own
+        # signal.
+        clear_wave = bool(body.pop("clear_wave", False))
+        if clear_wave:
+            body["wave_id"] = None
+        elif body.get("wave_id") is not None:
+            await self._check_wave_belongs(challenge.event_id, body["wave_id"])
+        elif "wave_id" in body:
+            # Sent as null without clear_wave: treat as "leave it alone" rather
+            # than silently unfiling the challenge.
+            body.pop("wave_id")
+
         # Keep the derived flag in step when delivery changes, and re-check the
         # same consistency rules create() enforces.
         if "delivery_type" in body and body["delivery_type"] is not None:
             new_delivery = body["delivery_type"]
-            body["requires_instance"] = new_delivery == "per_player"
+            body["requires_instance"] = new_delivery == "per_team"
             url = body.get("connection_url", challenge.connection_url)
             img = body.get("image_ref", challenge.image_ref)
             if new_delivery == "shared_host" and not url:
@@ -206,10 +221,10 @@ class ChallengeService:
                     ErrorCode.VALIDATION,
                     "a shared-host challenge needs the address players connect to",
                 )
-            if new_delivery == "per_player":
+            if new_delivery == "per_team":
                 if not img:
                     raise AppError(
-                        ErrorCode.VALIDATION, "a per-player challenge needs a container image"
+                        ErrorCode.VALIDATION, "a per-team challenge needs a container image"
                     )
                 if event and event.challenge_runtime == "static_only":
                     raise AppError(
@@ -244,6 +259,7 @@ class ChallengeService:
         """Raise CHALLENGE_LOCKED / CHALLENGE_PREREQ_MISSING if not unlocked."""
         if viewer_is_organizer:
             return
+        await self._check_wave_open(challenge)
         if challenge.unlocks_at:
             now = datetime.now(timezone.utc)
             if now < challenge.unlocks_at:
@@ -270,6 +286,48 @@ class ChallengeService:
                     "prerequisite challenges not yet solved",
                     details={"missing": missing},
                 )
+
+    async def _check_wave_belongs(self, event_id: UUID, wave_id: UUID) -> None:
+        """A challenge may only point at a wave of its own event."""
+        found = (
+            await self.session.execute(
+                select(EventWave.id).where(
+                    EventWave.id == wave_id, EventWave.event_id == event_id
+                )
+            )
+        ).scalar_one_or_none()
+        if not found:
+            raise AppError(ErrorCode.VALIDATION, "that wave belongs to another event")
+
+    async def _check_wave_open(self, challenge: EventChallenge) -> None:
+        """Refuse a challenge whose release wave has not opened, or has shut.
+
+        A challenge with no wave is always open — that is the deliberate escape
+        hatch for challenges an organiser has not filed into a round yet.
+        """
+        if challenge.wave_id is None:
+            return
+        row = (
+            await self.session.execute(
+                select(EventWave, Event.ends_at)
+                .join(Event, Event.id == EventWave.event_id)
+                .where(EventWave.id == challenge.wave_id)
+            )
+        ).first()
+        if row is None:
+            return
+        wave, event_ends_at = row
+        state = wave.state(event_ends_at)
+        if state == "upcoming":
+            raise AppError(
+                ErrorCode.CHALLENGE_LOCKED,
+                f"{wave.name} opens at {wave.starts_at.isoformat()}",
+            )
+        if state == "closed":
+            raise AppError(
+                ErrorCode.CHALLENGE_LOCKED,
+                f"{wave.name} closed at {wave.closes_at(event_ends_at).isoformat()}",
+            )
 
     async def unlocked_hint_ids(
         self, event_id: UUID, participant_id: UUID

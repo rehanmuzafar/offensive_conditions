@@ -15,12 +15,44 @@ export type CtfEventFormat = "jeopardy" | "attack_defense" | "hybrid" | "king_of
 export type CtfEventVisibility = "public" | "private" | "invite_only";
 export type CtfRequiredTier = "free" | "vip" | "vip_plus";
 
-/** Where per-player spawns are provisioned. Static and shared-host challenges
+/** Where per-team spawns are provisioned. Static and shared-host challenges
  *  work regardless of this. */
 export type ChallengeRuntime = "cloud" | "onsite" | "static_only";
 
+/* -------------------------------- waves ---------------------------------- */
+
+/** A release window. Challenges filed under it open and close together. */
+export interface CtfWave {
+  id: string;
+  event_id: string;
+  name: string;
+  /** 1-based, contiguous within the event. */
+  position: number;
+  starts_at: string;
+  /** null = runs until the event itself ends. */
+  ends_at: string | null;
+  state: "upcoming" | "live" | "closed";
+  challenge_count: number;
+}
+
+export interface CtfWaveInput {
+  name: string;
+  starts_at: string;
+  /** Omit or null for "until the event ends". */
+  ends_at?: string | null;
+}
+
+export interface CtfWavePatch {
+  name?: string;
+  starts_at?: string;
+  ends_at?: string | null;
+  /** Needed because null on ends_at is a real value, not an omission. */
+  clear_ends_at?: boolean;
+  position?: number;
+}
+
 /** How a challenge reaches the player. Independent of its attachments. */
-export type DeliveryType = "static" | "shared_host" | "per_player";
+export type DeliveryType = "static" | "shared_host" | "per_team";
 
 export interface ChallengeFile {
   name: string;
@@ -104,6 +136,8 @@ export interface AdminCtfEvent {
   registration_starts_at: string;
   registration_ends_at: string;
   registration_until_end?: boolean;
+  /** Release challenges in waves rather than all at once. */
+  has_waves?: boolean;
   starts_at: string;
   ends_at: string;
   scoreboard_freeze_at: string | null;
@@ -146,6 +180,8 @@ export interface CtfEventCreateInput {
   registration_starts_at: string;
   registration_ends_at: string;
   registration_until_end?: boolean;
+  /** Release challenges in waves rather than all at once. */
+  has_waves?: boolean;
   starts_at: string;
   ends_at: string;
   scoreboard_freeze_at?: string | null;
@@ -211,6 +247,11 @@ export interface AdminCtfChallenge {
   flag_pattern: string | null;
   sort_order: number;
   is_hidden: boolean;
+  /** Release wave, or null when the challenge is open from the event's start. */
+  wave_id: string | null;
+  wave_name?: string | null;
+  wave_position?: number | null;
+  wave_state?: "upcoming" | "live" | "closed" | null;
 }
 
 export interface CtfChallengeInput {
@@ -221,9 +262,13 @@ export interface CtfChallengeInput {
   base_points: number;
   /** `requires_instance` is derived from this server-side. */
   delivery_type: DeliveryType;
+  /** Which release wave this sits in. null = open from the event's start. */
+  wave_id?: string | null;
+  /** Takes the challenge out of its wave; null alone means "leave it alone". */
+  clear_wave?: boolean;
   /** Required when delivery_type is "shared_host". */
   connection_url?: string | null;
-  /** Required when delivery_type is "per_player". */
+  /** Required when delivery_type is "per_team". */
   image_ref?: string | null;
   files?: ChallengeFile[];
   /** SHA-256 hex of the flag. Never send the plaintext flag to the API. */
@@ -353,6 +398,18 @@ export const ctfAdminApi = {
   listChallenges: (eventId: string) =>
     api.get<{ items: AdminCtfChallenge[] }>(`/v1/ctf/events/${eventId}/challenges`),
 
+  listWaves: (eventId: string) =>
+    api.get<{ items: CtfWave[] }>(`/v1/ctf/events/${eventId}/waves`),
+
+  createWave: (eventId: string, body: CtfWaveInput) =>
+    api.post<CtfWave>(`/v1/ctf/events/${eventId}/waves`, { body }),
+
+  updateWave: (eventId: string, waveId: string, body: CtfWavePatch) =>
+    api.patch<CtfWave>(`/v1/ctf/events/${eventId}/waves/${waveId}`, { body }),
+
+  deleteWave: (eventId: string, waveId: string) =>
+    api.delete<void>(`/v1/ctf/events/${eventId}/waves/${waveId}`),
+
   createChallenge: (eventId: string, body: CtfChallengeInput) =>
     api.post<AdminCtfChallenge>(`/v1/ctf/events/${eventId}/challenges`, { body }),
 
@@ -363,10 +420,12 @@ export const ctfAdminApi = {
     ),
 
   /**
-   * Once an event is live the service only accepts sort_order, is_hidden and
-   * hints — everything else is frozen so the scoreboard stays meaningful.
+   * A live event stays fully editable: adding, removing and rewriting
+   * challenges mid-CTF is normal, and waves depend on it. The freeze lands only
+   * once the event has *ended*, after which the service accepts nothing but
+   * sort_order and is_hidden, so the final standings cannot be rewritten.
    */
-  liveEditableFields: ["sort_order", "is_hidden", "hints"] as const,
+  editableAfterEnd: ["sort_order", "is_hidden"] as const,
 };
 
 /* ------------------------------- banners -------------------------------- */

@@ -11,6 +11,7 @@ import { CtfChallengeManager } from "@/components/admin/ctf-challenge-manager";
 import { CtfEventEdit } from "@/components/admin/ctf-event-edit";
 import { CtfPauseScheduler } from "@/components/admin/ctf-pause-scheduler";
 import { CtfScoreControl } from "@/components/admin/ctf-score-control";
+import { CtfWaveManager } from "@/components/admin/ctf-wave-manager";
 import { CtfWriteupsPanel } from "@/components/admin/ctf-writeups-panel";
 import { ctfAdminApi, type AdminCtfEvent, type CtfEventStatus } from "@/lib/ctf-admin-api";
 import { formatNumber, formatDate } from "@/lib/format";
@@ -137,17 +138,26 @@ export default function AdminCtfPage() {
             />
           )}
 
-          {managing.status !== "draft" && (
+          {/* The freeze lands at the finish, not at the start. Adding, editing
+              and removing challenges during a live event is normal — it is how
+              waves work — so only an ended event gets the warning. */}
+          {(managing.status === "ended" || managing.status === "archived") && (
             <p className="text-[13px] text-warning">
-              This event is {managing.status} — challenges can no longer be added, and existing ones
-              are frozen apart from hints and ordering.
+              This event has {managing.status === "archived" ? "been archived" : "ended"} —
+              challenges are frozen apart from ordering and visibility, so the final
+              standings cannot be rewritten.
             </p>
+          )}
+
+          {managing.has_waves && (
+            <CtfWaveManager eventId={managing.id} />
           )}
 
           <CtfChallengeManager
             eventId={managing.id}
             eventName={managing.name}
             runtime={managing.challenge_runtime}
+            hasWaves={Boolean(managing.has_waves)}
           />
         </>
       ) : (

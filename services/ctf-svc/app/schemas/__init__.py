@@ -55,6 +55,8 @@ class EventCreate(BaseModel):
     # When true the field above is ignored and the event's own end is used,
     # so players can still enter while it is running.
     registration_until_end: bool = True
+    #: Release challenges in waves rather than all at once.
+    has_waves: bool = False
     starts_at: datetime
     ends_at: datetime
     scoreboard_freeze_at: datetime | None = None
@@ -93,6 +95,11 @@ class EventCreate(BaseModel):
     @field_validator("starts_at")
     @classmethod
     def _starts_after_reg_ends(cls, v: datetime, info: Any) -> datetime:
+        # With registration_until_end the whole point is that people can still
+        # join after the event has started, so registration_ends_at is unused
+        # and ordering it against starts_at would reject every such event.
+        if info.data.get("registration_until_end"):
+            return v
         reg_ends = info.data.get("registration_ends_at")
         if reg_ends and v < reg_ends:
             raise ValueError("starts_at must be at or after registration_ends_at")
@@ -135,6 +142,7 @@ class EventUpdate(BaseModel):
     # Schedule extension only allowed before start
     registration_ends_at: datetime | None = None
     registration_until_end: bool | None = None
+    has_waves: bool | None = None
     ends_at: datetime | None = None
 
 
@@ -153,6 +161,7 @@ class EventRead(BaseModel):
     registration_starts_at: datetime
     registration_ends_at: datetime
     registration_until_end: bool = True
+    has_waves: bool = False
     starts_at: datetime
     ends_at: datetime
     scoreboard_freeze_at: datetime | None = None
@@ -212,6 +221,50 @@ class ChallengeHint(BaseModel):
     point_deduction: int = Field(ge=0, le=10_000)
 
 
+class EventWaveCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    starts_at: datetime
+    #: Omit for "runs until the event ends". Stored as NULL rather than the
+    #: event's end so that pushing the event out later carries the wave along.
+    ends_at: datetime | None = None
+
+    @field_validator("ends_at")
+    @classmethod
+    def _window(cls, v: datetime | None, info: Any) -> datetime | None:
+        starts = info.data.get("starts_at")
+        if v is not None and starts and v <= starts:
+            raise ValueError("ends_at must be after starts_at")
+        return v
+
+
+class EventWaveUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    #: Explicit, because None on ends_at is a real value ("until the event
+    #: ends") and cannot be told apart from "field omitted" otherwise.
+    clear_ends_at: bool = False
+    position: int | None = Field(default=None, ge=1)
+
+
+class EventWaveRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    event_id: UUID
+    name: str
+    position: int
+    starts_at: datetime
+    ends_at: datetime | None = None
+    #: upcoming | live | closed, resolved against the event's end.
+    state: str = "upcoming"
+    #: How many challenges sit in this wave.
+    challenge_count: int = 0
+
+
+class EventWaveList(BaseModel):
+    items: list[EventWaveRead] = Field(default_factory=list)
+
+
 class EventChallengeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=64)
@@ -220,8 +273,13 @@ class EventChallengeCreate(BaseModel):
     base_points: int = Field(ge=10, le=100_000)
     # static      — file/offline challenge, no service
     # shared_host — one instance everyone attacks (connection_url required)
-    # per_player  — spawned on demand (image_ref required)
-    delivery_type: Literal["static", "shared_host", "per_player"] = "static"
+    #: Which release wave this challenge belongs to. None = open from the
+    #: event's start, even on an event that runs in waves.
+    wave_id: UUID | None = None
+    # per_team    — one container spawned for the whole team on demand
+    #               (image_ref required). Never one per player: a CTF team
+    #               works a single box together.
+    delivery_type: Literal["static", "shared_host", "per_team"] = "static"
     connection_url: str | None = Field(default=None, max_length=500)
     requires_instance: bool = False
     image_ref: str | None = None
@@ -241,7 +299,10 @@ class EventChallengeUpdate(BaseModel):
     difficulty: ChallengeDifficulty | None = None
     description: str | None = None
     base_points: int | None = Field(default=None, ge=10, le=100_000)
-    delivery_type: Literal["static", "shared_host", "per_player"] | None = None
+    delivery_type: Literal["static", "shared_host", "per_team"] | None = None
+    wave_id: UUID | None = None
+    #: None on wave_id means "leave it alone"; this takes it out of its wave.
+    clear_wave: bool = False
     connection_url: str | None = Field(default=None, max_length=500)
     requires_instance: bool | None = None
     image_ref: str | None = None
@@ -285,6 +346,14 @@ class EventChallengeRead(BaseModel):
     first_blood_team_id: UUID | None = None
     first_blood_at: datetime | None = None
     sort_order: int
+    wave_id: UUID | None = None
+    #: Denormalised so the challenge list can group and label without a second
+    #: request per row.
+    wave_name: str | None = None
+    wave_position: int | None = None
+    #: Closed waves stay visible so players can see what they solved, but the
+    #: submit path refuses them.
+    wave_state: str | None = None
     is_solved: bool = False  # populated per-viewer
 
 

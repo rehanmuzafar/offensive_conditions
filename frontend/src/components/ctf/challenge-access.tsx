@@ -26,8 +26,8 @@ import type { CtfChallenge } from "@/types/ctf";
  *   static      Nothing to reach. Renders nothing rather than an inert button.
  *   shared_host One address, already running, shared by everyone. "Spawning"
  *               it would be theatre, so the button reveals it and says so.
- *   per_player  Needs a container started. One per *team*, not per player —
- *               see `InstancePanel`.
+ *   per_team    Needs a container started. One for the whole team, never one
+ *               per player — see `InstancePanel`.
  */
 export function ChallengeAccess({
   challenge,
@@ -41,7 +41,7 @@ export function ChallengeAccess({
 
   if (challenge.deliveryType === "static") return null;
 
-  if (challenge.deliveryType === "per_player") {
+  if (challenge.deliveryType === "per_team") {
     return slug ? <InstancePanel challenge={challenge} slug={slug} /> : null;
   }
 

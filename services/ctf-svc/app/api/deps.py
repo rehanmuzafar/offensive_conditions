@@ -19,6 +19,7 @@ from app.services import (
     InstanceService,
     RegistrationService,
     SubmissionService,
+    WaveService,
 )
 from app.ws import WebSocketBroker
 
@@ -103,6 +104,12 @@ async def get_registration_service(
     session: AsyncSession = Depends(get_session),
 ) -> RegistrationService:
     return RegistrationService(session)
+
+
+async def get_wave_service(
+    session: AsyncSession = Depends(get_session),
+) -> WaveService:
+    return WaveService(session)
 
 
 async def get_submission_service(

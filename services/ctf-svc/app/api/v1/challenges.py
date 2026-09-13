@@ -15,6 +15,7 @@ from app.api.deps import (
     get_registration_service,
     get_request_id,
     get_submission_service,
+    get_wave_service,
     get_ws_broker,
 )
 from app.core.auth import Claims
@@ -39,6 +40,7 @@ from app.services import (
     InstanceService,
     RegistrationService,
     SubmissionService,
+    WaveService,
 )
 from app.ws import WebSocketBroker
 
@@ -56,6 +58,7 @@ async def list_event_challenges(
     claims: Claims = Depends(get_claims),
     ch_svc: ChallengeService = Depends(get_challenge_service),
     reg_svc: RegistrationService = Depends(get_registration_service),
+    wave_svc: WaveService = Depends(get_wave_service),
 ) -> EventChallengeList | EventChallengeOrganizerList:
     # Resolve viewer's participation (None for organizers viewing)
     participant = await reg_svc.get_my_participation(
@@ -72,6 +75,10 @@ async def list_event_challenges(
         await ch_svc.unlocked_hint_ids(event_id, participant.id) if participant else {}
     )
 
+    # Wave name/position/state per row, resolved once for the event rather than
+    # once per challenge — the list is the most-read page of a live event.
+    waves = {w["id"]: w for w in await wave_svc.list_for_event(event_id)}
+
     model = (
         EventChallengeOrganizerRead if claims.is_ctf_organizer else EventChallengeRead
     )
@@ -80,6 +87,10 @@ async def list_event_challenges(
         view = model.model_validate(c)
         view.hint_summaries = ch_svc.hint_summaries(c, unlocked.get(c.id))
         view.is_solved = c.id in solved_ids
+        if c.wave_id and (w := waves.get(c.wave_id)):
+            view.wave_name = w["name"]
+            view.wave_position = w["position"]
+            view.wave_state = w["state"]
         items.append(view)
     if claims.is_ctf_organizer:
         return EventChallengeOrganizerList(items=items)

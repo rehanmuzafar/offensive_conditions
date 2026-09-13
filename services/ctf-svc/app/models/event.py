@@ -65,6 +65,12 @@ class Event(Base, TimestampMixin):
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scoreboard_freeze_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    #: Whether challenges are released in waves. False keeps the flat behaviour:
+    #: every challenge is playable from starts_at.
+    has_waves: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
     # Scoring
     dynamic_scoring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     min_points: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
@@ -159,6 +165,48 @@ class Event(Base, TimestampMixin):
     )
 
 
+class EventWave(Base, TimestampMixin):
+    """A release window. Challenges pointing at it open and close together.
+
+    `ends_at` NULL means the wave runs until the event itself ends. It is stored
+    as NULL rather than as a copy of the event's end so that pushing the event
+    out later moves the wave with it instead of leaving a stale timestamp.
+    """
+
+    __tablename__ = "event_waves"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("ctf.events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    def closes_at(self, event_ends_at: datetime) -> datetime:
+        """The moment this wave shuts, resolving NULL against the event."""
+        return self.ends_at or event_ends_at
+
+    def state(self, event_ends_at: datetime, now: datetime | None = None) -> str:
+        """upcoming | live | closed, from the clock alone.
+
+        The event's own start does not appear here: a wave that opens before the
+        event does is an organiser error the admin API rejects, so there is no
+        second gate to apply at read time.
+        """
+        moment = now or datetime.now(timezone.utc)
+        if moment < self.starts_at:
+            return "upcoming"
+        if moment >= self.closes_at(event_ends_at):
+            return "closed"
+        return "live"
+
+
 class EventChallenge(Base, TimestampMixin):
     __tablename__ = "event_challenges"
     __table_args__ = {"schema": "ctf"}
@@ -182,6 +230,12 @@ class EventChallenge(Base, TimestampMixin):
     requires_instance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # How this challenge reaches the player. Orthogonal to `files`, which are
     # available for every delivery type.
+    #: The release window this challenge belongs to. NULL means it is open from
+    #: the event's start even when the event runs in waves.
+    wave_id: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("ctf.event_waves.id", ondelete="SET NULL")
+    )
+
     delivery_type: Mapped[str] = mapped_column(
         Text, nullable=False, default="static", server_default="static"
     )

@@ -83,9 +83,14 @@ export interface CtfChallenge {
   /**
    * How the challenge is served, which decides what the access control offers:
    * `static` has nothing to connect to, `shared_host` has one address everyone
-   * uses, and `per_player` needs a container started for the player.
+   * uses, and `per_team` needs one container started for the whole team.
    */
-  deliveryType: "static" | "shared_host" | "per_player";
+  deliveryType: "static" | "shared_host" | "per_team";
+  /** Release wave this challenge belongs to; null = open from the start. */
+  waveId?: string | null;
+  waveName?: string | null;
+  wavePosition?: number | null;
+  waveState?: "upcoming" | "live" | "closed" | null;
   firstBlood: { username: string; at: string } | null;
 }
 

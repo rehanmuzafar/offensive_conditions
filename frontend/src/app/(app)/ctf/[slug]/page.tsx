@@ -227,15 +227,21 @@ export default function CtfEventPage({ params }: { params: Promise<{ slug: strin
                   </Link>
                 )}
 
-                {/* Roster control, for the captain of the team they entered
-                    under. Anyone else would be refused by ctf-svc. */}
                 {event.isRegistered && myTeamId && isCaptain && (
                   <div className="mt-2.5 space-y-2.5">
-                    <Button variant="ghost" fullWidth onClick={() => setRosterOpen(true)}>
-                      <UserCog className="h-4 w-4" /> Team management
-                    </Button>
+                    {/* Roster control, for the captain of the team they entered
+                        under. Anyone else would be refused by ctf-svc. It goes
+                        once the event ends: the roster is frozen into the
+                        standings by then, so the button would only offer edits
+                        the server will refuse. */}
+                    {event.state !== "ended" && (
+                      <Button variant="ghost" fullWidth onClick={() => setRosterOpen(true)}>
+                        <UserCog className="h-4 w-4" /> Team management
+                      </Button>
+                    )}
                     {/* The writeup is the captain's to send: it is what the
-                        deadline and the prize hang on. */}
+                        deadline and the prize hang on. It deliberately outlives
+                        the event — the writeup deadline falls after the finish. */}
                     <Button variant="ghost" fullWidth onClick={() => setWriteupOpen(true)}>
                       <FileText className="h-4 w-4" /> Submit writeup
                     </Button>

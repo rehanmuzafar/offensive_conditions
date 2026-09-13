@@ -291,6 +291,18 @@ function Name({
       <span className="text-[14.5px] font-semibold text-text hover:text-accent">
         {challenge.title}
       </span>
+      {/* Only worth showing on an event that runs in waves, and only once the
+          wave matters: a live wave is the unremarkable case. */}
+      {challenge.waveName && challenge.waveState === "closed" && (
+        <span className="ml-2 rounded-full border border-line-strong px-2 py-0.5 text-[11px] uppercase tracking-wide text-text-faint">
+          {challenge.waveName} closed
+        </span>
+      )}
+      {challenge.waveName && challenge.waveState !== "closed" && (
+        <span className="ml-2 text-[11px] uppercase tracking-wide text-text-faint">
+          {challenge.waveName}
+        </span>
+      )}
       <span className="ml-2 text-[12px] text-text-faint">{challenge.solveCount} solves</span>
     </button>
   );

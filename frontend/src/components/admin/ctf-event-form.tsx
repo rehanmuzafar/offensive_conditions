@@ -54,6 +54,8 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
   // On by default. Closing entries before an event finishes turns away players
   // who could still have played; organisers who need a fixed roster turn it off.
   const [regUntilEnd, setRegUntilEnd] = useState(true);
+  /** Waves release the challenge set in rounds instead of all at once. */
+  const [hasWaves, setHasWaves] = useState(false);
   const [start, setStart] = useState(plusHours(24));
   const [end, setEnd] = useState(plusHours(72));
   const [tier, setTier] = useState<CtfRequiredTier>("free");
@@ -128,6 +130,7 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         // fixed cut-off restores the date rather than starting from blank.
         registration_ends_at: toIso(regUntilEnd ? end : regEnd),
         registration_until_end: regUntilEnd,
+        has_waves: hasWaves,
         starts_at: toIso(start),
         ends_at: toIso(end),
         dynamic_scoring: dynamicScoring,
@@ -201,6 +204,24 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
             <span className="text-[12px] text-text-faint">PNG/JPEG/WebP/GIF/SVG · max 5 MB</span>
           </div>
         </div>
+
+        <label className="flex items-start gap-2 text-[14px]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={hasWaves}
+            onChange={(e) => setHasWaves(e.target.checked)}
+          />
+          <span>
+            <span className="font-semibold">Release challenges in waves</span>
+            <span className="block text-[12px] text-text-faint">
+              Off: every challenge is playable the moment the event starts. On: you set up
+              rounds after creating the event, each with its own opening and closing time,
+              and file challenges under them. Either way you can add, edit and remove
+              challenges while the event is running.
+            </span>
+          </span>
+        </label>
 
         {/* schedule */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -300,7 +321,7 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
               <span>
                 <span className="font-semibold">Cloud — public IPs</span>
                 <span className="block text-[12px] text-text-faint">
-                  Per-player instances get a public address. For online events.
+                  Per-team instances get a public address. For online events.
                 </span>
               </span>
             </label>
@@ -309,13 +330,13 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
               <span>
                 <span className="font-semibold">On-site — LAN</span>
                 <span className="block text-[12px] text-text-faint">
-                  Per-player instances get a private address on the venue network.
+                  Per-team instances get a private address on the venue network.
                 </span>
               </span>
             </label>
           </div>
           <p className="mt-3 text-[12px] text-text-faint">
-            This only affects per-player spawns. Static and shared-host challenges work either way, and
+            This only affects per-team spawns. Static and shared-host challenges work either way, and
             every challenge can carry downloadable files.
           </p>
         </div>

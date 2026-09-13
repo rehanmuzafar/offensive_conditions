@@ -2,6 +2,7 @@
 
 from app.services.announcements import AnnouncementService
 from app.services.challenges import ChallengeService
+from app.services.waves import WaveService
 from app.services.events import EventService
 from app.services.instances import InstanceService
 from app.services.kafka import CtfEventPublisher, EventType
@@ -12,6 +13,7 @@ from app.services.submission import SubmissionService
 __all__ = [
     "AnnouncementService",
     "ChallengeService",
+    "WaveService",
     "CtfEventPublisher",
     "EventService",
     "EventType",

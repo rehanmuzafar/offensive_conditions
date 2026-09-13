@@ -126,7 +126,11 @@ interface ApiCtfChallenge {
    *  creation time. Was declared nowhere and mapped to null, which is why
    *  challenges showed their files but never their link. */
   connection_url?: string | null;
-  delivery_type?: "static" | "shared_host" | "per_player";
+  delivery_type?: "static" | "shared_host" | "per_team";
+  wave_id?: string | null;
+  wave_name?: string | null;
+  wave_position?: number | null;
+  wave_state?: "upcoming" | "live" | "closed" | null;
   id: string; name: string; category: string; difficulty: string;
   description: string; base_points: number; current_points: number;
   total_solves: number; is_solved: boolean;
@@ -161,6 +165,10 @@ function mapCtfChallenge(c: ApiCtfChallenge): CtfChallenge {
     })),
     connectionInfo: c.connection_url ?? null,
     deliveryType: c.delivery_type ?? (c.connection_url ? "shared_host" : "static"),
+    waveId: c.wave_id ?? null,
+    waveName: c.wave_name ?? null,
+    wavePosition: c.wave_position ?? null,
+    waveState: c.wave_state ?? null,
     firstBlood: c.first_blood_user_id && c.first_blood_at
       ? { username: c.first_blood_user_id, at: c.first_blood_at }
       : null,
