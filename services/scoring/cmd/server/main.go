@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -125,6 +127,15 @@ func run() error {
 	})
 
 	lbManager := leaderboard.NewManager(rdb, logger.With().Str("component", "leaderboard").Logger())
+
+	// Postgres holds the authoritative totals; Redis holds the ranked board,
+	// and the board is only ever built by ZIncrBy as solves come in. Anything
+	// that loses Redis — moving to a new host, a wiped volume — therefore
+	// leaves the board empty for good while every score still sits in
+	// Postgres. Seed it back when it is missing.
+	if err := seedGlobalBoard(rootCtx, lbManager, userScoreRepo, logger); err != nil {
+		logger.Warn().Err(err).Msg("global leaderboard seed failed")
+	}
 
 	badgeEngine := badges.NewEngine(badges.Deps{
 		Log:              logger.With().Str("component", "badges").Logger(),
@@ -252,4 +263,48 @@ func newLogger(level, format string) zerolog.Logger {
 			With().Timestamp().Str("svc", "scoring").Logger()
 	}
 	return zerolog.New(os.Stdout).With().Timestamp().Str("svc", "scoring").Logger()
+}
+
+// seedGlobalBoard fills the all-time board from Postgres when Redis has no copy
+// of it. It is deliberately a no-op once the board has any member, so a restart
+// can never clobber the live counters that ZIncrBy maintains between solves.
+func seedGlobalBoard(
+	ctx context.Context,
+	lb *leaderboard.Manager,
+	scores repository.UserScoreRepository,
+	logger zerolog.Logger,
+) error {
+	n, err := lb.Size(ctx, leaderboard.ScopeGlobalAll, "")
+	if err != nil {
+		return fmt.Errorf("read board size: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+
+	entries := make(map[uuid.UUID]int64)
+	const page = 1000
+	for offset := 0; ; offset += page {
+		batch, err := scores.ListTop(ctx, page, offset)
+		if err != nil {
+			return fmt.Errorf("read scores at offset %d: %w", offset, err)
+		}
+		for _, sc := range batch {
+			// A zero score would occupy a rank without having earned one.
+			if sc.TotalPoints > 0 {
+				entries[sc.UserID] = sc.TotalPoints
+			}
+		}
+		if len(batch) < page {
+			break
+		}
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	if err := lb.Rebuild(ctx, leaderboard.ScopeGlobalAll, "", entries); err != nil {
+		return fmt.Errorf("rebuild board: %w", err)
+	}
+	logger.Info().Int("players", len(entries)).Msg("global leaderboard seeded from postgres")
+	return nil
 }
