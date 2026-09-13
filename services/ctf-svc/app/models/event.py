@@ -587,3 +587,37 @@ class EventTeamEntry(Base):
         one answer for free events and another for paid ones.
         """
         return self.payment_status in ("paid", "not_required")
+
+
+class EventCertificate(Base):
+    """A certificate a player claimed after an event finished.
+
+    The figures are stored rather than recomputed. Scoreboards change after the
+    fact — a challenge gets invalidated, a submission disqualified, a rank pin
+    added — and a document that silently rewrites itself is not a document. It
+    would also drift away from whatever was already shared with an employer,
+    while the verification page insisted on the new numbers.
+    """
+
+    __tablename__ = "event_certificates"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+
+    # Public handle: printed on the document and used in the verify URL.
+    certificate_no: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Everything the document shows, as it stood at the moment of issue.
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_reason: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def valid(self) -> bool:
+        return self.revoked_at is None
