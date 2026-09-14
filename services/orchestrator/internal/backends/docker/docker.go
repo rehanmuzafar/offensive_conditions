@@ -45,10 +45,20 @@ type Options struct {
 	// the internet — so the box cannot be used to attack third parties.
 	AllowEgress bool
 	// PortRange bounds the host ports challenges are published on, as
-	// "40000-40199". Without it Docker picks from the kernel's ephemeral
+	// "40000-40049". Without it Docker picks from the kernel's ephemeral
 	// range, which is far too wide to forward through a home router. Docker
 	// itself walks the range and takes the first free port.
 	PortRange string
+	// LabDomain turns the published port into a name the edge can route, as
+	// "lab-40017.offensiveconditions.org". Players then reach a challenge over
+	// 443 with a real certificate, and the raw port never has to be exposed to
+	// the internet at all. Empty falls back to PublicHost:port.
+	//
+	// The name has to be derivable from the port because each one needs its own
+	// SAN on the certificate, and a certificate cannot be issued for a name
+	// that does not exist yet — so the set is fixed by PortRange, not random
+	// per instance.
+	LabDomain string
 }
 
 type Backend struct {
@@ -310,7 +320,7 @@ func (b *Backend) Status(ctx context.Context, ref string) (*backends.Status, err
 	for _, bindings := range insp.NetworkSettings.Ports {
 		for _, bind := range bindings {
 			if bind.HostPort != "" {
-				st.IPAddress = b.opts.PublicHost + ":" + bind.HostPort
+				st.IPAddress = b.address(bind.HostPort)
 				return st, nil
 			}
 		}
@@ -453,4 +463,14 @@ func parsePortRange(v string) (int, int, error) {
 		return 0, 0, fmt.Errorf("start %d is above end %d", start, end)
 	}
 	return start, end, nil
+}
+
+// address is what the player is told to open. With a lab domain configured it
+// is an https URL the edge terminates and proxies inward; without one it falls
+// back to the raw host and port, which only works where that port is reachable.
+func (b *Backend) address(hostPort string) string {
+	if b.opts.LabDomain == "" {
+		return b.opts.PublicHost + ":" + hostPort
+	}
+	return "https://lab-" + hostPort + "." + b.opts.LabDomain
 }

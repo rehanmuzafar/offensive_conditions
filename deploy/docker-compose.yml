@@ -194,6 +194,7 @@ services:
       DOCKER_HOST_ADDR: "unix:///var/run/docker.sock"
       DOCKER_PUBLIC_HOST: "${DOCKER_PUBLIC_HOST:-127.0.0.1}"
       DOCKER_PORT_RANGE: "${DOCKER_PORT_RANGE:-}"
+      DOCKER_LAB_DOMAIN: "${DOCKER_LAB_DOMAIN:-}"
       DOCKER_NETWORK: "${DOCKER_NETWORK:-offcon}"
       DOCKER_ALLOW_EGRESS: "false"
       # Guards /internal/containers, which starts a container from any image.
@@ -455,3 +456,9 @@ volumes:
 networks:
   offcon:
     name: offcon
+    # NOTE: the edge proxies spawned challenges to the host at 172.18.0.1, this
+    # network's gateway (see the lab-* server block in nginx.conf). That address
+    # is Docker's own pick, not a promise. Pinning it here with an ipam block is
+    # the right fix, but Docker cannot change a live network's addressing, so it
+    # needs one full `compose down && up` to take — do it at a quiet moment
+    # rather than letting a routine deploy try and fail.
