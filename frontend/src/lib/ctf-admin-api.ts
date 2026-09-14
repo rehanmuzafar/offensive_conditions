@@ -247,6 +247,8 @@ export interface AdminCtfChallenge {
   flag_pattern: string | null;
   sort_order: number;
   is_hidden: boolean;
+  /** A fresh flag per spawned instance instead of one shared by everyone. */
+  dynamic_flag: boolean;
   /** Release wave, or null when the challenge is open from the event's start. */
   wave_id: string | null;
   wave_name?: string | null;
@@ -262,6 +264,9 @@ export interface CtfChallengeInput {
   base_points: number;
   /** `requires_instance` is derived from this server-side. */
   delivery_type: DeliveryType;
+  /** Mint a flag per instance. Needs per_team delivery and an image that
+   *  reads CTF_FLAG rather than baking a flag in. */
+  dynamic_flag?: boolean;
   /** Which release wave this sits in. null = open from the event's start. */
   wave_id?: string | null;
   /** Takes the challenge out of its wave; null alone means "leave it alone". */

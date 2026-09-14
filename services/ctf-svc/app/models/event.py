@@ -230,6 +230,13 @@ class EventChallenge(Base, TimestampMixin):
     requires_instance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # How this challenge reaches the player. Orthogonal to `files`, which are
     # available for every delivery type.
+    #: Give every spawned instance its own flag instead of sharing one. Only
+    #: meaningful for per_team delivery, and only works if the image reads
+    #: CTF_FLAG rather than baking a flag in.
+    dynamic_flag: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
     #: The release window this challenge belongs to. NULL means it is open from
     #: the event's start even when the event runs in waves.
     wave_id: Mapped[UUID | None] = mapped_column(
@@ -569,6 +576,12 @@ class ChallengeInstance(Base):
     # Captured at spawn time so the panel needs no cross-service lookup to
     # credit a teammate by name. See migration ctf/0017.
     spawned_by_name: Mapped[str | None] = mapped_column(Text)
+
+    #: sha256 of this instance's own flag. NULL when the challenge uses a static
+    #: one. Only the hash lives here; the raw flag goes into the container's
+    #: environment and is never returned to the player — finding it is the
+    #: challenge.
+    flag_hash: Mapped[str | None] = mapped_column(Text)
 
     container_ref: Mapped[str | None] = mapped_column(Text)
     host: Mapped[str | None] = mapped_column(Text)

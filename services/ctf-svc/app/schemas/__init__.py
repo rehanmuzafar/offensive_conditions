@@ -273,6 +273,9 @@ class EventChallengeCreate(BaseModel):
     base_points: int = Field(ge=10, le=100_000)
     # static      — file/offline challenge, no service
     # shared_host — one instance everyone attacks (connection_url required)
+    #: Mint a fresh flag per spawned instance instead of sharing one. Needs
+    #: per_team delivery, and an image that reads CTF_FLAG.
+    dynamic_flag: bool = False
     #: Which release wave this challenge belongs to. None = open from the
     #: event's start, even on an event that runs in waves.
     wave_id: UUID | None = None
@@ -300,6 +303,7 @@ class EventChallengeUpdate(BaseModel):
     description: str | None = None
     base_points: int | None = Field(default=None, ge=10, le=100_000)
     delivery_type: Literal["static", "shared_host", "per_team"] | None = None
+    dynamic_flag: bool | None = None
     wave_id: UUID | None = None
     #: None on wave_id means "leave it alone"; this takes it out of its wave.
     clear_wave: bool = False
@@ -346,6 +350,9 @@ class EventChallengeRead(BaseModel):
     first_blood_team_id: UUID | None = None
     first_blood_at: datetime | None = None
     sort_order: int
+    #: Players need to know a flag is theirs alone — it changes what sharing one
+    #: is worth, and explains why a respawn invalidates the old one.
+    dynamic_flag: bool = False
     wave_id: UUID | None = None
     #: Denormalised so the challenge list can group and label without a second
     #: request per row.

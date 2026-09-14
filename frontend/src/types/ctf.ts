@@ -86,6 +86,8 @@ export interface CtfChallenge {
    * uses, and `per_team` needs one container started for the whole team.
    */
   deliveryType: "static" | "shared_host" | "per_team";
+  /** This challenge issues a flag per instance, so a shared one will not work. */
+  dynamicFlag?: boolean;
   /** Release wave this challenge belongs to; null = open from the start. */
   waveId?: string | null;
   waveName?: string | null;

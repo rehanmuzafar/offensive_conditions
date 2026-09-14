@@ -73,6 +73,8 @@ export function CtfChallengeManager({
   const [hints, setHints] = useState<Hint[]>([]);
   const [delivery, setDelivery] = useState<DeliveryType>("static");
   /** "" means the challenge sits outside every wave, i.e. open from the start. */
+  /** One flag per spawned instance, instead of one shared by every team. */
+  const [dynamicFlag, setDynamicFlag] = useState(false);
   const [waveId, setWaveId] = useState<string>("");
   const [waves, setWaves] = useState<CtfWave[]>([]);
   const [connectionUrl, setConnectionUrl] = useState("");
@@ -116,6 +118,7 @@ export function CtfChallengeManager({
     setCategory("web"); setDifficulty("easy"); setHints([]);
     setDelivery("static"); setConnectionUrl(""); setImageRef(""); setFiles([]);
     setWaveId("");
+    setDynamicFlag(false);
     setEditingId(null);
   }
 
@@ -131,6 +134,7 @@ export function CtfChallengeManager({
     setImageRef(c.image_ref ?? "");
     setFiles(c.files ?? []);
     setWaveId(c.wave_id ?? "");
+    setDynamicFlag(Boolean(c.dynamic_flag));
     // The flag hash is write-only; leaving this blank keeps the existing flag.
     setFlag("");
     setHints([]);
@@ -178,6 +182,7 @@ export function CtfChallengeManager({
            and optional everywhere else. */
         connection_url: connectionUrl.trim() || null,
         image_ref: delivery === "per_team" ? imageRef.trim() : null,
+        dynamic_flag: delivery === "per_team" ? dynamicFlag : false,
         /* Clearing the selection has to be said out loud: a null wave_id on its
            own reads as "field omitted" on the service side. */
         ...(hasWaves
@@ -325,6 +330,27 @@ export function CtfChallengeManager({
                   </label>
                   <input className={field} value={connectionUrl} onChange={(e) => setConnectionUrl(e.target.value)} placeholder="http://203.0.113.10:8001" />
                 </div>
+              {delivery === "per_team" && (
+                <label className="mt-3 flex items-start gap-2 text-[14px]">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={dynamicFlag}
+                    onChange={(e) => setDynamicFlag(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-semibold">A different flag for every team</span>
+                    <span className="block text-[12px] text-text-faint">
+                      Each spawned instance gets its own flag, so one team passing it to
+                      another gets them nothing. Your image must read it from the{" "}
+                      <code className="text-text-dim">CTF_FLAG</code> environment variable —
+                      a flag baked into the image will not match and nobody will be able to
+                      solve it.
+                    </span>
+                  </span>
+                </label>
+              )}
+
               {delivery === "per_team" && (
                 <div className="mt-3">
                   <label className={label}>Container image</label>

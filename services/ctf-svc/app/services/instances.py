@@ -12,6 +12,8 @@ Spawn and lets the loser join the winner's instance instead of erroring.
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -114,9 +116,18 @@ class InstanceService:
                 return other, False
             raise
 
+        # The flag is minted against the instance that won the race, not the one
+        # we hoped to create — a teammate's row would otherwise get a container
+        # carrying a flag whose hash was never stored anywhere.
+        raw_flag: str | None = None
+        if challenge.dynamic_flag:
+            raw_flag = self._mint_flag()
+            inst.flag_hash = hashlib.sha256(raw_flag.encode("utf-8")).hexdigest()
+            await self._db.flush()
+
         # Only now, with the slot held, do we spend real resources.
         try:
-            started = await self._start_container(challenge, inst)
+            started = await self._start_container(challenge, inst, raw_flag)
         except Exception as exc:  # noqa: BLE001 — recorded and surfaced
             inst.status = "error"
             inst.error = str(exc)[:500]
@@ -135,8 +146,19 @@ class InstanceService:
         await self._db.refresh(inst)
         return inst, True
 
+    @staticmethod
+    def _mint_flag() -> str:
+        """A fresh flag, from the OS random source.
+
+        Deliberately not derived from the instance id the way the machines
+        service derives its flags: those inputs are all known to the player, so
+        the whole of that scheme's strength sits in a secret being present. This
+        one has no inputs to leak.
+        """
+        return f"OFFCON{{{secrets.token_hex(16)}}}"
+
     async def _start_container(
-        self, challenge: EventChallenge, inst: ChallengeInstance
+        self, challenge: EventChallenge, inst: ChallengeInstance, raw_flag: str | None = None
     ) -> dict[str, Any]:
         port = self._challenge_port(challenge)
         payload = {
@@ -145,9 +167,11 @@ class InstanceService:
             "ttl_seconds": self._cfg.challenge_instance_ttl_minutes * 60,
             "label": f"ctf-{str(challenge.id)[:8]}",
             "env": {
-                # The challenge's own flag, so the container can serve it.
-                # Static-flag challenges leave this empty and bake it in.
                 "CTF_INSTANCE_ID": str(inst.id),
+                # The instance's own flag, for images that read it rather than
+                # bake one in. Absent for static-flag challenges, which is what
+                # keeps existing images working unchanged.
+                **({"CTF_FLAG": raw_flag} if raw_flag else {}),
             },
         }
         async with httpx.AsyncClient(timeout=30.0) as client:

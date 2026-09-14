@@ -123,6 +123,12 @@ class ChallengeService:
                     "challenges on cloud or on-site before adding a spawning challenge",
                 )
 
+        if data.dynamic_flag and data.delivery_type != "per_team":
+            raise AppError(
+                ErrorCode.VALIDATION,
+                "a per-instance flag needs something to put it in — set delivery to per-team spawn",
+            )
+
         if data.wave_id is not None:
             await self._check_wave_belongs(event_id, data.wave_id)
 
@@ -231,6 +237,19 @@ class ChallengeService:
                         ErrorCode.VALIDATION,
                         "this event has no runtime configured — set it to cloud or on-site first",
                     )
+
+        # Checked against the delivery the challenge will *have*, not the one it
+        # had: flipping a spawning challenge back to static in the same request
+        # would otherwise leave a dynamic flag with nowhere to live.
+        final_delivery = body.get("delivery_type") or challenge.delivery_type
+        final_dynamic = body.get("dynamic_flag")
+        if final_dynamic is None:
+            final_dynamic = challenge.dynamic_flag
+        if final_dynamic and final_delivery != "per_team":
+            raise AppError(
+                ErrorCode.VALIDATION,
+                "a per-instance flag needs something to put it in — set delivery to per-team spawn",
+            )
 
         if "files" in body and body["files"] is not None:
             body["files"] = [

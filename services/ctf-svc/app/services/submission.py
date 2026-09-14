@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.models import (
+    ChallengeInstance,
     Event,
     EventChallenge,
     EventParticipant,
@@ -66,23 +67,61 @@ class SubmissionService:
         return event
 
     async def _verify_flag(
-        self, *, submitted_flag: str, challenge: EventChallenge
+        self, *, submitted_flag: str, challenge: EventChallenge,
+        participant: EventParticipant,
     ) -> bool:
-        """Compare against stored hash. For instance-based challenges we'd call
-        the flag-verifier gRPC service; here we keep it self-contained.
+        """Check a submission against whichever flag this challenge issues.
+
+        A dynamic-flag challenge mints one per spawned instance, so the answer
+        depends on who is asking: the flag is compared against the submitter's
+        own live instance. That is what stops one team passing the flag to
+        another, and it is also why a stopped-and-respawned box invalidates the
+        old flag — the row holding its hash is no longer the live one.
         """
+        submitted_hash = hashlib.sha256(submitted_flag.encode("utf-8")).hexdigest()
+
+        if challenge.dynamic_flag:
+            inst = await self._live_instance(challenge, participant)
+            if inst is None or not inst.flag_hash:
+                # Nothing running: there is no flag to have found yet. Saying so
+                # beats a bare "incorrect", which reads as a wrong answer.
+                raise AppError(
+                    ErrorCode.VALIDATION,
+                    "start your instance first — this challenge issues a flag per instance",
+                )
+            return hmac.compare_digest(inst.flag_hash.lower(), submitted_hash)
+
         if not challenge.static_flag_hash:
-            # Instance-based: would call flag-verifier gRPC here
             log.warning(
-                "instance_flag_verifier_not_wired",
+                "challenge_has_no_flag",
                 challenge_id=str(challenge.id),
             )
             return False
 
-        # Static flag: HMAC-SHA256 compare to stored hash
-        expected = challenge.static_flag_hash.lower()
-        submitted_hash = hashlib.sha256(submitted_flag.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(expected, submitted_hash)
+        return hmac.compare_digest(challenge.static_flag_hash.lower(), submitted_hash)
+
+    async def _live_instance(
+        self, challenge: EventChallenge, participant: EventParticipant
+    ) -> ChallengeInstance | None:
+        """The submitter's running container for this challenge, if any.
+
+        Keyed on the team for a team entry and on the user for a solo one — the
+        same subject the instance was spawned under, so a teammate submitting
+        gets the team's box rather than nothing.
+        """
+        owner = (
+            ChallengeInstance.team_id == participant.team_id
+            if participant.team_id
+            else ChallengeInstance.user_id == participant.user_id
+        )
+        res = await self.session.execute(
+            select(ChallengeInstance).where(
+                ChallengeInstance.challenge_id == challenge.id,
+                ChallengeInstance.status == "running",
+                owner,
+            )
+        )
+        return res.scalars().first()
 
     # =========================================================================
     # Main entry: submit a flag
@@ -157,7 +196,9 @@ class SubmissionService:
         self.session.add(attempt)
 
         # 5. Verify
-        accepted = await self._verify_flag(submitted_flag=flag, challenge=challenge)
+        accepted = await self._verify_flag(
+            submitted_flag=flag, challenge=challenge, participant=participant
+        )
         attempt.accepted = accepted
 
         if not accepted:

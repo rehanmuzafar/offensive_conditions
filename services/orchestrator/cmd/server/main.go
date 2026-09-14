@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -107,6 +108,14 @@ func run() error {
 	logger.Info().Msg("jwt validator ready")
 
 	// --- Flag generator ---
+	// Refuse to run without a key. The flag is an HMAC over user, machine and
+	// instance ids — all three of which the player already knows — so an empty
+	// key does not weaken it, it removes it: anyone could compute the flag for
+	// their own box without touching it. Failing to start is the only safe
+	// reading of a missing secret, because the alternative looks like it works.
+	if strings.TrimSpace(cfg.Flag.HMACSecret) == "" {
+		logger.Fatal().Msg("FLAG_HMAC_SECRET is empty — instance flags would be forgeable; refusing to start")
+	}
 	flagGen := flag.NewGenerator([]byte(cfg.Flag.HMACSecret), cfg.Flag.Prefix)
 
 	// --- Network ---

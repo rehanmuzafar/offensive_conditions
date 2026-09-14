@@ -127,6 +127,7 @@ interface ApiCtfChallenge {
    *  challenges showed their files but never their link. */
   connection_url?: string | null;
   delivery_type?: "static" | "shared_host" | "per_team";
+  dynamic_flag?: boolean;
   wave_id?: string | null;
   wave_name?: string | null;
   wave_position?: number | null;
@@ -165,6 +166,7 @@ function mapCtfChallenge(c: ApiCtfChallenge): CtfChallenge {
     })),
     connectionInfo: c.connection_url ?? null,
     deliveryType: c.delivery_type ?? (c.connection_url ? "shared_host" : "static"),
+    dynamicFlag: Boolean(c.dynamic_flag),
     waveId: c.wave_id ?? null,
     waveName: c.wave_name ?? null,
     wavePosition: c.wave_position ?? null,
