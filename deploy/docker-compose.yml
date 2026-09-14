@@ -195,6 +195,7 @@ services:
       DOCKER_PUBLIC_HOST: "${DOCKER_PUBLIC_HOST:-127.0.0.1}"
       DOCKER_PORT_RANGE: "${DOCKER_PORT_RANGE:-}"
       DOCKER_LAB_DOMAIN: "${DOCKER_LAB_DOMAIN:-}"
+      DOCKER_RUNTIME: "${DOCKER_RUNTIME:-}"
       DOCKER_NETWORK: "${DOCKER_NETWORK:-offcon}"
       DOCKER_ALLOW_EGRESS: "false"
       # Guards /internal/containers, which starts a container from any image.

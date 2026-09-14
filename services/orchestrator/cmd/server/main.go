@@ -171,6 +171,7 @@ func run() error {
 			PublicHost:  os.Getenv("DOCKER_PUBLIC_HOST"),
 			PortRange:   os.Getenv("DOCKER_PORT_RANGE"),
 			LabDomain:   os.Getenv("DOCKER_LAB_DOMAIN"),
+			Runtime:     os.Getenv("DOCKER_RUNTIME"),
 			Network:     os.Getenv("DOCKER_NETWORK"),
 			AllowEgress: os.Getenv("DOCKER_ALLOW_EGRESS") == "true",
 		})
@@ -182,6 +183,7 @@ func run() error {
 				Str("public_host", os.Getenv("DOCKER_PUBLIC_HOST")).
 				Str("port_range", os.Getenv("DOCKER_PORT_RANGE")).
 				Str("lab_domain", os.Getenv("DOCKER_LAB_DOMAIN")).
+				Str("runtime", os.Getenv("DOCKER_RUNTIME")).
 				Msg("using Docker backend for container instances")
 		}
 	}

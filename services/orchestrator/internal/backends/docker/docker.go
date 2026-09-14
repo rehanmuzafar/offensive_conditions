@@ -49,6 +49,12 @@ type Options struct {
 	// range, which is far too wide to forward through a home router. Docker
 	// itself walks the range and takes the first free port.
 	PortRange string
+	// Runtime is the OCI runtime challenges run under — "runsc" for gVisor,
+	// empty for the daemon's default. gVisor puts a userspace kernel between the
+	// container and the host's, which matters more here than for an ordinary
+	// workload: a CTF challenge is code a player is *invited* to get execution
+	// inside, so plain runc leaves one kernel bug between them and the host.
+	Runtime string
 	// LabDomain turns the published port into a name the edge can route, as
 	// "lab-40017.offensiveconditions.org". Players then reach a challenge over
 	// 443 with a real certificate, and the raw port never has to be exposed to
@@ -185,6 +191,9 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 		// Writable scratch without giving up the read-only root.
 		"Tmpfs":         map[string]string{"/tmp": "rw,noexec,nosuid,size=64m"},
 		"RestartPolicy": map[string]any{"Name": "no"},
+	}
+	if b.opts.Runtime != "" {
+		hostConfig["Runtime"] = b.opts.Runtime
 	}
 	if b.opts.Network != "" {
 		hostConfig["NetworkMode"] = b.opts.Network
