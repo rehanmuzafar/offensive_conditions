@@ -457,9 +457,14 @@ volumes:
 networks:
   offcon:
     name: offcon
-    # NOTE: the edge proxies spawned challenges to the host at 172.18.0.1, this
-    # network's gateway (see the lab-* server block in nginx.conf). That address
-    # is Docker's own pick, not a promise. Pinning it here with an ipam block is
-    # the right fix, but Docker cannot change a live network's addressing, so it
-    # needs one full `compose down && up` to take — do it at a quiet moment
-    # rather than letting a routine deploy try and fail.
+    # Pinned, because the edge proxies spawned challenges to the host at this
+    # gateway by literal address — nginx cannot use a name there, as a variable
+    # in proxy_pass sends it to the resolver instead of /etc/hosts. Left to
+    # Docker the subnet is a default, not a promise, and the first time this
+    # network is recreated the lab routing would break with nothing to show for
+    # it. Changing these values later needs a full `compose down && up`: Docker
+    # will not re-address a live network.
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
