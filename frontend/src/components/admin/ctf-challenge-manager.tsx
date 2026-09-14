@@ -158,8 +158,13 @@ export function CtfChallengeManager({
     if (name.trim().length < 2) return toast.error("Challenge needs a name");
     if (!description.trim()) return toast.error("Challenge needs a description");
     // On edit an empty flag means "keep the existing one" — the hash is
-    // write-only so there is nothing to prefill.
-    if (!editingId && !flag.trim()) return toast.error("Challenge needs a flag");
+    // write-only so there is nothing to prefill. A per-team challenge minting a
+    // flag per instance has no static flag to ask for: requiring one here made
+    // the author invent a value that would then never be checked against
+    // anything.
+    const needsStaticFlag = !(delivery === "per_team" && dynamicFlag);
+    if (!editingId && needsStaticFlag && !flag.trim())
+      return toast.error("Challenge needs a flag");
     if (points < 10) return toast.error("Points must be at least 10");
     if (delivery === "shared_host" && !connectionUrl.trim())
       return toast.error("A shared-host challenge needs the address players connect to");

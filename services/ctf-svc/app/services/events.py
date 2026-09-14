@@ -228,13 +228,16 @@ class EventService:
         except IntegrityError as e:
             await self.session.rollback()
             # chk_ctf_timing enforces
-            #   registration_starts_at < registration_ends_at <= starts_at < ends_at
-            # Surfacing it as a 500 told the organiser nothing about what to fix.
+            #   registration_starts_at < registration_ends_at <= ends_at
+            #   starts_at < ends_at
+            # Registration closing after the start is allowed on purpose — that
+            # is what registration_until_end is for. Surfacing this as a 500
+            # told the organiser nothing about what to fix.
             if "chk_ctf_timing" in str(e.orig):
                 raise AppError(
                     ErrorCode.VALIDATION,
-                    "invalid schedule: registration must open before it closes, close at "
-                    "or before the start, and the event must start before it ends",
+                    "invalid schedule: registration must open before it closes and close no "
+                    "later than the event ends, and the event must start before it ends",
                 ) from e
             raise
         # challenge_count is a column_property (a correlated subquery), so it is

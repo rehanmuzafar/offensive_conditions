@@ -3,10 +3,12 @@
 /**
  * Full CTF event creation form.
  *
- * Encodes the two scheduling rules ctf-svc enforces, because hitting them as a
- * 400 after filling in a long form is miserable:
- *   registration_starts_at < registration_ends_at <= starts_at < ends_at
- * and `starts_at` cannot be changed after creation, so it is validated here.
+ * Encodes the scheduling rules ctf-svc enforces, because hitting them as a 400
+ * after filling in a long form is miserable:
+ *   registration_starts_at < registration_ends_at <= ends_at
+ *   starts_at < ends_at
+ * Registration closing *after* the start is allowed — that is the whole point of
+ * "when the event ends", which lets a late entrant join a running event.
  */
 
 import { useState } from "react";
@@ -265,7 +267,9 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
           </div>
         </div>
         <p className="-mt-2 text-[12px] text-text-faint">
-          Registration must close at or before the start time, and the start time cannot be changed once the event is created.
+          Registration must open before it closes and close no later than the event ends. The start
+          time can still be moved while the event is a draft or upcoming — only once it is running
+          does it freeze, so that its history cannot be rewritten underneath the players.
         </p>
 
         {/* format + access */}

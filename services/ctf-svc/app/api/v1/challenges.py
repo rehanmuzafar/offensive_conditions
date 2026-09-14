@@ -377,7 +377,18 @@ def _actor_name(claims: Claims, participant: EventParticipant) -> str:
 
 
 def _instance_read(inst: ChallengeInstance, *, created: bool = False) -> ChallengeInstanceRead:
-    connection = f"{inst.host}:{inst.port}" if inst.host and inst.port else None
+    # Two shapes arrive here. With a lab domain configured the orchestrator hands
+    # back a finished URL and no port, because the edge routes by name and the
+    # port never reaches the player; without one it hands back a bare host that
+    # only means something with its port attached. Joining a port onto the first
+    # shape produced nothing at all — `port` is None, so the whole expression
+    # collapsed to None and the panel had no address to show.
+    if inst.host and inst.host.startswith(("http://", "https://")):
+        connection = inst.host
+    elif inst.host and inst.port:
+        connection = f"{inst.host}:{inst.port}"
+    else:
+        connection = None
     return ChallengeInstanceRead(
         id=inst.id,
         challenge_id=inst.challenge_id,
