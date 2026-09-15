@@ -81,6 +81,12 @@ export function surfaceForHost(host: string): Surface {
 const OWNER: Record<string, Surface> = {
   dashboard: "dashboard",
   ctf: "ctf",
+  // A team page belongs to the CTF host, and saying so here is what makes it
+  // reachable from anywhere else. Without an owner the path is left to the
+  // surface it was requested on, and every surface but ctf prefixes its own
+  // root onto it — so the admin panel's link to a team asked for
+  // /admin/teams/<slug>, which is not a page, and answered 404.
+  teams: "ctf",
   bounty: "bugbounty",
   machines: "app",
   tracks: "app",

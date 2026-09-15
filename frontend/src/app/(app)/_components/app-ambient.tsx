@@ -65,14 +65,14 @@ function presetFor(shape: Shape): Preset {
     return { skull: true, matrix: true, wakeGain: 1, opacity: "opacity-90" };
   }
 
-  // Competition surfaces. Scanned under time pressure, so: no skull moving
-  // through the middle of the frame, and a wake at a hundredth — present
-  // enough that the page is not dead, quiet enough to ignore.
+  // Everything past the dashboard is a working surface, and the wake is off on
+  // all of them. It is a flourish, and a flourish that follows the cursor across
+  // a scoreboard or a form competes with the work being done on it. The grid
+  // itself stays; only the pointer disturbance goes.
   if (shape === "ctf") {
-    return { skull: false, matrix: true, wakeGain: 0.01, opacity: "opacity-75" };
+    return { skull: false, matrix: true, wakeGain: 0, opacity: "opacity-75" };
   }
 
-  // The Academy — catalogues, forms, tables. No skull over dense lists, but the
-  // wake is worth more here than in a live event.
-  return { skull: false, matrix: false, wakeGain: 0.25, opacity: "opacity-[0.55]" };
+  // The Academy — catalogues, forms, tables.
+  return { skull: false, matrix: false, wakeGain: 0, opacity: "opacity-[0.55]" };
 }

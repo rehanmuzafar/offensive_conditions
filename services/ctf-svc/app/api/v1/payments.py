@@ -214,6 +214,49 @@ async def confirm_team_payment(
     }
 
 
+class CompTeamRequest(BaseModel):
+    team_id: UUID
+    #: Who leads the team into the event. They are registered immediately, the
+    #: same as the payer would be, so the entry is never one nobody occupies.
+    captain_id: UUID
+    team_name: str | None = None
+    #: Free text kept on the entry — "CNIC verified, 1st semester", a receipt
+    #: number for money taken in cash. Reconciliation later has no other record.
+    note: str | None = None
+
+
+@router.post("/team/comp")
+async def comp_team_entry(
+    event_id: UUID,
+    body: CompTeamRequest,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+) -> dict[str, Any]:
+    """Add a team to a paid event without charging it. Organiser-only.
+
+    The event stays priced: everyone else still pays, and the paywall still
+    reads as a paywall. This is the door an organiser opens by hand for the
+    entrants a gateway cannot serve — students admitted free on a verified
+    card, invited guests, money that arrived in cash.
+    """
+    if not claims.is_ctf_organizer:
+        raise AppError(ErrorCode.NOT_ORGANIZER, "ctf_organizer role required")
+    entry = await svc.comp_team(
+        event_id,
+        team_id=body.team_id,
+        captain_id=body.captain_id,
+        team_name=body.team_name,
+        note=body.note,
+    )
+    return {
+        "team_id": str(entry.team_id),
+        "payment_status": entry.payment_status,
+        "provider": entry.provider,
+        "amount_cents": entry.amount_cents,
+        "currency": entry.currency,
+    }
+
+
 @router.get("/team/pending", response_model=list[PendingTeamPayment])
 async def list_pending_team_payments(
     event_id: UUID,

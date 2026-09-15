@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { COUNTRIES, countryName } from "@/lib/countries";
 import { teamsApi, type BrowseFilter, type Team } from "@/lib/teams-api";
 import { CreateTeamDialog } from "@/components/teams/create-team-dialog";
+import type { TeamTotals } from "@/lib/teams-api";
 
 type Tab = "all" | "mine";
 
@@ -32,6 +33,8 @@ export default function TeamsPage() {
 
   const [q, setQ] = useState("");
   const [country, setCountry] = useState("");
+  /** Points and flags per team id, fetched in one call once a list arrives. */
+  const [totals, setTotals] = useState<Record<string, TeamTotals>>({});
 
   const myIds = useMemo(() => new Set(mine.map((t) => t.id)), [mine]);
 
@@ -69,10 +72,57 @@ export default function TeamsPage() {
   }, [q, country, tab, search]);
 
   // "My Teams" filters client-side — the list is small and already loaded.
-  const shown =
+  const listed =
     tab === "all"
       ? all
       : mine.filter((t) => t.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  // One request for the whole list. Keyed on the ids rather than the array so a
+  // re-render with the same teams does not refetch.
+  const idKey = listed.map((t) => t.id).join(",");
+  useEffect(() => {
+    if (!idKey) {
+      setTotals({});
+      return;
+    }
+    let live = true;
+    void teamsApi
+      .totals(idKey.split(","))
+      .then((t) => {
+        if (live) setTotals(t);
+      })
+      // A list that shows no numbers still beats a list that shows nothing.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [idKey]);
+
+  /**
+   * Unfiltered, the order is the global one: most points first, which is what
+   * "the best team" means across the platform. Narrow it to a country or a
+   * university and points stop being comparable — a team that has entered ten
+   * events outranks a stronger one that entered two — so within a filter the
+   * order is by flags taken, which is the work done rather than the schedule
+   * kept.
+   */
+  const filtered = tab === "all" && Boolean(q.trim() || country);
+  const shown = useMemo(() => {
+    const key = (t: Team) => {
+      const s = totals[t.id];
+      return filtered ? (s?.flags ?? 0) : (s?.points ?? 0);
+    };
+    return [...listed].sort((a, b) => {
+      const d = key(b) - key(a);
+      if (d !== 0) return d;
+      // A stable, meaningful tiebreak: the other number, then the name, so the
+      // order does not shuffle between renders.
+      const other =
+        (filtered ? (totals[b.id]?.points ?? 0) : (totals[b.id]?.flags ?? 0)) -
+        (filtered ? (totals[a.id]?.points ?? 0) : (totals[a.id]?.flags ?? 0));
+      return other !== 0 ? other : a.name.localeCompare(b.name);
+    });
+  }, [listed, totals, filtered]);
 
   return (
     <div className="space-y-5">
@@ -164,7 +214,7 @@ export default function TeamsPage() {
       ) : (
         <div className="space-y-2.5">
           {shown.map((t) => (
-            <TeamRow key={t.id} team={t} isMine={myIds.has(t.id)} />
+            <TeamRow key={t.id} team={t} isMine={myIds.has(t.id)} totals={totals[t.id]} />
           ))}
         </div>
       )}
@@ -183,7 +233,18 @@ export default function TeamsPage() {
   );
 }
 
-function TeamRow({ team, isMine }: { team: Team; isMine: boolean }) {
+function TeamRow({
+  team,
+  isMine,
+  totals,
+}: {
+  team: Team;
+  isMine: boolean;
+  /** Absent while the one bulk request is still in flight, and for a team that
+   *  has never entered an event. Both render as a dash rather than a zero: "no
+   *  data yet" and "played and scored nothing" are different things. */
+  totals?: TeamTotals;
+}) {
   // Affiliation is optional; fall back to the country, then to nothing at all.
   const affiliation = team.category_detail || countryName(team.country_code) || "";
 
@@ -210,7 +271,9 @@ function TeamRow({ team, isMine }: { team: Team; isMine: boolean }) {
           </div>
         </div>
 
-        <Stat value={`${team.member_count}`} label="Team members" />
+        <Stat value={totals ? `${totals.flags}` : "—"} label="Flags" />
+        <Stat value={totals ? `${totals.points}` : "—"} label="Points" />
+        <Stat value={`${team.member_count}`} label="Members" />
 
         <Link href={`/teams/${team.slug}`} className="ml-auto">
           <Button variant={isMine ? "outline" : "ghost"}>

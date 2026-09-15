@@ -53,6 +53,14 @@ export interface TeamStats {
   members: TeamMemberStats[];
 }
 
+/** A team's headline numbers, as the list needs them. */
+export interface TeamTotals {
+  team_id: string;
+  points: number;
+  flags: number;
+  events_played: number;
+}
+
 export interface TeamJoinRequest {
   id: string;
   team_id: string;
@@ -154,6 +162,16 @@ export const teamsApi = {
    * participation rows the numbers are aggregated from.
    */
   stats: (teamId: string) => api.get<TeamStats>(`/v1/ctf/teams/${teamId}/stats`),
+
+  /** Totals for many teams in one request — the per-team call is far too much
+   *  work to repeat down a list. */
+  totals: async (teamIds: string[]): Promise<Record<string, TeamTotals>> => {
+    if (teamIds.length === 0) return {};
+    const res = await api.get<{ items: TeamTotals[] }>(
+      `/v1/ctf/teams/stats?ids=${encodeURIComponent(teamIds.join(","))}`,
+    );
+    return Object.fromEntries((res.items ?? []).map((t) => [t.team_id, t]));
+  },
 
   requestJoin: (teamId: string, message = "") =>
     api.post<TeamJoinRequest>(`/v1/teams/${teamId}/join-requests`, { body: { message } }),

@@ -403,6 +403,20 @@ export const ctfAdminApi = {
   listChallenges: (eventId: string) =>
     api.get<{ items: AdminCtfChallenge[] }>(`/v1/ctf/events/${eventId}/challenges`),
 
+  /** Put a team into a paid event without charging it. Idempotent: a team
+   *  already in comes back unchanged rather than being counted twice. */
+  compTeam: (
+    eventId: string,
+    body: { team_id: string; captain_id: string; team_name?: string; note?: string },
+  ) =>
+    api.post<{
+      team_id: string;
+      payment_status: string;
+      provider: string;
+      amount_cents: number;
+      currency: string;
+    }>(`/v1/ctf/events/${eventId}/payment/team/comp`, { body }),
+
   listWaves: (eventId: string) =>
     api.get<{ items: CtfWave[] }>(`/v1/ctf/events/${eventId}/waves`),
 

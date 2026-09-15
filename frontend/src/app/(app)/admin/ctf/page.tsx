@@ -11,6 +11,7 @@ import { CtfChallengeManager } from "@/components/admin/ctf-challenge-manager";
 import { CtfEventEdit } from "@/components/admin/ctf-event-edit";
 import { CtfPauseScheduler } from "@/components/admin/ctf-pause-scheduler";
 import { CtfScoreControl } from "@/components/admin/ctf-score-control";
+import { CtfCompTeam } from "@/components/admin/ctf-comp-team";
 import { CtfWaveManager } from "@/components/admin/ctf-wave-manager";
 import { CtfWriteupsPanel } from "@/components/admin/ctf-writeups-panel";
 import { ctfAdminApi, type AdminCtfEvent, type CtfEventStatus } from "@/lib/ctf-admin-api";
@@ -151,6 +152,16 @@ export default function AdminCtfPage() {
 
           {managing.has_waves && (
             <CtfWaveManager eventId={managing.id} />
+          )}
+
+          {/* Only for events that charge. On a free event there is nothing to
+              waive, and the panel would be a control with no meaning. */}
+          {managing.entry_fee_cents > 0 && (
+            <CtfCompTeam
+              eventId={managing.id}
+              currency={managing.currency || "USD"}
+              feeCents={managing.entry_fee_cents}
+            />
           )}
 
           <CtfChallengeManager

@@ -31,7 +31,7 @@ export function CtfAmbient() {
       <AmbientScene
         skull={false}
         matrix
-        wakeGain={0.01}
+        wakeGain={0}
         /* Below the app layout's opaque ground would make it invisible; see the
            note on the dashboard's scene. */
         className="pointer-events-none fixed inset-0 -z-[1] opacity-75"

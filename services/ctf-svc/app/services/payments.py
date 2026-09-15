@@ -32,7 +32,19 @@ log = get_logger("payments")
 
 # Providers that can be selected via CTF_PAYMENT_PROVIDER.
 PROVIDER_MANUAL = "manual"
-SUPPORTED_PROVIDERS = {PROVIDER_MANUAL, "jazzcash", "easypaisa", "stripe", "safepay"}
+#: An entry an organiser granted rather than one that was bought. Kept distinct
+#: from "manual" — that means money changed hands somewhere we did not see, this
+#: means no money was due at all, and reconciliation needs to tell them apart.
+PROVIDER_ADMIN_COMP = "admin_comp"
+
+SUPPORTED_PROVIDERS = {
+    PROVIDER_MANUAL,
+    PROVIDER_ADMIN_COMP,
+    "jazzcash",
+    "easypaisa",
+    "stripe",
+    "safepay",
+}
 
 # What a payer can choose at checkout, as opposed to who processes it. Safepay
 # presents all three behind one integration, so the provider and the method are
@@ -457,6 +469,74 @@ class PaymentService:
             amount_cents=entry.amount_cents,
         )
         return entry
+
+    async def comp_team(
+        self,
+        event_id: UUID,
+        *,
+        team_id: UUID,
+        captain_id: UUID,
+        team_name: str | None = None,
+        note: str | None = None,
+    ) -> "EventTeamEntry":
+        """Put a team in a paid event without it paying. Idempotent.
+
+        There are entrants a gateway cannot serve: a first-semester student let
+        in free on a checked university card, an invited guest team, an organiser
+        fixing a payment that arrived out of band. Refusing them would mean
+        either running the event as free — which prices it wrong for everyone
+        else — or handling them outside the platform, where nothing is recorded.
+
+        It deliberately lands on the same row and the same confirm path a real
+        payment does, so the team is registered in exactly one sense: everything
+        downstream — the roster, member joins, the scoreboard — reads the entry
+        and cannot tell the difference. What it can tell is *how* the entry was
+        settled, which is why the provider is its own value and the note is kept.
+        """
+        event = (
+            await self.session.execute(select(Event).where(Event.id == event_id))
+        ).scalar_one_or_none()
+        if event is None:
+            raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
+
+        entry = (
+            await self.session.execute(
+                select(EventTeamEntry).where(
+                    and_(
+                        EventTeamEntry.event_id == event_id,
+                        EventTeamEntry.team_id == team_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+
+        if entry is not None and entry.payment_status == "paid":
+            # Already in, however it got there. Saying so beats a second
+            # confirm, which would count the team twice.
+            return entry
+
+        if entry is None:
+            entry = EventTeamEntry(event_id=event_id, team_id=team_id)
+            self.session.add(entry)
+            await self.session.flush()
+
+        entry.team_name = team_name or entry.team_name
+        # Recorded before confirming so the provider survives: confirm_team only
+        # fills provider when it is empty, which is what lets this stay visible
+        # as a comp rather than being relabelled as whatever gateway is
+        # configured.
+        entry.provider = PROVIDER_ADMIN_COMP
+        entry.provider_reference = (note or "").strip()[:200] or None
+        entry.paid_by_user_id = captain_id
+
+        confirmed = await self.confirm_team(event_id, team_id=team_id, amount_cents=0)
+        log.info(
+            "team_comped_by_admin",
+            event_id=str(event_id),
+            team_id=str(team_id),
+            captain_id=str(captain_id),
+        )
+        return confirmed
 
     async def team_entry(self, event_id: UUID, team_id: UUID) -> "EventTeamEntry":
         """A team's entry, for callers that only want to read its state."""

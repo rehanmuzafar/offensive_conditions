@@ -29,6 +29,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           drifts right with the scroll timeline's opening keyframes, which put
           the skull directly behind the form. */}
       <AmbientScene
+        /* No pointer wake here either — it belongs to the landing page and the
+           dashboard, and this is neither. */
+        wakeGain={0}
         anchor={[-2.1, -0.15, -0.6]}
         className="pointer-events-none fixed inset-0 -z-10 opacity-80"
       />

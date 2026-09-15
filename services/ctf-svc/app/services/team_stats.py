@@ -41,6 +41,20 @@ class UserStats:
 
 
 @dataclass(slots=True)
+class TeamTotals:
+    """A team's headline numbers, without the per-member breakdown.
+
+    What a list needs and no more: the members are the expensive half of the
+    per-team query and nothing in a list renders them.
+    """
+
+    team_id: UUID
+    points: int
+    flags: int
+    events_played: int
+
+
+@dataclass(slots=True)
 class TeamStats:
     team_id: UUID
     points: int
@@ -79,6 +93,23 @@ _MEMBER_SQL = text(
     """
 )
 
+# Totals for many teams at once. The per-team query above sums over members,
+# which is right for one team and wrong for a list: rendering twenty-four teams
+# would mean twenty-four round trips, each doing its own member breakdown that
+# the list never shows. This aggregates straight to the team.
+_BULK_SQL = text(
+    """
+    SELECT p.team_id,
+           COALESCE(SUM(p.points), 0)::BIGINT      AS points,
+           COALESCE(SUM(p.solve_count), 0)::BIGINT AS flags,
+           COUNT(DISTINCT p.event_id)::BIGINT      AS events_played
+      FROM ctf.event_participants p
+     WHERE p.team_id = ANY(:team_ids)
+       AND NOT p.is_disqualified
+     GROUP BY p.team_id
+    """
+)
+
 # A team's rank is per event, so "best" is the lowest rank it ever placed.
 _BEST_RANK_SQL = text(
     """
@@ -91,6 +122,26 @@ _BEST_RANK_SQL = text(
 class TeamStatsService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def totals_for(self, team_ids: list[UUID]) -> dict[UUID, TeamTotals]:
+        """Points, flags and events for each of `team_ids`, in one query.
+
+        Teams that have never entered an event are absent from the result rather
+        than present as zeros — the caller knows which ids it asked for, and a
+        missing row is cheaper to default than to fabricate here.
+        """
+        if not team_ids:
+            return {}
+        rows = (await self.session.execute(_BULK_SQL, {"team_ids": team_ids})).all()
+        return {
+            r.team_id: TeamTotals(
+                team_id=r.team_id,
+                points=int(r.points),
+                flags=int(r.flags),
+                events_played=int(r.events_played),
+            )
+            for r in rows
+        }
 
     async def for_team(self, team_id: UUID) -> TeamStats:
         rows = (await self.session.execute(_MEMBER_SQL, {"team_id": team_id})).all()
