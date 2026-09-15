@@ -62,8 +62,8 @@ export default function Cursor() {
         const s = hovering ? 2.1 : 1;
         ring.current.style.transform = `translate3d(${eased.x}px, ${eased.y}px, 0) translate(-50%, -50%) scale(${s})`;
         ring.current.style.borderColor = hovering
-          ? "rgba(244,244,245,0.85)"
-          : "rgba(244,244,245,0.32)";
+          ? "rgba(244,244,245,0.95)"
+          : "rgba(244,244,245,0.55)";
       }
       frame = requestAnimationFrame(loop);
     };
@@ -83,13 +83,22 @@ export default function Cursor() {
     <div aria-hidden className="pointer-events-none fixed inset-0 z-[60] hidden lg:block">
       <div
         ref={ring}
-        className="absolute left-0 top-0 h-8 w-8 rounded-full border opacity-0 transition-[border-color] duration-200"
-        style={{ borderColor: "rgba(244,244,245,0.32)" }}
+        className="absolute left-0 top-0 h-11 w-11 rounded-full border-2 opacity-0 transition-[border-color] duration-200"
+        style={{ borderColor: "rgba(244,244,245,0.55)" }}
       />
       <div ref={dot} className="absolute left-0 top-0 opacity-0">
-        {/* A '+' rather than a dot, to rhyme with the ticks on the grid. */}
-        <span className="absolute left-1/2 top-1/2 block h-px w-3 -translate-x-1/2 -translate-y-1/2 bg-text" />
-        <span className="absolute left-1/2 top-1/2 block h-3 w-px -translate-x-1/2 -translate-y-1/2 bg-text" />
+        {/* A '+' rather than a dot, to rhyme with the ticks on the grid. Two
+            pixels thick and drawn with a shadow: over the bright parts of the
+            scene a hairline crosshair disappears into the grid it was meant to
+            rhyme with, which is the one thing a cursor may never do. */}
+        <span
+          className="absolute left-1/2 top-1/2 block h-0.5 w-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-text"
+          style={{ boxShadow: "0 0 6px rgba(0,0,0,0.65)" }}
+        />
+        <span
+          className="absolute left-1/2 top-1/2 block h-[18px] w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text"
+          style={{ boxShadow: "0 0 6px rgba(0,0,0,0.65)" }}
+        />
       </div>
     </div>
   );
