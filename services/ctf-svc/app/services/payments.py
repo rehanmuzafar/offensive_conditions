@@ -67,6 +67,17 @@ class PaymentService:
         raw = (getattr(self._s, "ctf_payment_provider", "") or PROVIDER_MANUAL).lower()
         return raw if raw in SUPPORTED_PROVIDERS else PROVIDER_MANUAL
 
+    def _require_payout_details(self) -> None:
+        """Refuse manual collection when there is nowhere for the money to go."""
+        iban = (getattr(self._s, "payout_iban", "") or "").strip()
+        acct = (getattr(self._s, "payout_account_number", "") or "").strip()
+        if not iban and not acct:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                "bank transfer is not set up: an organiser needs to fill in the "
+                "payout account details before teams can be asked to pay",
+            )
+
     async def _load(self, event_id: UUID, user_id: UUID) -> tuple[Event, EventParticipant]:
         event = (
             await self.session.execute(select(Event).where(Event.id == event_id))
@@ -94,6 +105,13 @@ class PaymentService:
 
         if (event.entry_fee_cents or 0) <= 0:
             raise AppError(ErrorCode.VALIDATION, "this event is free")
+
+        # Checked before any row exists. Refusing after the entry is written
+        # leaves a team sitting in the organiser's confirmation queue that was
+        # never given an account to pay into — a row that can only be cleared by
+        # hand, and only once someone works out why it is there.
+        if self.provider == PROVIDER_MANUAL:
+            self._require_payout_details()
         if participant.payment_status == "paid":
             raise AppError(ErrorCode.VALIDATION, "already paid")
 
@@ -118,6 +136,7 @@ class PaymentService:
         if self.provider == PROVIDER_MANUAL:
             # No gateway configured yet: hand back bank details and let an admin
             # confirm once the transfer lands.
+            #
             payload["instructions"] = {
                 "method": "bank_transfer",
                 "account_name": getattr(self._s, "payout_account_name", "") or "",
@@ -275,6 +294,13 @@ class PaymentService:
         if (event.entry_fee_cents or 0) <= 0:
             raise AppError(ErrorCode.VALIDATION, "this event is free")
 
+        # Checked before any row exists. Refusing after the entry is written
+        # leaves a team sitting in the organiser's confirmation queue that was
+        # never given an account to pay into — a row that can only be cleared by
+        # hand, and only once someone works out why it is there.
+        if self.provider == PROVIDER_MANUAL:
+            self._require_payout_details()
+
         # Created here rather than at registration, because for a paid event
         # paying is what brings a team in: players cannot register under a team
         # whose entry is unsettled, so the entry has to exist before anyone —
@@ -407,7 +433,10 @@ class PaymentService:
             return entry
 
         entry.payment_status = "paid"
-        entry.amount_cents = amount_cents or event.entry_fee_cents
+        # `or` would be wrong here: a comped entry passes 0 deliberately, and
+        # `0 or fee` is the fee — so a team that paid nothing was recorded as
+        # having paid in full, which is the one number reconciliation depends on.
+        entry.amount_cents = event.entry_fee_cents if amount_cents is None else amount_cents
         entry.currency = event.currency
         entry.provider = entry.provider or self.provider
         if provider_reference:

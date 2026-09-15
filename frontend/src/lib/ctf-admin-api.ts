@@ -403,6 +403,36 @@ export const ctfAdminApi = {
   listChallenges: (eventId: string) =>
     api.get<{ items: AdminCtfChallenge[] }>(`/v1/ctf/events/${eventId}/challenges`),
 
+  /** Teams that started paying and have not been confirmed — the queue an
+   *  organiser works through against a bank statement. */
+  listPendingTeams: (eventId: string) =>
+    api.get<
+      {
+        team_id: string;
+        team_name: string | null;
+        paid_by_user_id: string | null;
+        payment_status: string;
+        provider_reference: string | null;
+        provider: string | null;
+        amount_cents: number;
+        currency: string | null;
+        created_at: string | null;
+      }[]
+    >(`/v1/ctf/events/${eventId}/payment/team/pending`),
+
+  /** Mark a team's entry settled. Idempotent — the same call from a gateway
+   *  webhook and from this button lands on one implementation. */
+  confirmTeamPayment: (
+    eventId: string,
+    body: { team_id: string; provider_reference?: string; amount_cents?: number },
+  ) =>
+    api.post<{
+      team_id: string;
+      payment_status: string;
+      amount_cents: number;
+      currency: string;
+    }>(`/v1/ctf/events/${eventId}/payment/team/confirm`, { body }),
+
   /** Put a team into a paid event without charging it. Idempotent: a team
    *  already in comes back unchanged rather than being counted twice. */
   compTeam: (

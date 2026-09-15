@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -148,12 +149,19 @@ class ConfirmTeamRequest(BaseModel):
 
 class PendingTeamPayment(BaseModel):
     team_id: UUID
+    #: Captured on the entry when the team started paying. An organiser matching
+    #: bank transfers is reading names off a statement, not uuids, and looking
+    #: each one up by hand is how the wrong team gets confirmed.
+    team_name: str | None = None
     paid_by_user_id: UUID | None
     payment_status: str
     provider_reference: str | None
     provider: str | None
     amount_cents: int
     currency: str | None
+    #: How long this has been sitting. A transfer from three days ago that is
+    #: still pending is a different thing from one made ten minutes ago.
+    created_at: datetime | None = None
 
 
 @router.post("/team/intent", response_model=TeamIntentResponse)
@@ -269,12 +277,14 @@ async def list_pending_team_payments(
     return [
         PendingTeamPayment(
             team_id=e.team_id,
+            team_name=e.team_name,
             paid_by_user_id=e.paid_by_user_id,
             payment_status=e.payment_status,
             provider_reference=e.provider_reference,
             provider=e.provider,
             amount_cents=e.amount_cents,
             currency=e.currency,
+            created_at=e.created_at,
         )
         for e in await svc.list_pending_teams(event_id)
     ]
