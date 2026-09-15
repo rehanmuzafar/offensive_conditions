@@ -63,9 +63,9 @@ const fragmentShader = /* glsl */ `
   uniform float uScroll;
   uniform vec3  uNeonLead;
   uniform vec3  uNeonTrail;
-  /* 1 = the marketing wake. Working surfaces turn this most of the way down:
-     the effect should register at the edge of attention, not compete with a
-     scoreboard that people are reading under time pressure. */
+  /* How much the grid answers the pointer at all — the ripples and the pool of
+     light both. 1 is the marketing treatment; 0 is a grid that ignores the
+     mouse entirely, which is what every working surface asks for. */
   uniform float uWakeGain;
 
   varying vec2 vUv;
@@ -131,9 +131,16 @@ const fragmentShader = /* glsl */ `
     vec2 c = vUv * 2.0 - 1.0;
     float vignette = 1.0 - smoothstep(0.55, 1.35, length(c));
 
-    // A soft pool of light that follows the cursor — the only thing on this
-    // plane that reacts to input, and the reason the grid feels physical.
-    vec2 lightPos = uPointer * vec2(0.42, 0.30);
+    // A soft pool of light that follows the cursor. Scaled by uWakeGain along
+    // with the ripples, because this is the *other* half of the grid reacting
+    // to input and turning off only the ripples left the light still trailing
+    // the mouse across every page that had asked for no reaction at all.
+    //
+    // Scaled rather than removed: at zero the pool sits at the centre and the
+    // grid keeps the lit, curved look it is drawn for. Cutting the glow instead
+    // would flatten it to an even grey, which is a different design, not a
+    // quieter one.
+    vec2 lightPos = uPointer * vec2(0.42, 0.30) * uWakeGain;
     float glow = 1.0 - smoothstep(0.0, 0.62, length(c * vec2(1.0, 0.62) - lightPos));
     glow = pow(glow, 2.2);
 
