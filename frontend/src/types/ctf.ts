@@ -169,7 +169,10 @@ export interface MyWriteup {
  * processes it. One gateway can offer all three, so the provider is
  * configuration and this is the only choice the player is asked to make.
  */
-export type PaymentMethod = "card" | "jazzcash" | "easypaisa";
+/** Card only. The wallets were dropped: the gateway offers them on its own
+ *  checkout for anyone who wants one, and carrying three rails through our own
+ *  UI meant three ways for an entrant to get stuck. */
+export type PaymentMethod = "card";
 
 export interface TeamEntryStatus {
   paymentStatus: string;

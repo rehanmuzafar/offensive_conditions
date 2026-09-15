@@ -126,7 +126,7 @@ class TeamIntentRequest(BaseModel):
     team_id: UUID
     # What the payer wants to use. The provider is a separate matter and comes
     # from configuration — Safepay, for instance, offers all three itself.
-    method: str = Field(default="card", pattern="^(card|jazzcash|easypaisa)$")
+    method: str = Field(default="card", pattern="^card$")
 
 
 class TeamIntentResponse(BaseModel):

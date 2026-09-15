@@ -17,7 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, CheckCircle2, CreditCard, ExternalLink, Loader2, Smartphone, X } from "lucide-react";
+import { Building2, CheckCircle2, CreditCard, ExternalLink, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -43,8 +43,6 @@ export function formatMoney(cents: number, currency: string, minorUnits = 100): 
 
 const METHODS: { id: PaymentMethod; label: string; hint: string; icon: typeof CreditCard }[] = [
   { id: "card", label: "Card", hint: "Credit or debit", icon: CreditCard },
-  { id: "jazzcash", label: "JazzCash", hint: "Mobile wallet", icon: Smartphone },
-  { id: "easypaisa", label: "EasyPaisa", hint: "Mobile wallet", icon: Smartphone },
 ];
 
 export function TeamPaymentDialog({

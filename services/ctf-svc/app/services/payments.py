@@ -49,7 +49,12 @@ SUPPORTED_PROVIDERS = {
 # What a payer can choose at checkout, as opposed to who processes it. Safepay
 # presents all three behind one integration, so the provider and the method are
 # separate questions and the UI asks only this one.
-SUPPORTED_METHODS = {"card", "jazzcash", "easypaisa"}
+#: Card only, deliberately. The wallets were offered because they are how most
+#: of Pakistan pays, but each one is a separate rail with its own failures, and
+#: a checkout that offers three ways to pay is three ways for an entrant to get
+#: stuck ten minutes before an event. The gateway carries the wallets itself for
+#: anyone who wants them; this is about what the platform promises.
+SUPPORTED_METHODS = {"card"}
 
 
 class PaymentService:
