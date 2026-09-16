@@ -29,10 +29,10 @@ export function MarketingNav() {
             <Link
               key={item.href}
               href={item.href}
-              className="group relative text-[14.5px] font-medium text-text-dim transition-colors hover:text-text"
+              className="nav-link group relative text-[14.5px] font-medium"
             >
-              {item.label}
-              <span className="absolute -bottom-1.5 left-0 h-0.5 w-0 rounded bg-brand-gradient transition-all duration-200 group-hover:w-full" />
+              <span className="nav-label">{item.label}</span>
+              <span aria-hidden className="nav-underline" />
             </Link>
           ))}
         </div>
@@ -73,9 +73,9 @@ export function MarketingNav() {
               key={item.href}
               href={item.href}
               onClick={() => setOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-text-dim hover:bg-surface-hover hover:text-text"
+              className="nav-link rounded-lg px-3 py-2.5 text-[15px] font-medium hover:bg-surface-hover"
             >
-              {item.label}
+              <span className="nav-label">{item.label}</span>
             </Link>
           ))}
           <div className="mt-3 flex gap-3 border-t border-line pt-4">
