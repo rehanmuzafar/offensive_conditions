@@ -169,8 +169,8 @@ export default function Enlist() {
               <RevealWords text="Legally." className="iridescent-text block" />
             </h3>
             <p className="mx-auto mt-7 max-w-[420px] text-[13px] leading-[1.8] text-text-dim">
-              128,000 operators are already on the ladder. The only thing between
-              you and your first root is a free account.
+              The ladder is already live. The only thing between you and your
+              first root is a free account.
             </p>
             <div className="mt-10 flex flex-wrap justify-center gap-3">
               <ActionLink href="#top" variant="solid">

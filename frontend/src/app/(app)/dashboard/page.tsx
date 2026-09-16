@@ -1,5 +1,6 @@
 "use client";
 
+import { usePlatformStats } from "@/lib/platform-stats";
 import { Tilt, Reveal, CountUp } from "@/components/ui/motion";
 import Link from "next/link";
 import {
@@ -28,6 +29,7 @@ import type { ActivityItem } from "@/types/content";
 
 export default function DashboardPage() {
   const { data, isLoading } = useDashboard();
+  const platform = usePlatformStats();
   const authUser = useAuthStore((s) => s.user);
   const name = authUser?.username ?? data?.user.username ?? "operator";
 
@@ -135,7 +137,7 @@ export default function DashboardPage() {
             <CardBody>
               <h2 className="mb-4 font-display text-[18px] font-bold">Jump back in</h2>
               <div className="space-y-2.5">
-                <QuickLink href="/machines" icon={<Server className="h-[18px] w-[18px]" />} title="Browse machines" subtitle="540+ boxes to root" />
+                <QuickLink href="/machines" icon={<Server className="h-[18px] w-[18px]" />} title="Browse machines" subtitle={`${platform.machines} boxes to root`} />
                 <QuickLink href="/ctf" icon={<Flag className="h-[18px] w-[18px]" />} title="CTF arena" subtitle="Live events now" />
                 <QuickLink href="/leaderboard" icon={<Trophy className="h-[18px] w-[18px]" />} title="Leaderboard" subtitle="See where you rank" />
               </div>

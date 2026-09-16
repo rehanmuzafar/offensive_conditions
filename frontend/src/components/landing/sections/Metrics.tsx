@@ -2,13 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { RevealGroup, RevealItem } from "@/components/landing/ui/Reveal";
-
-const METRICS = [
-  { value: 248, suffix: "", label: "Machines & challenges", note: "live targets" },
-  { value: 128, suffix: "K", label: "Active operators", note: "all regions" },
-  { value: 34, suffix: "", label: "Learning paths", note: "entry → elite" },
-  { value: 96, suffix: "", label: "Countries", note: "on the ladder" },
-];
+import { usePlatformStats } from "@/lib/platform-stats";
 
 /**
  * Count-up figures.
@@ -62,10 +56,20 @@ function Counter({ value, suffix }: { value: number; suffix: string }) {
 }
 
 export default function Metrics() {
+  const s = usePlatformStats();
+  /* Real totals, not invented ones. Small on a young platform, and meant to be:
+     a page that claims 128K operators when there is a handful is the thing this
+     replaced. */
+  const metrics = [
+    { value: s.machines + s.challenges, suffix: "", label: "Machines & challenges", note: "live targets" },
+    { value: s.operators, suffix: "", label: "Active operators", note: "on the ladder" },
+    { value: s.paths, suffix: "", label: "Learning paths", note: "entry → elite" },
+    { value: s.countries, suffix: "", label: "Countries", note: "on the ladder" },
+  ];
   return (
     <section className="relative px-6 py-24 lg:px-10">
       <RevealGroup className="mx-auto grid max-w-[1440px] grid-cols-2 gap-px border border-white/[0.07] bg-white/[0.07] lg:grid-cols-4">
-        {METRICS.map((m) => (
+        {metrics.map((m) => (
           <RevealItem
             key={m.label}
             className="group relative bg-black/70 px-6 py-9 backdrop-blur-md transition-colors duration-500 hover:bg-black/40"

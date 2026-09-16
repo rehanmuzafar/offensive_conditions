@@ -5,8 +5,8 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Stat } from "@/components/ui/stat";
 import { SectionHeading } from "@/components/layout/section-heading";
+import { HomeStats } from "@/app/(marketing)/_components/live-sections";
 
 export const metadata: Metadata = {
   title: "About",
@@ -20,13 +20,6 @@ const VALUES = [
   { title: "Merit over hype", body: "The leaderboard doesn't care where you're from or what's on your CV. It cares whether you rooted the box." },
   { title: "Defense through offense", body: "We train attackers so the world builds better defenses. Every operator we forge makes systems safer." },
   { title: "Open to everyone", body: "From a student in Lahore to a red-teamer in Berlin — a free tier, a global community, and no gatekeeping." },
-];
-
-const STATS = [
-  { value: "128K", label: "Hackers trained" },
-  { value: "540+", label: "Machines shipped" },
-  { value: "2.4M", label: "Flags captured" },
-  { value: "195", label: "Countries" },
 ];
 
 export default function AboutPage() {
@@ -43,11 +36,9 @@ export default function AboutPage() {
         </p>
       </div>
 
-      {/* stats */}
-      <div className="mt-16 grid grid-cols-2 gap-5 lg:grid-cols-4">
-        {STATS.map((s) => (
-          <Stat key={s.label} value={s.value} label={s.label} />
-        ))}
+      {/* stats — real counts from the API, not invented figures */}
+      <div className="mt-16">
+        <HomeStats />
       </div>
 
       {/* mission */}
@@ -64,7 +55,7 @@ export default function AboutPage() {
               compete in live CTFs, and prove themselves on a global leaderboard. No CV required. Just skill.
             </p>
             <p>
-              Today, operators from 195 countries train here every day. Tomorrow, they&apos;re the people
+              Operators train here every day, wherever they are. Tomorrow, they&apos;re the people
               keeping the world&apos;s systems secure.
             </p>
           </div>

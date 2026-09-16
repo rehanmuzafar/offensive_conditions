@@ -133,14 +133,15 @@ const FAQ: QA[] = [
 ];
 
 export default async function CtfCompetitionsPage() {
-  // The gate decides what this page shows as well as what the sitemap submits.
-  // A detail page still renders for any public event, so a direct link to a
-  // small or unfinished one keeps working - it simply is not advertised here.
-  const events = (await publicEvents()).filter(isIndexableEvent);
+  // The listing shows every genuinely public event, so a visitor sees what is
+  // actually live right now. The SEO gate is applied only to what gets *indexed*
+  // (the sitemap, the per-event noindex, and the structured data below) - a
+  // test/seed event is still shown to a human here but kept out of Google.
+  const events = await publicEvents();
   const live = events.filter((e) => e.status === "live");
   const upcoming = events.filter((e) => e.status === "upcoming" || e.status === "registration");
   const past = events.filter((e) => e.status === "ended");
-  const indexable = events;
+  const indexable = events.filter(isIndexableEvent);
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-20">

@@ -14,6 +14,7 @@ import Link from "next/link";
 import AmbientScene from "@/components/landing/canvas/AmbientScene";
 import PointerTracker from "@/components/landing/PointerTracker";
 import { SignInTransition } from "@/components/auth/sign-in-transition";
+import { AuthShowcaseStats } from "@/app/(marketing)/_components/live-sections";
 import { OffconMark } from "@/components/brand/offcon-mark";
 import { ThemeToggle } from "@/components/brand/theme-toggle";
 
@@ -64,14 +65,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               Forge yourself in <span className="text-gradient">offensive security</span>.
             </h2>
             <p className="mt-6 max-w-[380px] text-[13px] leading-[1.75] text-text-dim">
-              Join 128,000+ hackers training on real vulnerable machines, live CTFs,
-              and guided tracks. Your first root is minutes away.
+              Train on real vulnerable machines, live CTFs, and guided tracks.
+              Your first root is minutes away.
             </p>
-            <div className="mt-9 flex gap-10">
-              <Stat n="540+" l="Machines" />
-              <Stat n="86" l="Live CTFs" />
-              <Stat n="195" l="Countries" />
-            </div>
+            <AuthShowcaseStats />
           </div>
 
           <p className="text-[11.5px] text-text-faint">
@@ -122,11 +119,4 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   );
 }
 
-function Stat({ n, l }: { n: string; l: string }) {
-  return (
-    <div>
-      <div className="font-display text-[26px] font-extrabold tracking-mega text-text">{n}</div>
-      <div className="mt-1 text-[10px] uppercase tracking-wide text-text-faint">{l}</div>
-    </div>
-  );
-}
+

@@ -99,7 +99,7 @@ export default function Hero() {
           the bottom of the frame a horizon the shield can cross. */}
       <Reveal delay={0.6}>
         <div className="mx-auto flex w-full max-w-[1440px] items-end justify-between gap-6 border-t border-white/[0.07] pt-4 text-[10.5px] uppercase tracking-wide text-text-faint">
-          <span className="hidden sm:block">128,000+ operators worldwide</span>
+          <span className="hidden sm:block">{liveEvents ?? "—"} live CTF events</span>
           <span className="hidden md:block">gVisor-isolated targets</span>
           <span className="flex items-center gap-2">
             <span className="h-px w-6 bg-text-ghost" />

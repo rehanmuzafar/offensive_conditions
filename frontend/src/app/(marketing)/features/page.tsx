@@ -43,7 +43,7 @@ const INFRA = [
   { icon: Zap, title: "Instant spawns", body: "No waiting in queues. Machines provision in seconds and tear down cleanly." },
   { icon: Trophy, title: "Fair scoring", body: "Dynamic points, anti-cheat flag rotation, and per-user flags keep the leaderboard honest." },
   { icon: Lock, title: "Account security", body: "2FA, WebAuthn, session management, and per-device controls baked in." },
-  { icon: Globe, title: "195 countries", body: "A truly global arena. Compete and climb against the best, wherever you are." },
+  { icon: Globe, title: "Global by design", body: "A worldwide arena — compete and climb against the best, wherever you are." },
 ];
 
 export default function FeaturesPage() {

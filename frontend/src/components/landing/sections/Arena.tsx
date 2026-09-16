@@ -10,19 +10,19 @@ const CAPABILITIES = [
     id: "01",
     title: "Vulnerable machines",
     body: "Spin up isolated boxes and root real targets in gVisor-sandboxed labs with one click. Every box is a full system, not a puzzle box.",
-    meta: "248 live · 6 difficulty tiers",
+    meta: "Linux, Windows & Active Directory",
   },
   {
     id: "02",
     title: "Live CTF arena",
     body: "Jeopardy and attack-defense events with real-time scoring, first-blood alerts and a scoreboard that moves while you watch.",
-    meta: "86 running · weekly finals",
+    meta: "Jeopardy & attack-defense",
   },
   {
     id: "03",
     title: "Guided tracks",
     body: "Beginner-to-elite learning paths with hands-on, gated modules. Each one ends with a box you have to root to move on.",
-    meta: "34 paths · 900+ modules",
+    meta: "Beginner to elite · gated modules",
   },
   {
     id: "04",
