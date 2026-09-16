@@ -80,18 +80,53 @@ export const metadata: Metadata = {
     "bug bounty",
   ],
   icons: { icon: BRAND.favicon },
+  manifest: "/manifest.webmanifest",
+  /* Google Search Console ownership proof. Emitted as
+     <meta name="google-site-verification">; the token names the property, is
+     public by design, and must not be removed - Google re-checks it and
+     unverifies the property if it disappears, which silently stops the sitemap
+     being read. A second proof sits at public/google34f03d1861e80472.html. */
+  verification: { google: "8MVf83D-vCLLU_NCAWXPLczXF45fIruO0dihBsYFFN4" },
+  /* The apex is the canonical origin for everything public. Pages that need a
+     different one override this; the value matters most for the pages that do
+     *not*, because without it a page reachable at more than one URL — with a
+     trailing slash, with a tracking parameter, on www — is several pages as far
+     as Google is concerned, splitting whatever authority it has between them. */
+  alternates: { canonical: "/" },
+  /* `max-image-preview: large` is the one directive here with a visible effect:
+     without it Google shows a thumbnail at most, and with it the generated share
+     card can run as a full-width preview. The rest restate the defaults, which
+     is worth doing explicitly on a site where most hostnames are noindex — it
+     removes any question about what the public half is asking for. */
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
   openGraph: {
     type: "website",
     url: BRAND.siteUrl,
     title: `${BRAND.name} — ${BRAND.fullName}`,
     description: BRAND.tagline,
     siteName: BRAND.fullName,
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
     title: `${BRAND.name} — ${BRAND.fullName}`,
     description: BRAND.tagline,
   },
+  /* Stops Safari on iOS turning anything that resembles a phone number into a
+     tel: link — the scoreboard and the machine pages are full of digit runs
+     that are not phone numbers, and an autolinked one renders as blue text the
+     stylesheet has no say over. */
+  formatDetection: { telephone: false, address: false, email: false },
 };
 
 export const viewport: Viewport = {

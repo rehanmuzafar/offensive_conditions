@@ -40,3 +40,11 @@ tmp/
 
 # Editing backups taken before changing the edge config.
 deploy/nginx.conf.bak-*
+
+# Local database dumps and object-store snapshots — never in git
+db.dump
+*.dump
+minio-data.tgz
+*.tgz
+/backups/
+deploy/docker-compose.yml.bak-*

@@ -5,6 +5,7 @@
 
 import type { LucideIcon } from "lucide-react";
 
+import { BRAND } from "@/config/brand";
 import { link } from "@/lib/surfaces";
 import {
   ShieldCheck,
@@ -35,12 +36,23 @@ export interface NavItem {
   badge?: string;
 }
 
-/** Top marketing nav (logged-out landing/marketing pages). */
+/**
+ * Top marketing nav (logged-out landing/marketing pages).
+ *
+ * These point at the public pages on the apex, not at the app paths they used
+ * to. `/machines`, `/ctf` and `/tracks` are owned by other surfaces (see the
+ * OWNER map in `middleware.ts`), so from the marketing site every one of them
+ * was a 307 to a host that answers with a login wall — the first click a
+ * logged-out visitor makes, and the only thing a crawler following the nav
+ * would ever find. The apex pages say the same things, to someone who has not
+ * signed up yet, and keep the link inside the site.
+ */
 export const MARKETING_NAV: NavItem[] = [
-  { label: "Machines", href: "/machines" },
-  { label: "CTF", href: "/ctf" },
-  { label: "Tracks", href: "/tracks" },
-  { label: "Leaderboard", href: "/leaderboard" },
+  { label: "Labs", href: "/hacking-labs" },
+  { label: "CTF", href: "/ctf-competitions" },
+  { label: "Training", href: "/offensive-security-training" },
+  { label: "Bug bounty", href: "/bug-bounty" },
+  { label: "Conference", href: "/conference" },
   { label: "Pricing", href: "/pricing" },
 ];
 
@@ -88,35 +100,49 @@ export const ADMIN_NAV: NavItem[] = [
   { label: "Broadcasts", href: "/admin/broadcast", icon: Bell, roles: ["admin", "moderator"] },
 ];
 
-/** Footer link columns. */
+/**
+ * Footer link columns.
+ *
+ * Every href here resolves. The previous set shipped five that did not —
+ * /challenges, /discord, /careers and /blog were 404s, and
+ * /leaderboard/hall-of-fame redirected to a page behind the auth gate — on
+ * every page of the site, which is both a bad look and a steady drain on the
+ * crawl budget the pages that do exist are competing for.
+ *
+ * The platform column now points at the public apex pages rather than the
+ * app-surface paths, for the same reason as MARKETING_NAV above: those
+ * redirect to a login wall. The community column keeps the app paths, because
+ * the forum and writeups genuinely are for signed-in members and the redirect
+ * is the correct destination for someone clicking them.
+ */
 export const FOOTER_LINKS: { heading: string; links: { label: string; href: string }[] }[] = [
   {
     heading: "Platform",
     links: [
-      { label: "Machines", href: "/machines" },
-      { label: "Challenges", href: "/challenges" },
-      { label: "CTF events", href: "/ctf" },
-      { label: "Tracks", href: "/tracks" },
-      { label: "Leaderboard", href: "/leaderboard" },
+      { label: "Hacking labs", href: "/hacking-labs" },
+      { label: "CTF competitions", href: "/ctf-competitions" },
+      { label: "Training tracks", href: "/offensive-security-training" },
+      { label: "Bug bounty", href: "/bug-bounty" },
+      { label: "Conference", href: "/conference" },
+      { label: "Leaderboard", href: link("app", "/leaderboard") },
     ],
   },
   {
     heading: "Community",
     links: [
-      { label: "Forum", href: "/forum" },
-      { label: "Writeups", href: "/writeups" },
-      { label: "Bug bounties", href: "/bounty" },
-      { label: "Discord", href: "/discord" },
-      { label: "Hall of fame", href: "/leaderboard/hall-of-fame" },
+      { label: "Forum", href: link("app", "/forum") },
+      { label: "Writeups", href: link("app", "/writeups") },
+      { label: "Teams", href: link("ctf", "/teams") },
+      { label: "Discord", href: BRAND.social.discord },
     ],
   },
   {
     heading: "Company",
     links: [
       { label: "About", href: "/about" },
+      { label: "Features", href: "/features" },
       { label: "Pricing", href: "/pricing" },
-      { label: "Careers", href: "/careers" },
-      { label: "Blog", href: "/blog" },
+      { label: "Pakistan", href: "/pakistan" },
       { label: "Contact", href: "/contact" },
     ],
   },

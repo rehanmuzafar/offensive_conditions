@@ -12,9 +12,24 @@
  * does it before the first paint rather than after a hydration correction.
  */
 
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 
 import { AppShell, type Shape } from "./_components/app-shell";
+
+/**
+ * Nothing under this group belongs in a search index.
+ *
+ * `robots.ts` already disallows the hostnames these routes live on, but a few
+ * of them (settings, notifications, the profile pages) are in SHARED_PREFIXES
+ * and therefore resolve on the apex too, where robots.txt allows crawling. A
+ * `noindex` here covers that gap, and covers it at the level of the page rather
+ * than the host — which is the directive that still applies if a URL is reached
+ * some way robots.txt did not anticipate, such as from an external link.
+ */
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const surface = (await headers()).get("x-offcon-surface");

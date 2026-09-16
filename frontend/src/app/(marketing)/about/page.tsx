@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+
+import { absolute } from "@/lib/seo/config";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ export const metadata: Metadata = {
   title: "About",
   description:
     "OFFCON exists to make world-class offensive security training hands-on, accessible, and relentless. Meet the mission behind the arena.",
+  alternates: { canonical: absolute("/about") },
 };
 
 const VALUES = [
@@ -66,7 +69,7 @@ export default function AboutPage() {
             </p>
           </div>
         </div>
-        <Card variant="glass" className="overflow-hidden p-0">
+        <Card tilt variant="glass" className="overflow-hidden p-0">
           <div className="relative bg-brand-gradient p-10">
             <div
               className="absolute inset-0"
@@ -93,7 +96,7 @@ export default function AboutPage() {
         <SectionHeading eyebrow="What we believe" title="The principles behind the platform" />
         <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2">
           {VALUES.map((v) => (
-            <Card key={v.title} className="p-7">
+            <Card tilt key={v.title} className="p-7">
               <h3 className="font-display text-[19px] font-semibold">{v.title}</h3>
               <p className="mt-2.5 text-[15px] text-text-dim">{v.body}</p>
             </Card>

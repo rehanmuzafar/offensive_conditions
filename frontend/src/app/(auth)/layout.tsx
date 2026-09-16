@@ -30,6 +30,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           the skull directly behind the form. */}
       <AmbientScene
         anchor={[-2.1, -0.15, -0.6]}
+        /* Full pointer wake on the gate, on purpose: the sign-in screen is the
+           one waiting-room in the product, and the ripple following the cursor
+           (plus the login-success burst) is a deliberate flourish here. The
+           signed-in app and CTF *working* surfaces run the scene without it. */
         className="pointer-events-none fixed inset-0 -z-10 opacity-80"
       />
       <SignInTransition />

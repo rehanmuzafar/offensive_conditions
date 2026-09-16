@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+
+import { absolute } from "@/lib/seo/config";
 import Link from "next/link";
 import {
   Server,
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
   title: "Features",
   description:
     "Everything OFFCON gives you: vulnerable machines, live CTF, guided tracks, forum, writeups, bug bounties, and the infrastructure behind it all.",
+  alternates: { canonical: absolute("/features") },
 };
 
 const PILLARS = [
@@ -57,7 +60,7 @@ export default function FeaturesPage() {
         {PILLARS.map((f) => {
           const Icon = f.icon;
           return (
-            <Card key={f.title} interactive className="p-7">
+            <Card tilt key={f.title} interactive className="p-7">
               <div className="mb-5 grid h-[52px] w-[52px] place-items-center border border-line bg-brand-gradient shadow-glow">
                 <Icon className="h-[26px] w-[26px] text-white" strokeWidth={1.9} />
               </div>

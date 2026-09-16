@@ -103,7 +103,7 @@ export default function ContactPage() {
 
 function ContactCard({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
-    <Card className="flex items-start gap-4 p-6">
+    <Card tilt className="flex items-start gap-4 p-6">
       <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-gradient-soft text-accent">
         {icon}
       </div>

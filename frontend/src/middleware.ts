@@ -45,6 +45,15 @@ const SHARED_PREFIXES = [
   "/fonts",
   "/favicon.ico",
   "/icon.png",
+  // SEO endpoints must resolve on every host: without robots.txt here the CTF
+  // host rewrites /robots.txt to /ctf/robots.txt and 404s — the one file whose
+  // job is to keep crawlers off the private surfaces being the file those
+  // surfaces cannot serve. The rest are apex-only in practice but cheap to list.
+  "/robots.txt",
+  "/sitemap.xml",
+  "/manifest.webmanifest",
+  "/opengraph-image",
+  "/twitter-image",
 ];
 
 type Surface = "landing" | "dashboard" | "ctf" | "bugbounty" | "app" | "admin";

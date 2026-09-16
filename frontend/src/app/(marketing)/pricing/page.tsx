@@ -173,7 +173,7 @@ export default function PricingPage() {
       </div>
 
       {/* enterprise strip */}
-      <Card variant="glass" className="mt-8 flex flex-col items-center justify-between gap-5 p-8 sm:flex-row">
+      <Card tilt variant="glass" className="mt-8 flex flex-col items-center justify-between gap-5 p-8 sm:flex-row">
         <div>
           <h3 className="font-display text-[20px] font-bold">Enterprise &amp; education</h3>
           <p className="mt-1 text-[14.5px] text-text-dim">
@@ -190,7 +190,7 @@ export default function PricingPage() {
         <SectionHeading title="Frequently asked" />
         <div className="mt-8 space-y-3">
           {FAQ.map((f) => (
-            <Card key={f.q} className="p-6">
+            <Card tilt key={f.q} className="p-6">
               <h4 className="font-display text-[16.5px] font-semibold">{f.q}</h4>
               <p className="mt-2 text-[14.5px] text-text-dim">{f.a}</p>
             </Card>

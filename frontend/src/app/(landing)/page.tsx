@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 
+import { JsonLd } from "@/components/seo/json-ld";
+import { absolute } from "@/lib/seo/config";
+import { graph, organizationNode, webPageNode, websiteNode } from "@/lib/seo/jsonld";
+
 import Hero from "@/components/landing/sections/Hero";
 import Metrics from "@/components/landing/sections/Metrics";
 import Arena from "@/components/landing/sections/Arena";
@@ -13,6 +17,7 @@ export const metadata: Metadata = {
   title: { absolute: "OFFCON — Offensive Conditions" },
   description:
     "The arena where ethical hackers are forged. Hands-on labs, live CTF competitions and battle-ready machines in isolated sandboxes.",
+  alternates: { canonical: absolute("/") },
 };
 
 /**
@@ -23,6 +28,23 @@ export const metadata: Metadata = {
 export default function LandingPage() {
   return (
     <>
+      {/* The site-wide graph is emitted here rather than in the root layout,
+          and deliberately. The layout wraps every surface including the ones
+          robots.ts closes off, so putting it there would describe the same
+          organisation on dozens of noindex login shells — repetition that adds
+          nothing and has to be crawled anyway. The front door is the page whose
+          entity resolution actually matters. */}
+      <JsonLd
+        data={graph(
+          organizationNode(),
+          websiteNode(),
+          webPageNode(
+            "/",
+            "OFFCON — Offensive Conditions",
+            "Hands-on offensive security: vulnerable machines, live CTF competitions, guided tracks and real bug bounties.",
+          ),
+        )}
+      />
       <Hero />
       <Metrics />
       <Arena />

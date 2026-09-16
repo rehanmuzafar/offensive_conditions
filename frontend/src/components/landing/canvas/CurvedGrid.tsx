@@ -114,7 +114,11 @@ const fragmentShader = /* glsl */ `
       wake(screenUv + vec2(0.0, e)) - h
     );
 
-    vec2 uv = vUv + slope * 0.085;
+    // The grid bends along the wake slope — the actual water ripple. Gated by
+    // uWakeGain so a working surface (app, CTF) keeps straight grid lines while
+    // the marketing scene and the sign-in gate keep the full ripple. The crest
+    // glow below is gated the same way; only the ambient light pool stays on.
+    vec2 uv = vUv + slope * 0.085 * uWakeGain;
 
     // Fine grid, a coarser grid every 4 cells, and ticks every 8.
     float fine   = gridLine(uv, uCells, 1.2) * 0.42;
