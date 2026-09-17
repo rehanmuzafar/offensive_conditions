@@ -45,7 +45,10 @@
   --text-dim: 199 199 208;
   --text-faint: 155 155 167;
   --text-ghost: 117 117 127;
-  --text-on-brand: 0 0 0;
+  /* brand-gradient is a fixed near-black chip in both themes, so the type that
+     sits on it is white in both. It was black here, which put a black glyph on
+     a black square everywhere the two were paired. */
+  --text-on-brand: 255 255 255;
 
   /* accent — see THE IRIDESCENT ACCENT below; only the soft tint is fixed */
   --accent-soft: 124 58 237;
