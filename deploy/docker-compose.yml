@@ -64,7 +64,24 @@ services:
     # notices and runs compose by hand.
     restart: unless-stopped
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass "${REDIS_PASSWORD}"
+    # Password to the container env so the start script below can expand it at
+    # runtime (compose escapes $$ -> $), which is safe for any special chars.
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    # Self-heal a power-cut-corrupted AOF before starting. On an unclean
+    # shutdown the AOF tail can be left half-written, which crashes redis on the
+    # next boot and takes every dependent service down with it. redis-check-aof
+    # --fix truncates only the unwritten tail (nothing durably saved is lost),
+    # so a power cut becomes a clean self-heal instead of a platform outage.
+    # See the storm/power-cut incident 2026-09-17.
+    command:
+      - sh
+      - -c
+      - |
+        if [ -f /data/appendonlydir/appendonly.aof.manifest ]; then
+          yes | redis-check-aof --fix /data/appendonlydir/appendonly.aof.manifest || true
+        fi
+        exec redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass "$$REDIS_PASSWORD"
     ports: ["127.0.0.1:6379:6379"]
     volumes: [redis_data:/data]
     healthcheck:
