@@ -54,6 +54,8 @@ export default function AdminCtfPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [managing, setManaging] = useState<AdminCtfEvent | null>(null);
+  const [wavesVersion, setWavesVersion] = useState(0);
+  const [challengesVersion, setChallengesVersion] = useState(0);
   const [editing, setEditing] = useState(false);
 
   async function load() {
@@ -152,7 +154,11 @@ export default function AdminCtfPage() {
           )}
 
           {managing.has_waves && (
-            <CtfWaveManager eventId={managing.id} />
+            <CtfWaveManager
+              eventId={managing.id}
+              challengesVersion={challengesVersion}
+              onWavesChanged={() => setWavesVersion((v) => v + 1)}
+            />
           )}
 
           {/* Only for events that charge. On a free event there is nothing to
@@ -174,6 +180,8 @@ export default function AdminCtfPage() {
             eventName={managing.name}
             runtime={managing.challenge_runtime}
             hasWaves={Boolean(managing.has_waves)}
+            wavesVersion={wavesVersion}
+            onChallengesChanged={() => setChallengesVersion((v) => v + 1)}
           />
         </>
       ) : (

@@ -43,7 +43,19 @@ function fromLocalInput(v: string): string | null {
   return v ? new Date(v).toISOString() : null;
 }
 
-export function CtfWaveManager({ eventId }: { eventId: string }) {
+export function CtfWaveManager({
+  eventId,
+  challengesVersion = 0,
+  onWavesChanged,
+}: {
+  eventId: string;
+  /** Bumped by the challenge panel; re-reads the per-wave challenge counts. */
+  challengesVersion?: number;
+  /** Fires after a wave is added, removed or reordered, so sibling views that
+   *  list waves (the challenge form's selector) can refresh instead of showing
+   *  a list that went stale the moment this panel was used. */
+  onWavesChanged?: () => void;
+}) {
   const [waves, setWaves] = useState<CtfWave[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -67,7 +79,7 @@ export function CtfWaveManager({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, challengesVersion]);
 
   function reset() {
     setEditing(null);
@@ -110,6 +122,7 @@ export function CtfWaveManager({ eventId }: { eventId: string }) {
       }
       reset();
       await load();
+      onWavesChanged?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the wave");
     } finally {
@@ -127,6 +140,7 @@ export function CtfWaveManager({ eventId }: { eventId: string }) {
           : `“${w.name}” removed`,
       );
       await load();
+      onWavesChanged?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not remove the wave");
     } finally {
@@ -139,6 +153,7 @@ export function CtfWaveManager({ eventId }: { eventId: string }) {
     try {
       await ctfAdminApi.updateWave(eventId, w.id, { position: w.position + delta });
       await load();
+      onWavesChanged?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not reorder");
     } finally {

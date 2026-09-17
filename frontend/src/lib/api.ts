@@ -147,6 +147,11 @@ async function request<T>(
   }
 
   const res = await fetch(buildUrl(path, opts.params), {
+    // These responses carry per-user, per-moment state and none of them ship a
+    // Cache-Control header, so the browser is free to fall back on heuristic
+    // freshness -- which is how a wave added seconds ago kept coming back
+    // missing from the list. A caller that wants caching can still override it.
+    cache: "no-store",
     ...opts,
     method,
     headers,

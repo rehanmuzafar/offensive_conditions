@@ -48,6 +48,8 @@ export function CtfChallengeManager({
   eventName,
   runtime = "static_only",
   hasWaves = false,
+  wavesVersion = 0,
+  onChallengesChanged,
 }: {
   eventId: string;
   eventName: string;
@@ -55,6 +57,11 @@ export function CtfChallengeManager({
   runtime?: "cloud" | "onsite" | "static_only";
   /** When the event runs in waves, each challenge can be filed under one. */
   hasWaves?: boolean;
+  /** Bumped by the wave panel; re-reads the selector options. */
+  wavesVersion?: number;
+  /** Fires after a challenge is saved or deleted, so the wave panel's
+   *  per-wave challenge counts do not keep showing a pre-edit number. */
+  onChallengesChanged?: () => void;
 }) {
   const [items, setItems] = useState<AdminCtfChallenge[]>([]);
   /** Challenge awaiting a second click to confirm deletion. */
@@ -111,7 +118,7 @@ export function CtfChallengeManager({
       .listWaves(eventId)
       .then((res) => setWaves(res.items))
       .catch(() => setWaves([]));
-  }, [eventId, hasWaves]);
+  }, [eventId, hasWaves, wavesVersion]);
 
   function reset() {
     setName(""); setDescription(""); setFlag(""); setPoints(100);
@@ -212,6 +219,7 @@ export function CtfChallengeManager({
       reset();
       setShowForm(false);
       void load();
+      onChallengesChanged?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the challenge");
     } finally {
@@ -495,6 +503,7 @@ export function CtfChallengeManager({
                           toast.success(`Deleted "${c.name}"`);
                           setConfirmingDelete(null);
                           void load();
+                          onChallengesChanged?.();
                         })
                         .catch((err) =>
                           toast.error(

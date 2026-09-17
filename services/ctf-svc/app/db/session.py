@@ -24,6 +24,17 @@ def init_db(settings: Settings) -> None:
         pool_pre_ping=True,
         pool_recycle=3600,
         echo=False,
+        connect_args={
+            "server_settings": {
+                # Backstop for a transaction that was abandoned without a
+                # ROLLBACK reaching the server: without this it holds its row
+                # locks forever and every later write on those rows blocks.
+                "idle_in_transaction_session_timeout": "15000",
+                # A blocked write should fail loudly in seconds, not hang until
+                # the proxy gives up and the caller sees an unexplained 500.
+                "lock_timeout": "10000",
+            }
+        },
     )
     _session_factory = async_sessionmaker(
         _engine, expire_on_commit=False, autoflush=False, class_=AsyncSession
@@ -54,7 +65,10 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with factory() as session:
         try:
             yield session
-        except Exception:
+        except BaseException:
+            # BaseException, not Exception: a client disconnect makes Starlette
+            # throw CancelledError in at the yield, and that is precisely the
+            # case that must not leave an open transaction behind.
             await session.rollback()
             raise
         else:
