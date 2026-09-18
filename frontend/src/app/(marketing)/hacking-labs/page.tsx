@@ -112,6 +112,10 @@ const FAQ: QA[] = [
     a: "A very easy or easy Linux box. They are built to be solved with nmap, a web exploit you can find by reading the application, and a privilege escalation that a standard enumeration script will point at. Windows and Active Directory boxes assume you already know what a shell looks like.",
   },
   {
+    q: "Can I just copy someone else's flag?",
+    a: "No. Every machine's flags are unique to you: they are HMAC-signed against your own user and your running instance, so a flag someone else was given simply does not verify against your solve. There is no shared answer key to pass around \u2014 the only way to get your flag is to actually root your box.",
+  },
+  {
     q: "Do I need my own attack machine?",
     a: "You need something to attack from — Kali or Parrot in a virtual machine is the usual answer, and both ship with everything these boxes require. You connect to the lab network over WireGuard; the configuration file is generated for you once you have an account.",
   },

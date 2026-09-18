@@ -41,7 +41,7 @@ const INFRA = [
   { icon: ShieldCheck, title: "Isolated by default", body: "Every lab runs sandboxed and network-segmented. Your exploits never touch another user." },
   { icon: Network, title: "Private VPN", body: "Connect over WireGuard to dedicated regional servers with low latency anywhere." },
   { icon: Zap, title: "Instant spawns", body: "No waiting in queues. Machines provision in seconds and tear down cleanly." },
-  { icon: Trophy, title: "Fair scoring", body: "Dynamic points, anti-cheat flag rotation, and per-user flags keep the leaderboard honest." },
+  { icon: Trophy, title: "Cheat-resistant flags", body: "Every team instance gets its own randomly-minted flag (only its hash is stored), and machine flags are HMAC-bound to your user and instance — so a shared or leaked flag is worthless to anyone else." },
   { icon: Lock, title: "Account security", body: "2FA, WebAuthn, session management, and per-device controls baked in." },
   { icon: Globe, title: "Global by design", body: "A worldwide arena — compete and climb against the best, wherever you are." },
 ];

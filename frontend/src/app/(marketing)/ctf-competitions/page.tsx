@@ -15,7 +15,7 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Flag, Users, Timer, Trophy, Swords, Crown, Zap } from "lucide-react";
+import { Flag, Users, Timer, Trophy, Swords, Crown, Zap, Fingerprint, Shuffle, KeyRound, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,33 @@ const FAQ: QA[] = [
     q: "How does scoring work?",
     a: "Most events use dynamic scoring: a challenge starts at a maximum value and decays towards a floor as more teams solve it, so an early solve on a hard challenge is worth considerably more than a late solve on an easy one. First blood on a challenge carries a bonus on top. Scoreboards can be frozen near the end so the final standings stay a surprise.",
   },
+  {
+    q: "Can teams cheat by sharing flags?",
+    a: "No — flag sharing is designed out. Every team spawns its own instance of a challenge, and its flag is generated randomly for that instance from the OS cryptographic random source; only a SHA-256 hash of it is ever stored. A flag is valid for exactly one team's instance, so a flag passed to another team is rejected. Machine challenges bind the flag even tighter, HMAC-signing it against the individual user and instance. Kill the instance and the flag dies with it — there is no shared secret to trade.",
+  },
+];
+
+const ANTICHEAT = [
+  {
+    icon: Shuffle,
+    title: "A random flag per instance",
+    body: "Every team spawns its own private copy of a challenge, and its flag is generated the moment that instance starts — straight from the operating system's cryptographic random source. It is never reused and never guessable from the challenge.",
+  },
+  {
+    icon: KeyRound,
+    title: "The flag never leaves your instance",
+    body: "The platform stores only a SHA-256 hash of the flag, never the flag itself. The only place the real value exists is inside your running instance — there is nothing on the server to leak, and nothing to look up.",
+  },
+  {
+    icon: Fingerprint,
+    title: "Bound to the team that earned it",
+    body: "Submit a flag another team was given and it is rejected — it was valid for their instance, not yours. Machine challenges go further still: their flags are HMAC-signed against your own user and instance, so a copied flag simply does not verify.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Kill the instance, kill the flag",
+    body: "Tear an instance down or let it expire and its flag dies with it. The next instance mints a fresh one. There is no single \u201creal\u201d flag to pass around — which is exactly why passing one around is pointless.",
+  },
 ];
 
 export default async function CtfCompetitionsPage() {
@@ -214,6 +241,36 @@ export default async function CtfCompetitionsPage() {
             const Icon = f.icon;
             return (
               <Card tilt key={f.title} className="p-7">
+                <div className="mb-5 grid h-[52px] w-[52px] place-items-center border border-line bg-brand-gradient shadow-glow">
+                  <Icon className="h-[26px] w-[26px] text-white" strokeWidth={1.9} />
+                </div>
+                <h3 className="mb-2.5 font-display text-[20px] font-semibold">{f.title}</h3>
+                <p className="text-[14.8px] leading-[1.7] text-text-dim">{f.body}</p>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Anti-cheat / flag-sharing — a real, verifiable differentiator. */}
+      <section className="mt-24">
+        <div className="mb-3.5 flex items-center gap-2 text-[13px] font-bold uppercase tracking-[2.5px] text-accent">
+          <ShieldCheck className="h-4 w-4" /> Cheat-resistant by design
+        </div>
+        <h2 className="font-display text-[clamp(26px,3.2vw,38px)] font-bold tracking-[-0.8px]">
+          Sharing a flag gets you nowhere
+        </h2>
+        <p className="mt-4 max-w-[760px] text-[16.5px] leading-[1.7] text-text-dim">
+          Flag leaking and trading is a problem even the biggest CTFs never fully
+          solve — one team roots a box, the flag ends up in a group chat, and the
+          scoreboard stops meaning anything. On OFFCON it means nothing, because a
+          flag is only ever valid for the instance and the team it was minted for.
+        </p>
+        <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2">
+          {ANTICHEAT.map((f) => {
+            const Icon = f.icon;
+            return (
+              <Card key={f.title} tilt className="p-7">
                 <div className="mb-5 grid h-[52px] w-[52px] place-items-center border border-line bg-brand-gradient shadow-glow">
                   <Icon className="h-[26px] w-[26px] text-white" strokeWidth={1.9} />
                 </div>
