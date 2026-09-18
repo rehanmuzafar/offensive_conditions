@@ -15,7 +15,7 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Flag, Users, Timer, Trophy, Swords, Crown, Zap, Fingerprint, Shuffle, KeyRound, ShieldCheck } from "lucide-react";
+import { Flag, Users, Timer, Trophy, Swords, Crown, Zap, Fingerprint, Shuffle, KeyRound, ShieldCheck, Building2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -102,6 +102,11 @@ const FORMATS = [
     icon: Crown,
     title: "King of the Hill",
     body: "Everyone attacks one shared machine. Break in, plant your flag, and hold root — you score for every tick you stay king while the rest of the field tries to evict you and take the crown. Persistence and patching matter as much as the initial exploit.",
+  },
+  {
+    icon: Building2,
+    title: "Host your own",
+    body: "Universities and societies, companies and communities run their own CTF on OFFCON — public or invite-only, with team registration, per-team instances, a live scoreboard and the same cheat-resistant flags. No infrastructure to stand up: get in touch and we set the event up with you.",
   },
 ];
 
