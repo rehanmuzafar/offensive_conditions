@@ -463,7 +463,13 @@ services:
     ports: ["127.0.0.1:3000:3000"]
     depends_on: [edge]
     restart: unless-stopped
-    networks: [offcon]
+    networks:
+      offcon:
+        # Pinned so the egress block in offcon-lab-firewall.sh has a stable
+        # address to match. This container was mined for two days through a
+        # Next.js RCE, and the payload arrived over its own outbound wget --
+        # it renders and proxies to edge, and wants nothing from the internet.
+        ipv4_address: 172.18.0.250
 
 volumes:
   postgres_data:
