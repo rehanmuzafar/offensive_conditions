@@ -56,9 +56,11 @@ class InstanceService:
         if inst is None:
             return None
         # An expired row still holds the slot until something notices. This is
-        # the something: the next reader retires it.
+        # the something: the next reader retires it -- and takes the container
+        # down with it. Marking the row alone used to leave the box running and
+        # serving its flag, with nothing left to find it by.
         if inst.expires_at <= datetime.now(timezone.utc):
-            await self._mark_stopped(inst, reason="expired")
+            await self.stop(inst, reason="expired")
             return None
         return inst
 
@@ -203,7 +205,8 @@ class InstanceService:
         return self._cfg.challenge_default_port
 
     # ------------------------------------------------------------ stopping
-    async def stop(self, inst: ChallengeInstance) -> None:
+    async def stop(self, inst: ChallengeInstance, *, reason: str = "stopped") -> None:
+        removed = not inst.container_ref
         if inst.container_ref:
             try:
                 async with httpx.AsyncClient(timeout=20.0) as client:
@@ -211,18 +214,28 @@ class InstanceService:
                         f"{self._cfg.orchestrator_url}/internal/containers/{inst.container_ref}",
                         headers=self._internal_headers(),
                     )
+                removed = True
             except httpx.HTTPError as exc:
-                # The row is retired regardless: a container we cannot reach is
-                # the orchestrator's reaper's problem, and leaving the slot held
-                # would block the team from ever spawning again.
+                # The row is retired regardless -- leaving the slot held would
+                # block the team from ever spawning again. The ref stays on the
+                # row so the sweeper can come back and finish the job; there is
+                # no other reaper that knows about these containers.
                 log.warning("instance_stop_unreachable", ref=inst.container_ref, error=str(exc))
-        await self._mark_stopped(inst, reason="stopped")
+        await self._mark_stopped(inst, reason=reason, clear_ref=removed)
 
-    async def _mark_stopped(self, inst: ChallengeInstance, *, reason: str) -> None:
+    async def _mark_stopped(
+        self, inst: ChallengeInstance, *, reason: str, clear_ref: bool = True
+    ) -> None:
+        values: dict[str, Any] = {
+            "status": "stopped",
+            "stopped_at": datetime.now(timezone.utc),
+        }
+        # A ref left in place is the sweeper's to-do list: it means a container
+        # we believe still exists and failed to remove.
+        if clear_ref:
+            values["container_ref"] = None
         await self._db.execute(
-            update(ChallengeInstance)
-            .where(ChallengeInstance.id == inst.id)
-            .values(status="stopped", stopped_at=datetime.now(timezone.utc))
+            update(ChallengeInstance).where(ChallengeInstance.id == inst.id).values(**values)
         )
         await self._db.commit()
         log.info("instance_retired", instance_id=str(inst.id), reason=reason)
