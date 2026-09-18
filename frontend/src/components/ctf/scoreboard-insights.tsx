@@ -21,7 +21,15 @@ const LINE_COLORS = [
   "#60A5FA", "#F87171", "#A78BFA", "#FBBF24", "#4ADE80",
 ];
 
-export function ScoreboardInsights({ eventId }: { eventId: string }) {
+export function ScoreboardInsights({
+  eventId,
+  startsAt,
+  endsAt,
+}: {
+  eventId: string;
+  startsAt?: string;
+  endsAt?: string;
+}) {
   const [panel, setPanel] = useState<0 | 1>(0);
   const { data: series } = useQuery({
     queryKey: ["ctf-series", eventId],
@@ -48,7 +56,11 @@ export function ScoreboardInsights({ eventId }: { eventId: string }) {
         </div>
       </div>
 
-      {panel === 0 ? <PointsChart series={series ?? []} /> : <Trending stats={trending} />}
+      {panel === 0 ? (
+        <PointsChart series={series ?? []} startsAt={startsAt} endsAt={endsAt} />
+      ) : (
+        <Trending stats={trending} />
+      )}
     </section>
   );
 }
@@ -80,18 +92,32 @@ function PageBtn({
   );
 }
 
-function PointsChart({ series }: { series: TeamSeries[] }) {
+function PointsChart({
+  series,
+  startsAt,
+  endsAt,
+}: {
+  series: TeamSeries[];
+  startsAt?: string;
+  endsAt?: string;
+}) {
   const [hover, setHover] = useState<{ x: number; name: string; points: number; at: string } | null>(
     null,
   );
 
   const model = useMemo(() => {
+    const startT = startsAt ? new Date(startsAt).getTime() : null;
+    const endT = endsAt ? new Date(endsAt).getTime() : null;
     const pts = series.flatMap((s) => s.points_over_time);
-    if (pts.length === 0) return null;
     const times = pts.map((p) => new Date(p.at).getTime());
-    const minT = Math.min(...times);
-    const maxT = Math.max(...times);
     const values = pts.map((p) => p.points);
+    /* The time axis is the event's own window whenever we know it, so the chart
+       reads start -> end from the moment the event exists rather than only once
+       a team has solved something. It falls back to the data range only if the
+       window was not passed in. */
+    const minT = startT ?? (times.length ? Math.min(...times) : null);
+    const maxT = endT ?? (times.length ? Math.max(...times) : null);
+    if (minT === null || maxT === null) return null;
     const maxP = Math.max(...values, 1);
     /* The floor is zero unless a penalty has pushed a team below it. The scale
        used to divide by maxP alone, which put any negative running total below
@@ -99,7 +125,7 @@ function PointsChart({ series }: { series: TeamSeries[] }) {
        points, and reachable now. */
     const minP = Math.min(0, ...values);
     return { minT, maxT: maxT === minT ? minT + 1 : maxT, maxP, minP };
-  }, [series]);
+  }, [series, startsAt, endsAt]);
 
   if (!model) {
     return (

@@ -24,6 +24,7 @@
  */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Crown, Loader2, Users, X } from "lucide-react";
@@ -66,7 +67,7 @@ export function EventRegister({
 
   if (registered) {
     return (
-      <span className="inline-block bg-success/12 px-4 py-2 text-[14px] font-semibold text-success">
+      <span className="block w-full bg-success/12 px-4 py-2 text-center text-[14px] font-semibold text-success">
         ✓ Registered
       </span>
     );
@@ -76,7 +77,7 @@ export function EventRegister({
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button fullWidth onClick={() => setOpen(true)}>
         {entryFeeCents > 0
           ? `Register · ${formatMoney(
               price.data?.displayCents ?? entryFeeCents,
@@ -101,7 +102,7 @@ export function EventRegister({
 function SoloRegister({ slug }: { slug: string }) {
   const reg = useCtfRegister(slug);
   return (
-    <Button loading={reg.isPending} onClick={() => reg.mutate(undefined)}>
+    <Button fullWidth loading={reg.isPending} onClick={() => reg.mutate(undefined)}>
       Register
     </Button>
   );
@@ -149,7 +150,12 @@ function TeamPicker({
     return max != null && taken(team) >= max;
   }
 
-  return (
+  // Through a portal to <body>: rendered inline, the modal is a descendant of
+  // the event banner, and any transformed/filtered ancestor makes `position:
+  // fixed` resolve against that ancestor instead of the viewport — which pinned
+  // the dialog inside the banner and let it scroll away with it. Every other
+  // dialog here portals for the same reason.
+  return createPortal(
     <div
       className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
       role="dialog"
@@ -292,6 +298,7 @@ function TeamPicker({
           onClose={onClose}
         />
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -85,6 +85,8 @@ export default function EventScoreboardPage({ params }: { params: Promise<{ slug
       ) : (
         <EventScoreboard
           eventId={event.id}
+          startsAt={event.startsAt}
+          endsAt={event.endsAt}
           rows={rows?.items ?? []}
           eliminated={rows?.eliminated ?? []}
           myTeamId={me?.team_id ?? null}

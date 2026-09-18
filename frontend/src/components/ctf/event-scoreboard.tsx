@@ -27,6 +27,8 @@ export function EventScoreboard({
   totalScenarios,
   totalPoints,
   eventId,
+  startsAt,
+  endsAt,
 }: {
   rows: ScoreboardRow[];
   /** Out for not turning in a writeup by the deadline. Shown, not hidden. */
@@ -37,6 +39,9 @@ export function EventScoreboard({
   /** Highlights the viewer's team and fills the sidebar card. */
   myTeamId?: string | null;
   totalScenarios: number;
+  /** Event window, so the chart's time axis spans start -> end. */
+  startsAt?: string;
+  endsAt?: string;
 }) {
   const [q, setQ] = useState("");
   /** The team whose solve breakdown is open, if any. */
@@ -80,9 +85,18 @@ export function EventScoreboard({
   }
 
   return (
-    <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[1fr_300px]">
+    <div
+      className={cn(
+        // Centre the board with room on both sides. The right column is only
+        // reserved when the performance shield is actually shown; without it
+        // the content used to sit against the left edge with the 300px gap
+        // empty on the right.
+        "mx-auto grid grid-cols-1 items-start gap-6",
+        mine ? "max-w-[1360px] xl:grid-cols-[minmax(0,1fr)_320px]" : "max-w-[1040px]",
+      )}
+    >
       <div className="min-w-0 space-y-6">
-        <ScoreboardInsights eventId={eventId} />
+        <ScoreboardInsights eventId={eventId} startsAt={startsAt} endsAt={endsAt} />
         {podium.length > 0 && (
           <Podium rows={podium} totalScenarios={totalScenarios} onInspect={setInspecting} />
         )}
