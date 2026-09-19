@@ -231,8 +231,27 @@ func (s *AuthService) RevokeSession(ctx context.Context, userID, sessionID uuid.
 	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
 		return autherrors.Internal(err)
 	}
+	// Revoke the whole rotation family, not just the token recorded when the
+	// session began. Refresh tokens rotate: every /auth/refresh revokes the
+	// current one and issues a child in the same family, while
+	// sessions.refresh_token_id still points at the original — which rotation
+	// already revoked. Revoking that alone therefore revoked something already
+	// dead and left the live token working, so "sign out this device" did
+	// nothing once the device had refreshed even once, which is within fifteen
+	// minutes of signing in.
 	if sess.RefreshTokenID != nil {
-		_ = s.refreshes.Revoke(ctx, *sess.RefreshTokenID, "session_revoked")
+		if original, err := s.refreshes.GetByID(ctx, *sess.RefreshTokenID); err == nil {
+			if err := s.refreshes.RevokeFamily(ctx, original.FamilyID, "session_revoked"); err != nil {
+				s.log.Warn().Err(err).Str("session_id", sessionID.String()).
+					Msg("could not revoke refresh token family for session")
+			}
+		} else {
+			// The original row is gone (expired and purged). Fall back to the
+			// single-token revoke so the call still does what it can.
+			s.log.Warn().Err(err).Str("session_id", sessionID.String()).
+				Msg("original refresh token not found; revoking by id only")
+			_ = s.refreshes.Revoke(ctx, *sess.RefreshTokenID, "session_revoked")
+		}
 	}
 	s.audit.SessionRevoked(ctx, userID, sessionID, m.RequestID)
 	return nil

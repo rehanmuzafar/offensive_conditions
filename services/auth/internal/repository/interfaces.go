@@ -43,6 +43,7 @@ type TFASecretRepository interface {
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *RefreshToken) error
 	GetByHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
+	GetByID(ctx context.Context, tokenID uuid.UUID) (*RefreshToken, error)
 	GetFamily(ctx context.Context, familyID uuid.UUID) ([]*RefreshToken, error)
 	Revoke(ctx context.Context, tokenID uuid.UUID, reason string) error
 	RevokeFamily(ctx context.Context, familyID uuid.UUID, reason string) error
