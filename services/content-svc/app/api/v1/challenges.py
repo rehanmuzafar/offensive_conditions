@@ -67,9 +67,15 @@ async def get_challenge(
     svc: ChallengeService = Depends(get_challenge_service),
 ) -> ChallengeRead:
     challenge = await svc.get(challenge_id)
+    # Shape the response, then redact on it. Nulling the field on the ORM
+    # object marked it dirty, and get_session() commits on the way out of a
+    # successful request — so every anonymous page view of an unreleased
+    # machine issued UPDATE ... SET walkthrough_markdown = NULL and destroyed
+    # the author's work. A GET must not be able to write.
+    view = ChallengeRead.model_validate(challenge)
     if challenge.status != "retired" and not (claims and claims.is_staff):
-        challenge.walkthrough_markdown = None
-    return ChallengeRead.model_validate(challenge)
+        view.walkthrough_markdown = None
+    return view
 
 
 @router.get("/by-slug/{slug}", response_model=ChallengeRead)
@@ -79,9 +85,15 @@ async def get_challenge_by_slug(
     svc: ChallengeService = Depends(get_challenge_service),
 ) -> ChallengeRead:
     challenge = await svc.get_by_slug(slug)
+    # Shape the response, then redact on it. Nulling the field on the ORM
+    # object marked it dirty, and get_session() commits on the way out of a
+    # successful request — so every anonymous page view of an unreleased
+    # machine issued UPDATE ... SET walkthrough_markdown = NULL and destroyed
+    # the author's work. A GET must not be able to write.
+    view = ChallengeRead.model_validate(challenge)
     if challenge.status != "retired" and not (claims and claims.is_staff):
-        challenge.walkthrough_markdown = None
-    return ChallengeRead.model_validate(challenge)
+        view.walkthrough_markdown = None
+    return view
 
 
 @router.post("", response_model=ChallengeRead, status_code=status.HTTP_201_CREATED)
