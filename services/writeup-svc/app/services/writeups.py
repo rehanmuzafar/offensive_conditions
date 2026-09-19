@@ -302,17 +302,32 @@ class WriteupService:
                 ErrorCode.SOLVE_REQUIRED_TO_READ,
                 "solve the target before reading the writeup",
             )
-        # Production: call scoring-svc gRPC to verify solve. We stub a True for
-        # now so the path is exercisable; production deployment wires the
-        # `scoring_client.has_solved(user_id, content_type, content_id)` call.
+        # Production: call scoring-svc gRPC to verify solve. Wiring this is the
+        # remaining work — `scoring_client.has_solved(user_id, content_type,
+        # content_id)`.
         if scoring_client is not None:
             # awaitable in production
             return
-        # Without a client, default-deny is too strict for dev; allow but warn
-        log.debug(
-            "scoring_client_unavailable_grace_granted",
+
+        # No way to verify the solve. This used to "allow but warn", which meant
+        # the gate never once refused anybody: no caller passes a scoring client,
+        # so every request reached that branch and was let through. A setting
+        # that says a solve is required, silently granting access to everyone,
+        # is worse than no setting at all — it reads as protection in the config
+        # and in the code review, and provides none.
+        #
+        # So it fails closed. The reader is told what is missing rather than
+        # given a spoiler, and an operator who wants writeups open to all can say
+        # so explicitly with REQUIRE_SOLVE_TO_READ=false rather than relying on a
+        # gap.
+        log.warning(
+            "solve_check_unavailable_denying",
             writeup_id=str(writeup.id),
             viewer_id=str(viewer_id),
+        )
+        raise AppError(
+            ErrorCode.SOLVE_REQUIRED_TO_READ,
+            "this writeup is only readable once you have solved its target",
         )
 
     # =========================================================================
