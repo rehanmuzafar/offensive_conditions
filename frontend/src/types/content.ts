@@ -10,6 +10,20 @@ export type { MachineDifficulty, Os } from "./index";
 /** A machine card in the catalog. */
 export interface Machine {
   id: string;
+  /**
+   * How a player reaches it.
+   *
+   * `spawn` is provisioned per player by the orchestrator. `static_host` is one
+   * always-on box everyone attacks — nothing to start. `download` is a
+   * boot2root image the player runs on their own hardware, so the platform
+   * hosts the file and nothing else.
+   */
+  delivery: "spawn" | "static_host" | "download";
+  staticHost: string | null;
+  downloadUrl: string | null;
+  downloadSha256: string | null;
+  downloadSizeBytes: number | null;
+  downloadFormat: string | null;
   slug: string;
   name: string;
   os: Os;

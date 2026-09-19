@@ -64,15 +64,27 @@ export function Logo({
 function LogoMark({ size }: { size: number }) {
   // Real image path provided → use it.
   if (BRAND.logoMark) {
+    /**
+     * The artwork is square and already carries a circular alpha mask, so the
+     * rounding here lands on the mask's own edge and the ring reads as the
+     * disc's rim rather than as a second circle. Rendered at 2x and downscaled
+     * because the mark is a field of binary digits — at 30px those digits are
+     * the identity, and they are the first thing to mush if it is served at 1x.
+     */
     return (
-      <Image
-        src={BRAND.logoMark}
-        alt={BRAND.name}
-        width={size}
-        height={Math.round(size * 1.16)}
-        priority
-        style={{ height: size, width: "auto" }}
-      />
+      <span
+        className="relative inline-block shrink-0 overflow-hidden rounded-full ring-1 ring-text/15"
+        style={{ width: size, height: size }}
+      >
+        <Image
+          src={BRAND.logoMark}
+          alt={BRAND.name}
+          width={size * 2}
+          height={size * 2}
+          priority
+          className="h-full w-full object-cover"
+        />
+      </span>
     );
   }
   // Inline SVG placeholder — the approved shield.
@@ -87,16 +99,14 @@ function Wordmark({ showSub }: { showSub: boolean }) {
   // (Handled by callers choosing variant; here we render the text wordmark.)
   return (
     <span className="flex flex-col leading-none">
-      <span className="font-display text-[23px] font-extrabold tracking-[0.5px]">
-        <span className="bg-[linear-gradient(120deg,#A78BFA,#7C3AED)] bg-clip-text text-transparent">
-          OFF
-        </span>
-        <span className="bg-[linear-gradient(120deg,#3B82F6,#1D4ED8)] bg-clip-text text-transparent">
-          CON
-        </span>
+      {/* One weight, one colour, tight tracking. The old two-tone gradient
+          split the word into halves and put chroma in the one place the design
+          most needs to stay quiet. */}
+      <span className="font-display text-[20px] font-extrabold tracking-mega text-text">
+        OFFCON
       </span>
       {showSub && (
-        <span className="mt-[3px] text-[8.5px] font-semibold tracking-[4.5px] text-text-faint">
+        <span className="mt-[3px] text-[8.5px] tracking-[4.5px] text-text-ghost">
           OFFENSIVE CONDITIONS
         </span>
       )}

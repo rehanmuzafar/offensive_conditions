@@ -289,6 +289,35 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "Password changed. All other sessions have been revoked."})
 }
 
+type ChangeUsernameRequest struct {
+	Username string `json:"username" binding:"required,username"`
+}
+
+// PATCH /v1/auth/me/username
+//
+// Lives in auth rather than in user-svc because auth.users owns the column.
+// user-svc reads it through a join rather than keeping a copy, so nothing else
+// has to be told about the change.
+func (h *AuthHandler) ChangeUsername(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		respondErr(c, autherrors.New(autherrors.CodeUnauthorized, "no user in context"))
+		return
+	}
+
+	var req ChangeUsernameRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondValidation(c, err)
+		return
+	}
+
+	if err := h.svc.ChangeUsername(c.Request.Context(), userID, req.Username, requestMeta(c)); err != nil {
+		respondErr(c, err)
+		return
+	}
+	c.JSON(200, gin.H{"username": req.Username})
+}
+
 // GET /v1/auth/me
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)

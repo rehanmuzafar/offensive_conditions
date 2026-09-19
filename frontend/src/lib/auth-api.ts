@@ -4,7 +4,9 @@
  */
 
 import { api } from "@/lib/api";
+import { settingsApi } from "@/lib/account-api";
 import type {
+  AccountIdentity,
   AuthTokens,
   AuthUser,
   OAuthProvider,
@@ -52,6 +54,29 @@ export const authApi = {
     ),
 
   /** Current user profile. The auth-svc returns snake_case fields — map them to AuthUser. */
+  /**
+   * The signed-in user, with their country filled in.
+   *
+   * auth-svc's /me returns `country: null` unconditionally — it does not hold
+   * the field. The country lives on the user-svc profile, and without it the
+   * price endpoint has no region to work from and quotes everyone in dollars.
+   * That is what made a PKR-priced event read "$9" to someone who had set
+   * their country to Pakistan.
+   *
+   * Merged here rather than at each call site so nothing else has to know that
+   * one user is assembled from two services. A profile that fails to load
+   * costs the country and nothing else — the session is still valid.
+   */
+  meWithProfile: async (): Promise<AuthUser> => {
+    const user = await authApi.me();
+    try {
+      const profile = await settingsApi.getProfile();
+      return { ...user, country: profile.country || null };
+    } catch {
+      return user;
+    }
+  },
+
   me: async (): Promise<AuthUser> => {
     const r = await api.get<{
       user_id: string;
@@ -81,6 +106,51 @@ export const authApi = {
       createdAt: r.created_at,
     };
   },
+
+  /**
+   * The hacker/company answer, from user-svc.
+   *
+   * Not on /v1/auth/me: auth-svc owns credentials and roles, user-svc owns the
+   * profile, and the account type is profile data. Two calls rather than
+   * teaching auth-svc about a column it does not own.
+   */
+  identity: async (): Promise<AccountIdentity> => {
+    const r = await api.get<{
+      account_type?: string;
+      onboarding_complete?: boolean;
+      company_name?: string | null;
+      company_website?: string | null;
+    }>("/v1/me");
+    return {
+      accountType: (r.account_type ?? "") as AccountIdentity["accountType"],
+      onboardingComplete: Boolean(r.onboarding_complete),
+      companyName: r.company_name ?? null,
+      companyWebsite: r.company_website ?? null,
+    };
+  },
+
+  /**
+   * Rename the account.
+   *
+   * auth-svc rather than user-svc: auth.users owns the column, and user-svc
+   * reads it through a join rather than keeping a copy, so nothing else has to
+   * be told about the change.
+   */
+  changeUsername: (username: string) =>
+    api.patch<{ username: string }>("/v1/auth/me/username", { body: { username } }),
+
+  setAccountType: (body: {
+    accountType: "hacker" | "company";
+    companyName?: string;
+    companyWebsite?: string;
+  }) =>
+    api.post<{ account_type: string }>("/v1/me/account-type", {
+      body: {
+        account_type: body.accountType,
+        company_name: body.companyName || null,
+        company_website: body.companyWebsite || null,
+      },
+    }),
 
   /**
    * Exchange a refresh token for a new access token.

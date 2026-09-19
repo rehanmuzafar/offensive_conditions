@@ -20,6 +20,7 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*User, error)
 	GetByUsername(ctx context.Context, username string) (*User, error)
 	UpdatePassword(ctx context.Context, userID uuid.UUID, newHash string) error
+	UpdateUsername(ctx context.Context, userID uuid.UUID, username string) error
 	UpdateStatus(ctx context.Context, userID uuid.UUID, status UserStatus) error
 	UpdateEmailVerified(ctx context.Context, userID uuid.UUID, verified bool) error
 	UpdateTFAEnabled(ctx context.Context, userID uuid.UUID, enabled bool) error
@@ -42,6 +43,7 @@ type TFASecretRepository interface {
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *RefreshToken) error
 	GetByHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
+	GetByID(ctx context.Context, tokenID uuid.UUID) (*RefreshToken, error)
 	GetFamily(ctx context.Context, familyID uuid.UUID) ([]*RefreshToken, error)
 	Revoke(ctx context.Context, tokenID uuid.UUID, reason string) error
 	RevokeFamily(ctx context.Context, familyID uuid.UUID, reason string) error

@@ -77,9 +77,15 @@ async def get_machine(
 ) -> MachineRead:
     machine = await svc.get(machine_id)
     # Walkthroughs hidden until retired
+    # Shape the response, then redact on it. Nulling the field on the ORM
+    # object marked it dirty, and get_session() commits on the way out of a
+    # successful request — so every anonymous page view of an unreleased
+    # machine issued UPDATE ... SET walkthrough_markdown = NULL and destroyed
+    # the author's work. A GET must not be able to write.
+    view = MachineRead.model_validate(machine)
     if machine.status != "retired" and not (claims and claims.is_staff):
-        machine.walkthrough_markdown = None
-    return MachineRead.model_validate(machine)
+        view.walkthrough_markdown = None
+    return view
 
 
 @router.get("/by-slug/{slug}", response_model=MachineRead)
@@ -89,9 +95,15 @@ async def get_machine_by_slug(
     svc: MachineService = Depends(get_machine_service),
 ) -> MachineRead:
     machine = await svc.get_by_slug(slug)
+    # Shape the response, then redact on it. Nulling the field on the ORM
+    # object marked it dirty, and get_session() commits on the way out of a
+    # successful request — so every anonymous page view of an unreleased
+    # machine issued UPDATE ... SET walkthrough_markdown = NULL and destroyed
+    # the author's work. A GET must not be able to write.
+    view = MachineRead.model_validate(machine)
     if machine.status != "retired" and not (claims and claims.is_staff):
-        machine.walkthrough_markdown = None
-    return MachineRead.model_validate(machine)
+        view.walkthrough_markdown = None
+    return view
 
 
 @router.get("/{machine_id}/stats", response_model=MachineStatsRead)

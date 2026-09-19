@@ -12,11 +12,35 @@ export interface CtfEvent {
   slug: string;
   name: string;
   description: string;
+  /**
+   * Long-form copy for the event page.
+   *
+   * Carried by the API as `rules_markdown` — the column predates the field
+   * being used this way, and renaming it needs a backend migration. It is
+   * presented as "About" everywhere a human sees it.
+   */
+  about?: string | null;
+  /**
+   * Who may read the standings: everyone, only entrants, or nobody outside the
+   * admin panel. Set when the event is created.
+   */
+  scoreboardVisibility: "public" | "participants" | "hidden";
+  /**
+   * Whether play is stopped right now — by hand or by a scheduled window.
+   * Not a status: the event is still live, it is just not accepting flags.
+   */
+  isPaused: boolean;
+  pauseStartsAt: string | null;
+  pauseEndsAt: string | null;
+  pauseReason: string | null;
   format: CtfFormat;
   state: CtfState;
   startsAt: string;
   endsAt: string;
   participantCount: number;
+  /** Entry fee in minor units — 0 for a free event. Money is never a float. */
+  entryFeeCents: number;
+  currency: string;
   teamCount: number;
   challengeCount: number;
   prizePool: string | null;
@@ -56,11 +80,37 @@ export interface CtfChallenge {
   files: { name: string; sizeBytes: number; url: string }[];
   hints: { id: string; cost: number; unlocked: boolean; text: string | null }[];
   connectionInfo: string | null;
+  /**
+   * How the challenge is served, which decides what the access control offers:
+   * `static` has nothing to connect to, `shared_host` has one address everyone
+   * uses, and `per_team` needs one container started for the whole team.
+   */
+  deliveryType: "static" | "shared_host" | "per_team";
+  /** This challenge issues a flag per instance, so a shared one will not work. */
+  dynamicFlag?: boolean;
+  /** Release wave this challenge belongs to; null = open from the start. */
+  waveId?: string | null;
+  waveName?: string | null;
+  wavePosition?: number | null;
+  waveState?: "upcoming" | "live" | "closed" | null;
   firstBlood: { username: string; at: string } | null;
 }
 
 export interface ScoreboardRow {
   rank: number;
+  /**
+   * Organiser bonuses this board is allowed to explain. Quiet adjustments are
+   * already inside `points` and never appear here — that is the whole point of
+   * the choice the organiser makes when applying one.
+   */
+  bonuses?: { delta: number; reason: string }[];
+  /**
+   * This position was set by an organiser, not earned by points. Surfaced on
+   * purpose: a board that silently overrides its own ordering is worse than one
+   * that admits it did.
+   */
+  pinned?: boolean;
+  pinnedReason?: string | null;
   /** ISO alpha-2 from the team record; null for solo entries. */
   countryCode?: string | null;
   firstBloods?: number;
@@ -78,4 +128,94 @@ export interface ChallengeSolveResult {
   pointsAwarded: number;
   firstBlood: boolean;
   alreadySolved: boolean;
+}
+
+/** A captain's team as it stands for one event. */
+export interface EventRoster {
+  teamId: string;
+  teamName: string;
+  maxTeamSize: number | null;
+  /** True once the event starts: slots stop moving because solves have begun. */
+  locked: boolean;
+  members: { userId: string; username: string; role: string; entered: boolean }[];
+}
+
+/** A writeup attached to one event entry. */
+export interface EventWriteup {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  /** draft is replaceable; submitted is final and counts against the deadline. */
+  status: "draft" | "submitted";
+  submittedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface MyWriteup {
+  writeup: EventWriteup | null;
+  deadline: string | null;
+  /** How far down the board the requirement reaches; null means nobody owes one. */
+  requiredTopN: number | null;
+  allowedExtensions: string[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Paid events                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How a payer wants to settle, which is a different question from who
+ * processes it. One gateway can offer all three, so the provider is
+ * configuration and this is the only choice the player is asked to make.
+ */
+/** Card only. The wallets were dropped: the gateway offers them on its own
+ *  checkout for anyone who wants one, and carrying three rails through our own
+ *  UI meant three ways for an entrant to get stuck. */
+export type PaymentMethod = "card";
+
+export interface TeamEntryStatus {
+  paymentStatus: string;
+  /** True when the team may play — covers both 'paid' and a free event. */
+  settled: boolean;
+  amountCents: number;
+  currency: string | null;
+  paidByUserId: string | null;
+}
+
+export interface TeamPaymentIntent {
+  provider: string;
+  method: PaymentMethod;
+  /** Shown to the payer, and what a bank transfer is matched back by. */
+  reference: string;
+  amountCents: number;
+  currency: string;
+  status: string;
+  methodsAvailable: PaymentMethod[];
+  instructions: Record<string, unknown>;
+}
+
+/**
+ * An event's price as this viewer should see it.
+ *
+ * `base` is what gets charged. `display` is the same money in the viewer's own
+ * currency, converted from a rate refreshed once a day. When `converted` is
+ * true the two are different numbers for the same amount, and the UI has to
+ * say so — showing an approximation as if it were the bill is how people end
+ * up disputing a charge they thought they understood.
+ */
+export interface EventPrice {
+  baseCents: number;
+  baseCurrency: string;
+  displayCents: number;
+  displayCurrency: string;
+  converted: boolean;
+  /**
+   * Minor units per major unit for each currency — 100 for most, 1 for JPY,
+   * 1000 for KWD. Sent by the API rather than read from the browser's currency
+   * data, which follows display convention and disagrees: it treats PKR as
+   * having no decimals, while the amount here is counted in paisa.
+   */
+  displayMinorUnits: number;
+  baseMinorUnits: number;
 }

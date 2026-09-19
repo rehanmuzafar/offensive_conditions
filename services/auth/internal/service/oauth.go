@@ -122,6 +122,37 @@ func (s *AuthService) OAuthCallback(ctx context.Context, providerName, code, raw
 	email := strings.ToLower(info.Email)
 	user, err := s.users.GetByEmail(ctx, email)
 	if err == nil {
+		// A matching email address is a claim, not proof, and linking on it
+		// alone is an account takeover: register an account with somebody
+		// else's address and wait for them to arrive through their real Google
+		// account, and the provider hands you their session — on an account
+		// whose password you chose. Email verification being switched off makes
+		// squatting the address free, so both sides have to be proven:
+		//
+		//   the provider must say it verified the address, and
+		//   the local account must have verified it too.
+		//
+		// Anything short of that is refused here. The owner keeps their normal
+		// way in — the password they set — so nobody is locked out; they simply
+		// cannot arrive through the provider until the address is proven.
+		//
+		// The proper escape hatch is "connect this provider" from account
+		// settings, which proves both halves by construction. That flow is
+		// written (OAuthBegin's mode="link") but currently unreachable: the
+		// begin route is registered outside the authenticated group, so
+		// GetUserID never resolves and mode is always "login". Wiring it up is
+		// follow-up work, so the message below does not promise it yet.
+		if !info.EmailVerified || !user.EmailVerified {
+			s.log.Warn().
+				Str("provider", providerName).
+				Str("user_id", user.ID.String()).
+				Bool("provider_verified", info.EmailVerified).
+				Bool("local_verified", user.EmailVerified).
+				Msg("refused oauth auto-link to an account with an unproven email")
+			return nil, autherrors.New(autherrors.CodeConflict,
+				"An account already exists with this email address. "+
+					"Please sign in with your password instead.")
+		}
 		// Email matches existing user → link this OAuth identity
 		link := &repository.OAuthLink{
 			UserID: user.ID, Provider: providerName, ProviderUserID: info.ProviderUserID,

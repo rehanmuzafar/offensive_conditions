@@ -16,7 +16,7 @@ const SEV: Record<Severity, { label: string; cls: string }> = {
 export function SeverityBadge({ severity, className }: { severity: Severity; className?: string }) {
   const s = SEV[severity];
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[12px] font-semibold", s.cls, className)}>
+    <span className={cn("inline-flex items-center border px-2.5 py-0.5 text-[12px] font-semibold", s.cls, className)}>
       {s.label}
     </span>
   );
@@ -40,7 +40,7 @@ const REPORT_STATE: Record<ReportState, { label: string; cls: string }> = {
 export function ReportStateBadge({ state, className }: { state: ReportState; className?: string }) {
   const s = REPORT_STATE[state];
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold", s.cls, className)}>
+    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-semibold", s.cls, className)}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {s.label}
     </span>
@@ -61,7 +61,7 @@ const PAYOUT_STATE: Record<Payout["state"], { label: string; cls: string }> = {
 export function PayoutStateBadge({ state, className }: { state: Payout["state"]; className?: string }) {
   const s = PAYOUT_STATE[state];
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-[12px] font-semibold", s.cls, className)}>
+    <span className={cn("inline-flex items-center px-2.5 py-0.5 text-[12px] font-semibold", s.cls, className)}>
       {s.label}
     </span>
   );

@@ -17,7 +17,7 @@ export default function ForumPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2.5 font-display text-[28px] font-extrabold tracking-[-0.5px]">
-            <MessagesSquare className="h-7 w-7 text-accent" /> Forum
+            <MessagesSquare className="h-6 w-6 text-text-faint" strokeWidth={1.6} /> Forum
           </h1>
           <p className="mt-1 text-[15px] text-text-dim">Ask, discuss, and learn from the community. No spoilers — just nudges.</p>
         </div>

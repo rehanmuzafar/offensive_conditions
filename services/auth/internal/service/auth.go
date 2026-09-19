@@ -20,28 +20,29 @@ import (
 	"github.com/offensive-conditions/auth/internal/ratelimit"
 	"github.com/offensive-conditions/auth/internal/repository"
 	"github.com/offensive-conditions/auth/internal/tokens"
+	"github.com/offensive-conditions/auth/internal/validators"
 )
 
 // AuthService is the primary application service orchestrating auth flows.
 // Methods take RequestMetadata so caller IPs/User-Agents can be threaded through.
 type AuthService struct {
-	cfg          *config.Config
-	log          zerolog.Logger
-	users        repository.UserRepository
-	tfaSecrets   repository.TFASecretRepository
-	refreshes    repository.RefreshTokenRepository
-	sessions     repository.SessionRepository
-	emailVerify  repository.EmailVerificationRepository
-	passwordRst  repository.PasswordResetRepository
+	cfg           *config.Config
+	log           zerolog.Logger
+	users         repository.UserRepository
+	tfaSecrets    repository.TFASecretRepository
+	refreshes     repository.RefreshTokenRepository
+	sessions      repository.SessionRepository
+	emailVerify   repository.EmailVerificationRepository
+	passwordRst   repository.PasswordResetRepository
 	loginAttempts repository.LoginAttemptRepository
 	oauthLinks    repository.OAuthLinkRepository
-	jwt          *tokens.JWTIssuer
-	totp         *tokens.TOTPManager
-	limiter      *ratelimit.Limiter
-	mail         email.Sender
-	audit        *audit.Logger
+	jwt           *tokens.JWTIssuer
+	totp          *tokens.TOTPManager
+	limiter       *ratelimit.Limiter
+	mail          email.Sender
+	audit         *audit.Logger
 	oauthRegistry *oauth.Registry
-	tfaEncKey    []byte // Used to encrypt TOTP secrets at rest (from Vault)
+	tfaEncKey     []byte // Used to encrypt TOTP secrets at rest (from Vault)
 }
 
 // GetUserByID loads a full user account by ID (used by the /me profile endpoint).
@@ -102,8 +103,8 @@ type RegisterInput struct {
 }
 
 type RegisterOutput struct {
-	UserID                uuid.UUID
-	VerificationRequired  bool
+	UserID               uuid.UUID
+	VerificationRequired bool
 }
 
 func (s *AuthService) Register(ctx context.Context, in RegisterInput, m RequestMeta) (*RegisterOutput, error) {
@@ -179,11 +180,11 @@ type LoginInput struct {
 }
 
 type LoginOutput struct {
-	AccessToken    string
-	RefreshToken   string
-	ExpiresIn      int    // seconds
-	TFAChallenge   string // present if 2FA needed; submit to /auth/login/2fa
-	UserID         uuid.UUID
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int    // seconds
+	TFAChallenge string // present if 2FA needed; submit to /auth/login/2fa
+	UserID       uuid.UUID
 }
 
 func (s *AuthService) Login(ctx context.Context, in LoginInput, m RequestMeta) (*LoginOutput, error) {
@@ -222,6 +223,31 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput, m RequestMeta) (
 		s.recordFailedLogin(ctx, &user.ID, email, "account_locked", m)
 		return nil, autherrors.AccountLocked(time.Until(*user.LockedUntil).String())
 	}
+
+	// An expired lock has to clear the counter that caused it. Without this the
+	// count stays at or above the threshold forever, so one wrong password
+	// re-locks the account instantly — and because the lock is checked before
+	// the password, the owner could not clear it by logging in correctly.
+	// Anyone who knew an address could keep that account locked out for good at
+	// a cost of one request every fifteen minutes.
+	if user.LockedUntil != nil {
+		if err := s.users.ResetFailedLogins(ctx, user.ID); err != nil {
+			s.log.Warn().Err(err).Str("user_id", user.ID.String()).
+				Msg("could not clear expired lock counter")
+		}
+		user.FailedLoginCount = 0
+		user.LockedUntil = nil
+	}
+
+	// Throttle the *source*, not the account. A wrong password from one address
+	// must not cost the real owner their access, so the budget is per
+	// (account, IP): the attacker exhausts their own and the owner — arriving
+	// from somewhere else — is unaffected. The account-wide lock below remains
+	// as a backstop against a genuinely distributed attack.
+	if throttled, retry := s.sourceIsThrottled(ctx, user.ID, m); throttled {
+		s.recordFailedLogin(ctx, &user.ID, email, "source_throttled", m)
+		return nil, autherrors.AccountLocked(retry.String())
+	}
 	if s.cfg.Security.EmailVerificationRequired && !user.EmailVerified {
 		s.recordFailedLogin(ctx, &user.ID, email, "email_not_verified", m)
 		return nil, autherrors.EmailNotVerified()
@@ -241,6 +267,10 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput, m RequestMeta) (
 		s.handleBadPassword(ctx, user, email, m)
 		return nil, autherrors.InvalidCredentials()
 	}
+
+	// Knowing the password clears this address's failure budget. Two fumbled
+	// attempts followed by a correct one should leave nothing behind.
+	s.clearSourceFailures(ctx, user.ID, m)
 
 	// Transparently rehash with new params if needed
 	if needsRehash {
@@ -474,12 +504,81 @@ func (s *AuthService) issueTokens(ctx context.Context, user *repository.User, m 
 }
 
 func (s *AuthService) handleBadPassword(ctx context.Context, user *repository.User, email string, m RequestMeta) {
+	// Charge the failure to the address it came from first. This is the control
+	// that actually stops guessing, and it cannot be used to lock somebody else
+	// out — the attacker only ever spends their own budget.
+	s.recordSourceFailure(ctx, user.ID, m)
+
 	count, _ := s.users.IncrementFailedLogins(ctx, user.ID)
 	s.recordFailedLogin(ctx, &user.ID, email, "bad_password", m)
 	if count >= s.cfg.Security.FailedLoginsBeforeLock {
 		lockSeconds := int(s.cfg.Security.AccountLockDuration.Seconds())
 		_ = s.users.Lock(ctx, user.ID, lockSeconds)
 		s.audit.AccountLocked(ctx, user.ID, m.IP, m.RequestID)
+	}
+}
+
+// loginFailKey scopes a failure budget to one account *and* one source address.
+func loginFailKey(userID uuid.UUID, m RequestMeta) string {
+	return "loginfail:" + userID.String() + ":" + m.IP.String()
+}
+
+// sourceIsThrottled reports whether this address has spent its budget of failed
+// attempts against this account, and how long is left.
+//
+// Fails open: if Redis is unavailable the login proceeds and the account-wide
+// lock is still there to catch abuse. Refusing every login because a cache is
+// down would be a worse outcome than the one being defended against.
+func (s *AuthService) sourceIsThrottled(ctx context.Context, userID uuid.UUID, m RequestMeta) (bool, time.Duration) {
+	if s.limiter == nil {
+		return false, 0
+	}
+	rdb := s.limiter.GetRedis()
+	if rdb == nil {
+		return false, 0
+	}
+	key := loginFailKey(userID, m)
+	n, err := rdb.Get(ctx, key).Int()
+	if err != nil || n < s.cfg.Security.FailedLoginsPerSource {
+		return false, 0
+	}
+	ttl, err := rdb.TTL(ctx, key).Result()
+	if err != nil || ttl <= 0 {
+		ttl = s.cfg.Security.AccountLockDuration
+	}
+	return true, ttl
+}
+
+// recordSourceFailure counts one failed attempt against (account, address).
+// The window is the same as the account lock duration, so the two controls
+// expire together and there is only one number to reason about.
+func (s *AuthService) recordSourceFailure(ctx context.Context, userID uuid.UUID, m RequestMeta) {
+	if s.limiter == nil {
+		return
+	}
+	rdb := s.limiter.GetRedis()
+	if rdb == nil {
+		return
+	}
+	key := loginFailKey(userID, m)
+	n, err := rdb.Incr(ctx, key).Result()
+	if err != nil {
+		s.log.Warn().Err(err).Msg("could not record source login failure")
+		return
+	}
+	if n == 1 {
+		_ = rdb.Expire(ctx, key, s.cfg.Security.AccountLockDuration).Err()
+	}
+}
+
+// clearSourceFailures forgets an address's failures once it proves it knows the
+// password, so a fumbled attempt or two never follows a legitimate user around.
+func (s *AuthService) clearSourceFailures(ctx context.Context, userID uuid.UUID, m RequestMeta) {
+	if s.limiter == nil {
+		return
+	}
+	if rdb := s.limiter.GetRedis(); rdb != nil {
+		_ = rdb.Del(ctx, loginFailKey(userID, m)).Err()
 	}
 }
 
@@ -677,6 +776,47 @@ func (s *AuthService) ResetPassword(ctx context.Context, rawToken, newPassword s
 // =============================================================================
 // Password Change (authenticated)
 // =============================================================================
+
+// ChangeUsername renames the account.
+//
+// Unlike a password change this does not revoke sessions: the handle is public
+// and changing it proves nothing about who is holding the session, so signing
+// everyone out would be noise rather than safety.
+//
+// The uniqueness check here is a courtesy that produces a good error message;
+// the unique index is what actually decides it, because two people can pass
+// this check in the same instant.
+func (s *AuthService) ChangeUsername(ctx context.Context, userID uuid.UUID, next string, m RequestMeta) error {
+	next = strings.TrimSpace(next)
+	if !validators.IsUsername(next) {
+		return autherrors.New(autherrors.CodeValidation,
+			"3-32 characters, starting with a letter; letters, numbers, hyphen and underscore")
+	}
+
+	current, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(current.Username, next) {
+		// Same handle in a different case is still a rename worth doing —
+		// only an exact match is a no-op.
+		if current.Username == next {
+			return nil
+		}
+	} else if existing, err := s.users.GetByUsername(ctx, next); err == nil && existing != nil {
+		return autherrors.New(autherrors.CodeConflict, "that username is taken")
+	}
+
+	if err := s.users.UpdateUsername(ctx, userID, next); err != nil {
+		if errors.Is(err, repository.ErrConflict) {
+			return autherrors.New(autherrors.CodeConflict, "that username is taken")
+		}
+		return err
+	}
+
+	s.audit.UsernameChanged(ctx, userID, current.Username, next, m.IP, m.RequestID)
+	return nil
+}
 
 func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, current, next string, m RequestMeta) error {
 	user, err := s.users.GetByID(ctx, userID)

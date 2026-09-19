@@ -287,6 +287,7 @@ func buildHTTPServer(
 			auth.GET("/me", authH.Me)
 			auth.POST("/logout-all", authH.LogoutAll)
 			auth.POST("/password/change", authH.ChangePassword)
+			auth.PATCH("/me/username", authH.ChangeUsername)
 
 			auth.GET("/sessions", sessH.List)
 			auth.DELETE("/sessions/:id", sessH.Revoke)

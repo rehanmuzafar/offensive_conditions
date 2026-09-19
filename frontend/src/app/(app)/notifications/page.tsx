@@ -38,8 +38,8 @@ export default function NotificationsPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2.5 font-display text-[28px] font-extrabold tracking-[-0.5px]">
-            <Bell className="h-7 w-7 text-accent" /> Notifications
-            {unreadCount > 0 && <span className="rounded-full bg-brand-gradient px-2.5 py-0.5 text-[13px] font-bold text-white">{unreadCount}</span>}
+            <Bell className="h-6 w-6 text-text-faint" strokeWidth={1.6} /> Notifications
+            {unreadCount > 0 && <span className="bg-brand-gradient px-2.5 py-0.5 text-[13px] font-bold text-white">{unreadCount}</span>}
           </h1>
         </div>
         <div className="flex items-center gap-2.5">

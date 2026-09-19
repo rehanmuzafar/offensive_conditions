@@ -102,6 +102,8 @@ type SeasonRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Season, error)
 	GetByCode(ctx context.Context, code string) (*Season, error)
 	GetActive(ctx context.Context) (*Season, error)
+	// The season whose window contains this instant — see postgres_main.go.
+	GetContaining(ctx context.Context, at time.Time) (*Season, error)
 	List(ctx context.Context, limit, offset int) ([]*Season, error)
 	UpdateState(ctx context.Context, id uuid.UUID, state SeasonState) error
 	MarkRolledOver(ctx context.Context, id uuid.UUID, snapshotID uuid.UUID, when time.Time) error

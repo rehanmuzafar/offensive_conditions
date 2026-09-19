@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { scoringApi } from "@/lib/scoring-api";
+import { usePlatformStats } from "@/lib/platform-stats";
 import { Stat } from "@/components/ui/stat";
 import { Card } from "@/components/ui/card";
 import { Flag } from "@/components/ui/flag";
@@ -110,7 +111,7 @@ export function HomeHallOfFame() {
                 </td>
                 <td className="px-5 py-[15px]">
                   <div className="flex items-center gap-3">
-                    <span className={`grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[11px] font-display text-[14px] font-bold text-white ${avGrad}`}>
+                    <span className={`grid h-[38px] w-[38px] shrink-0 place-items-center font-display text-[14px] font-bold text-white ${avGrad}`}>
                       {r ? initials(r.username) : "—"}
                     </span>
                     <div>
@@ -133,5 +134,30 @@ export function HomeHallOfFame() {
         </tbody>
       </table>
     </Card>
+  );
+}
+
+
+/**
+ * The three figures on the sign-in showcase panel — real machine, live-event and
+ * learning-path counts, in place of the invented 540+/86/195 that used to sit
+ * here. Its own client island because the auth layout is a server component.
+ */
+export function AuthShowcaseStats() {
+  const s = usePlatformStats();
+  const items = [
+    { n: s.loading ? "—" : String(s.machines), l: "Machines" },
+    { n: s.loading ? "—" : String(s.liveEvents), l: "Live CTFs" },
+    { n: s.loading ? "—" : String(s.paths), l: "Learning paths" },
+  ];
+  return (
+    <div className="mt-9 flex gap-10">
+      {items.map((x) => (
+        <div key={x.l}>
+          <div className="font-display text-[26px] font-extrabold tracking-mega text-text">{x.n}</div>
+          <div className="mt-1 text-[10px] uppercase tracking-wide text-text-faint">{x.l}</div>
+        </div>
+      ))}
+    </div>
   );
 }

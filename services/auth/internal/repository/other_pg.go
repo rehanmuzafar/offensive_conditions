@@ -91,6 +91,14 @@ func (r *pgRefreshTokenRepo) GetByHash(ctx context.Context, tokenHash string) (*
 	return scanRefreshToken(r.pool.QueryRow(ctx, q, tokenHash))
 }
 
+// GetByID fetches one token by its primary key. Needed to resolve the family a
+// session's original token belongs to: revoking a session has to revoke the
+// whole rotation chain, not the one token recorded when the session began.
+func (r *pgRefreshTokenRepo) GetByID(ctx context.Context, tokenID uuid.UUID) (*RefreshToken, error) {
+	const q = `SELECT ` + colsRefreshToken + ` FROM auth.refresh_tokens WHERE id = $1`
+	return scanRefreshToken(r.pool.QueryRow(ctx, q, tokenID))
+}
+
 func (r *pgRefreshTokenRepo) GetFamily(ctx context.Context, familyID uuid.UUID) ([]*RefreshToken, error) {
 	const q = `SELECT ` + colsRefreshToken + ` FROM auth.refresh_tokens WHERE family_id = $1 ORDER BY created_at`
 	rows, err := r.pool.Query(ctx, q, familyID)

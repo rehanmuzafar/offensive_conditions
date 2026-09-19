@@ -40,6 +40,9 @@ interface ApiEntry {
   tier: string | null;
   owned_machines: number | null;
   solved_challenges: number | null;
+  first_bloods?: number | null;
+  streak_days?: number | null;
+  accepted_bugs?: number | null;
 }
 
 interface ApiLeaderboard {
@@ -52,6 +55,8 @@ interface ApiSeason {
   ID: string;
   Code: string;
   Name: string;
+  /** Ordinal, starting at 1 — what players actually call a season. */
+  Number?: number;
   StartsAt: string;
   EndsAt: string;
   State: string;
@@ -84,6 +89,9 @@ function mapRow(e: ApiEntry): LeaderRow {
     points: e.score ?? 0,
     ownedMachines: e.owned_machines ?? 0,
     solvedChallenges: e.solved_challenges ?? 0,
+    firstBloods: e.first_bloods ?? 0,
+    streakDays: e.streak_days ?? 0,
+    acceptedBugs: e.accepted_bugs ?? 0,
     change: 0,
   };
 }
@@ -100,7 +108,9 @@ function mapSeason(s: ApiSeason): Season {
   return {
     id: s.ID,
     name: s.Name,
-    number: seasonNumber(s.Code),
+    // The server numbers seasons now; the code is only a fallback for rows
+    // written before it did.
+    number: s.Number ?? seasonNumber(s.Code),
     startsAt: s.StartsAt,
     endsAt: s.EndsAt,
     isActive: s.State === "active",

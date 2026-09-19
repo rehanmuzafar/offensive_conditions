@@ -160,7 +160,20 @@ type AwardInput struct {
 	SubmittedAt    time.Time
 	// Optional override (when caller already knows the difficulty)
 	Difficulty string
-	RequestID  string
+	// When the result belongs to a season other than the one running now.
+	//
+	// A CTF is credited to the season it *ends* in, so an event that straddles
+	// a boundary lands whole in one season instead of being split by the
+	// accident of when each flag went in. Zero means "use the active season".
+	SeasonAt time.Time
+	// Points, when the caller already decided them.
+	//
+	// A CTF challenge is worth what its own event says it is worth: dynamic
+	// scoring means the value falls as more teams solve it, so recomputing
+	// from difficulty here would put a different number on the global ladder
+	// than the one the CTF scoreboard showed. Zero means "work it out".
+	Points    int
+	RequestID string
 }
 
 // AwardResult is what AwardSolve returns.
@@ -215,7 +228,7 @@ func (s *Scoring) AwardSolve(ctx context.Context, in AwardInput) (*AwardResult, 
 	}
 	isFirstBlood := points.IsBlood(bloodRank)
 
-	// 4. Calculate points
+	// 4. Calculate points — unless the caller already knows them.
 	calc := s.pointsCalc.Compute(points.Input{
 		Difficulty:        points.ParseDifficulty(info.Difficulty),
 		FlagType:          points.FlagType(in.FlagType),
@@ -223,6 +236,9 @@ func (s *Scoring) AwardSolve(ctx context.Context, in AwardInput) (*AwardResult, 
 		ContentReleasedAt: info.ReleasedAt,
 		SolvedAt:          in.SubmittedAt,
 	})
+	if in.Points > 0 {
+		calc.FinalPoints = in.Points
+	}
 
 	// 5. Anti-cheat
 	var antiCheatBlocked bool
@@ -358,7 +374,17 @@ func (s *Scoring) AwardSolve(ctx context.Context, in AwardInput) (*AwardResult, 
 
 	// 12. Leaderboards
 	meta, _ := s.userMeta.GetMetadata(ctx, in.UserID)
-	activeSeason, _ := s.seasons.GetActive(ctx)
+	// The season this result belongs to. GetContaining answers "which season
+	// owns this moment"; GetActive answers "which is running now", and for a
+	// CTF that ended after a rollover those are different seasons.
+	var season *repository.Season
+	if !in.SeasonAt.IsZero() {
+		season, _ = s.seasons.GetContaining(ctx, in.SeasonAt)
+	}
+	if season == nil {
+		season, _ = s.seasons.GetActive(ctx)
+	}
+	activeSeason := season
 	var seasonID uuid.UUID
 	if activeSeason != nil {
 		seasonID = activeSeason.ID
@@ -624,6 +650,10 @@ func buildIncrement(contentType, flagType string, awarded int, isFirstBlood bool
 		d.DojoPoints = int64(awarded)
 	case "ctf_challenge":
 		d.CTFPoints = int64(awarded)
+		// A solved CTF challenge is a solved challenge. Only the points were
+		// counted, so a player could finish an event with a full scoreboard and
+		// still read "0 challenges solved" on their dashboard.
+		d.ChallengesSolved = 1
 	case "prolab_flag":
 		d.ProLabPoints = int64(awarded)
 	}

@@ -46,6 +46,10 @@ func Register() error {
 	return nil
 }
 
+// IsUsername is the same rule the `username` binding tag enforces, exported so
+// a service can apply it to a value that did not arrive through binding.
+func IsUsername(s string) bool { return usernameRegex.MatchString(s) }
+
 func validateUsername(fl validator.FieldLevel) bool {
 	return usernameRegex.MatchString(fl.Field().String())
 }

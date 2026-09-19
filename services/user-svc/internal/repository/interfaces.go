@@ -27,6 +27,7 @@ type ProfileRepository interface {
 	UpdateTimezone(ctx context.Context, userID uuid.UUID, tz string) error
 	UpdateSocialLinks(ctx context.Context, userID uuid.UUID, twitter, github, linkedin, site string) error
 	UpdateAvatar(ctx context.Context, userID uuid.UUID, url, storageKey string) error
+	SetAccountType(ctx context.Context, userID uuid.UUID, kind, companyName, companyWebsite string) error
 	UpdatePrivacy(ctx context.Context, userID uuid.UUID, p PrivacySettings) error
 	UpdateLastSeen(ctx context.Context, userID uuid.UUID) error
 	MarkEmailVerified(ctx context.Context, userID uuid.UUID) error
@@ -44,10 +45,15 @@ type ProfileRepository interface {
 // TeamFilter narrows team discovery. Every field is optional; an empty string
 // means "do not filter on this".
 type TeamFilter struct {
-	Query       string // free text: name, affiliation or country
+	Query       string // free text: name, affiliation, slug or id
 	Category    string // open|country|company|university|school
 	CountryCode string // ISO code, exact match
 	Detail      string // the affiliation itself, e.g. a university name
+	// Codes the caller resolved from the same free text, so typing "Pakistan"
+	// finds PK teams. Resolved by the caller rather than here because the
+	// code→name list is curated at the edge (some codes are deliberately not
+	// offered), and a second copy in SQL would drift away from it.
+	CountryAny []string
 }
 
 type TeamRepository interface {

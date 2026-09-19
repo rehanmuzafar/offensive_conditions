@@ -1,0 +1,12 @@
+#!/bin/sh
+/bin/mount -t proc proc /proc 2>/dev/null
+/bin/mount -t sysfs sys /sys 2>/dev/null
+echo ""
+echo "=== OFFCON kernel lab ==="
+echo "you are uid $(/bin/id -u) inside the VM"
+echo "the flag is readable at /flag by root:"
+echo "__FLAG__" > /flag
+chmod 400 /flag
+/bin/cat /flag
+echo "=== drop to shell ==="
+exec /bin/sh

@@ -15,12 +15,44 @@ export type CtfEventFormat = "jeopardy" | "attack_defense" | "hybrid" | "king_of
 export type CtfEventVisibility = "public" | "private" | "invite_only";
 export type CtfRequiredTier = "free" | "vip" | "vip_plus";
 
-/** Where per-player spawns are provisioned. Static and shared-host challenges
+/** Where per-team spawns are provisioned. Static and shared-host challenges
  *  work regardless of this. */
 export type ChallengeRuntime = "cloud" | "onsite" | "static_only";
 
+/* -------------------------------- waves ---------------------------------- */
+
+/** A release window. Challenges filed under it open and close together. */
+export interface CtfWave {
+  id: string;
+  event_id: string;
+  name: string;
+  /** 1-based, contiguous within the event. */
+  position: number;
+  starts_at: string;
+  /** null = runs until the event itself ends. */
+  ends_at: string | null;
+  state: "upcoming" | "live" | "closed";
+  challenge_count: number;
+}
+
+export interface CtfWaveInput {
+  name: string;
+  starts_at: string;
+  /** Omit or null for "until the event ends". */
+  ends_at?: string | null;
+}
+
+export interface CtfWavePatch {
+  name?: string;
+  starts_at?: string;
+  ends_at?: string | null;
+  /** Needed because null on ends_at is a real value, not an omission. */
+  clear_ends_at?: boolean;
+  position?: number;
+}
+
 /** How a challenge reaches the player. Independent of its attachments. */
-export type DeliveryType = "static" | "shared_host" | "per_player";
+export type DeliveryType = "static" | "shared_host" | "per_team";
 
 export interface ChallengeFile {
   name: string;
@@ -38,6 +70,57 @@ export type CtfEventStatus =
   | "ended"
   | "archived";
 
+export interface AdminCtfEntry {
+  team_id: string | null;
+  user_id: string | null;
+  name: string;
+  is_team: boolean;
+  member_count: number;
+  /** Points from solves alone. */
+  earned_points: number;
+  /** Net of every organiser adjustment; may be negative. */
+  adjustment: number;
+  /** earned_points + adjustment — what the scoreboard shows. */
+  points: number;
+  solve_count: number;
+  banned: boolean;
+  ban_reason: string | null;
+  /** Set by hand; null means this row sits where its points put it. */
+  pinned_position: number | null;
+  pinned_reason: string | null;
+}
+
+export interface AdminCtfAdjustment {
+  id: string;
+  team_id: string | null;
+  user_id: string | null;
+  delta: number;
+  reason: string | null;
+  visible: boolean;
+  actor_id: string;
+  created_at: string | null;
+}
+
+export interface AdminCtfWriteup {
+  id: string;
+  team_id: string | null;
+  user_id: string | null;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  status: "draft" | "submitted";
+  submitted_at: string | null;
+  updated_at: string | null;
+  /** Where the team finished — the organiser reads the writeup against it. */
+  standing: {
+    rank: number;
+    display_name: string;
+    points: number;
+    first_bloods: number;
+    solve_count: number;
+  } | null;
+}
+
 export interface AdminCtfEvent {
   id: string;
   slug: string;
@@ -52,9 +135,19 @@ export interface AdminCtfEvent {
   max_team_size: number | null;
   registration_starts_at: string;
   registration_ends_at: string;
+  registration_until_end?: boolean;
+  /** Release challenges in waves rather than all at once. */
+  has_waves?: boolean;
   starts_at: string;
   ends_at: string;
   scoreboard_freeze_at: string | null;
+  /* Pause is not a status: the event stays live while stopped. */
+  writeup_required_top_n?: number | null;
+  writeup_deadline?: string | null;
+  is_paused?: boolean;
+  pause_starts_at?: string | null;
+  pause_ends_at?: string | null;
+  pause_reason?: string | null;
   dynamic_scoring: boolean;
   min_points: number;
   first_blood_bonus: number;
@@ -72,6 +165,9 @@ export interface AdminCtfEvent {
 }
 
 export interface CtfEventCreateInput {
+  /** How far down the board the writeup requirement reaches; null = nobody. */
+  writeup_required_top_n?: number | null;
+  writeup_deadline?: string | null;
   slug: string;
   name: string;
   description?: string;
@@ -83,6 +179,9 @@ export interface CtfEventCreateInput {
   max_team_size?: number | null;
   registration_starts_at: string;
   registration_ends_at: string;
+  registration_until_end?: boolean;
+  /** Release challenges in waves rather than all at once. */
+  has_waves?: boolean;
   starts_at: string;
   ends_at: string;
   scoreboard_freeze_at?: string | null;
@@ -110,6 +209,8 @@ export type CtfEventUpdateInput = Partial<
     | "visibility"
     | "max_team_size"
     | "scoreboard_freeze_at"
+    | "writeup_required_top_n"
+    | "writeup_deadline"
     | "min_points"
     | "first_blood_bonus"
     | "max_participants"
@@ -146,6 +247,13 @@ export interface AdminCtfChallenge {
   flag_pattern: string | null;
   sort_order: number;
   is_hidden: boolean;
+  /** A fresh flag per spawned instance instead of one shared by everyone. */
+  dynamic_flag: boolean;
+  /** Release wave, or null when the challenge is open from the event's start. */
+  wave_id: string | null;
+  wave_name?: string | null;
+  wave_position?: number | null;
+  wave_state?: "upcoming" | "live" | "closed" | null;
 }
 
 export interface CtfChallengeInput {
@@ -156,9 +264,16 @@ export interface CtfChallengeInput {
   base_points: number;
   /** `requires_instance` is derived from this server-side. */
   delivery_type: DeliveryType;
+  /** Mint a flag per instance. Needs per_team delivery and an image that
+   *  reads CTF_FLAG rather than baking a flag in. */
+  dynamic_flag?: boolean;
+  /** Which release wave this sits in. null = open from the event's start. */
+  wave_id?: string | null;
+  /** Takes the challenge out of its wave; null alone means "leave it alone". */
+  clear_wave?: boolean;
   /** Required when delivery_type is "shared_host". */
   connection_url?: string | null;
-  /** Required when delivery_type is "per_player". */
+  /** Required when delivery_type is "per_team". */
   image_ref?: string | null;
   files?: ChallengeFile[];
   /** SHA-256 hex of the flag. Never send the plaintext flag to the API. */
@@ -182,6 +297,19 @@ export async function hashFlag(flag: string): Promise<string> {
 }
 
 export const ctfAdminApi = {
+  /**
+   * Delete an event and everything under it.
+   *
+   * The service refuses while an event is live — ending it first is a
+   * deliberate, reversible step and deleting is not.
+   */
+  deleteEvent: (eventId: string) =>
+    api.delete<void>(`/v1/ctf/events/${eventId}`),
+
+  /** Delete a single challenge. Refused once the event has ended. */
+  deleteChallenge: (eventId: string, challengeId: string) =>
+    api.delete<void>(`/v1/ctf/events/${eventId}/challenges/${challengeId}`),
+
   listEvents: () =>
     api.get<{ items: AdminCtfEvent[] }>("/v1/ctf/events", { params: { limit: 100 } }),
 
@@ -196,8 +324,140 @@ export const ctfAdminApi = {
   publishEvent: (id: string) => api.post<AdminCtfEvent>(`/v1/ctf/events/${id}/publish`),
   endEvent: (id: string) => api.post<AdminCtfEvent>(`/v1/ctf/events/${id}/end`),
 
+  /**
+   * Pause or resume. Sending `paused: false` also clears any scheduled window —
+   * an organiser pressing resume means the event is running, and a schedule
+   * left armed would pause it again behind them.
+   */
+  setPause: (
+    id: string,
+    body: { paused?: boolean; starts_at?: string; ends_at?: string; reason?: string },
+  ) => api.post<AdminCtfEvent>(`/v1/ctf/events/${id}/pause`, { body }),
+
+  clearPauseSchedule: (id: string) =>
+    api.delete<AdminCtfEvent>(`/v1/ctf/events/${id}/pause/schedule`),
+
+  /**
+   * Every entry in the event, banned ones included.
+   *
+   * Not the leaderboard: that filters disqualified rows out, which would make a
+   * banned team invisible on the screen used to reinstate it.
+   */
+  listEntries: (eventId: string) =>
+    api.get<{ items: AdminCtfEntry[] }>(`/v1/ctf/events/${eventId}/entries`),
+
+  adjustScore: (
+    eventId: string,
+    body: { team_id?: string; user_id?: string; delta: number; reason?: string; visible?: boolean },
+  ) => api.post<void>(`/v1/ctf/events/${eventId}/adjustments`, { body }),
+
+  listAdjustments: (eventId: string) =>
+    api.get<{ items: AdminCtfAdjustment[] }>(`/v1/ctf/events/${eventId}/adjustments`),
+
+  setBan: (
+    eventId: string,
+    body: { team_id?: string; user_id?: string; banned: boolean; reason?: string },
+  ) => api.post<void>(`/v1/ctf/events/${eventId}/ban`, { body }),
+
+  /**
+   * Fix an entry at a displayed position.
+   *
+   * This overrides the points ordering for one row, so the reason travels with
+   * it — every pinned row is marked on the public board.
+   */
+  setRankPin: (
+    eventId: string,
+    body: { team_id?: string; user_id?: string; position: number; reason?: string },
+  ) => api.post<void>(`/v1/ctf/events/${eventId}/rank-pins`, { body }),
+
+  /**
+   * Replace the displayed order in one call, from a dragged list.
+   *
+   * A PUT rather than a series of pins: moving one row shifts everything
+   * between it and its new home, and sending that as N requests would leave the
+   * board half-reordered if one failed.
+   */
+  reorderBoard: (
+    eventId: string,
+    order: { team_id?: string | null; user_id?: string | null; pinned: boolean }[],
+    reason?: string,
+  ) => api.put<{ pinned: number }>(`/v1/ctf/events/${eventId}/board-order`, { body: { order, reason } }),
+
+  clearRankPin: (eventId: string, subject: { team_id?: string; user_id?: string }) =>
+    api.delete<void>(`/v1/ctf/events/${eventId}/rank-pins`, { params: subject }),
+
+  listWriteups: (eventId: string) =>
+    api.get<{
+      items: AdminCtfWriteup[];
+      deadline: string | null;
+      required_top_n: number | null;
+      eliminated: {
+        rank: number;
+        display_name: string;
+        team_id: string | null;
+        user_id: string | null;
+        points: number;
+      }[];
+    }>(`/v1/ctf/events/${eventId}/writeups`),
+
   listChallenges: (eventId: string) =>
     api.get<{ items: AdminCtfChallenge[] }>(`/v1/ctf/events/${eventId}/challenges`),
+
+  /** Teams that started paying and have not been confirmed — the queue an
+   *  organiser works through against a bank statement. */
+  listPendingTeams: (eventId: string) =>
+    api.get<
+      {
+        team_id: string;
+        team_name: string | null;
+        paid_by_user_id: string | null;
+        payment_status: string;
+        provider_reference: string | null;
+        provider: string | null;
+        amount_cents: number;
+        currency: string | null;
+        created_at: string | null;
+      }[]
+    >(`/v1/ctf/events/${eventId}/payment/team/pending`),
+
+  /** Mark a team's entry settled. Idempotent — the same call from a gateway
+   *  webhook and from this button lands on one implementation. */
+  confirmTeamPayment: (
+    eventId: string,
+    body: { team_id: string; provider_reference?: string; amount_cents?: number },
+  ) =>
+    api.post<{
+      team_id: string;
+      payment_status: string;
+      amount_cents: number;
+      currency: string;
+    }>(`/v1/ctf/events/${eventId}/payment/team/confirm`, { body }),
+
+  /** Put a team into a paid event without charging it. Idempotent: a team
+   *  already in comes back unchanged rather than being counted twice. */
+  compTeam: (
+    eventId: string,
+    body: { team_id: string; captain_id: string; team_name?: string; note?: string },
+  ) =>
+    api.post<{
+      team_id: string;
+      payment_status: string;
+      provider: string;
+      amount_cents: number;
+      currency: string;
+    }>(`/v1/ctf/events/${eventId}/payment/team/comp`, { body }),
+
+  listWaves: (eventId: string) =>
+    api.get<{ items: CtfWave[] }>(`/v1/ctf/events/${eventId}/waves`),
+
+  createWave: (eventId: string, body: CtfWaveInput) =>
+    api.post<CtfWave>(`/v1/ctf/events/${eventId}/waves`, { body }),
+
+  updateWave: (eventId: string, waveId: string, body: CtfWavePatch) =>
+    api.patch<CtfWave>(`/v1/ctf/events/${eventId}/waves/${waveId}`, { body }),
+
+  deleteWave: (eventId: string, waveId: string) =>
+    api.delete<void>(`/v1/ctf/events/${eventId}/waves/${waveId}`),
 
   createChallenge: (eventId: string, body: CtfChallengeInput) =>
     api.post<AdminCtfChallenge>(`/v1/ctf/events/${eventId}/challenges`, { body }),
@@ -209,10 +469,12 @@ export const ctfAdminApi = {
     ),
 
   /**
-   * Once an event is live the service only accepts sort_order, is_hidden and
-   * hints — everything else is frozen so the scoreboard stays meaningful.
+   * A live event stays fully editable: adding, removing and rewriting
+   * challenges mid-CTF is normal, and waves depend on it. The freeze lands only
+   * once the event has *ended*, after which the service accepts nothing but
+   * sort_order and is_hidden, so the final standings cannot be rewritten.
    */
-  liveEditableFields: ["sort_order", "is_hidden", "hints"] as const,
+  editableAfterEnd: ["sort_order", "is_hidden"] as const,
 };
 
 /* ------------------------------- banners -------------------------------- */

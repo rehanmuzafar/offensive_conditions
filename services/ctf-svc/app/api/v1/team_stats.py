@@ -42,6 +42,58 @@ class TeamStatsRead(BaseModel):
     members: list[MemberStatsRead]
 
 
+class TeamTotalsRead(BaseModel):
+    team_id: UUID
+    points: int
+    flags: int
+    events_played: int
+
+
+class TeamTotalsList(BaseModel):
+    items: list[TeamTotalsRead] = []
+
+
+@router.get("/stats", response_model=TeamTotalsList)
+async def team_totals(
+    ids: str = "",
+    claims: Claims = Depends(get_claims),
+    session: AsyncSession = Depends(get_session),
+) -> TeamTotalsList:
+    """Headline numbers for a list of teams, in one round trip.
+
+    Declared before /{team_id}/stats on purpose: FastAPI matches in order, and
+    a literal path registered after a parameterised one is swallowed by it —
+    "stats" would be read as a team id and fail to parse as a UUID.
+
+    Unknown or malformed ids are skipped rather than refused. The caller is a
+    list rendering whatever the search returned, and one stale id should not
+    cost it every team's numbers.
+    """
+    team_ids: list[UUID] = []
+    for raw in ids.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            team_ids.append(UUID(raw))
+        except ValueError:
+            continue
+    # A cap, because this is a public endpoint taking a list: without one a
+    # single request could ask for every team on the platform.
+    totals = await TeamStatsService(session).totals_for(team_ids[:200])
+    return TeamTotalsList(
+        items=[
+            TeamTotalsRead(
+                team_id=t.team_id,
+                points=t.points,
+                flags=t.flags,
+                events_played=t.events_played,
+            )
+            for t in totals.values()
+        ]
+    )
+
+
 @router.get("/{team_id}/stats", response_model=TeamStatsRead)
 async def team_stats(
     team_id: UUID,

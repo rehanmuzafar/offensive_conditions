@@ -6,6 +6,7 @@
  */
 
 import { api } from "@/lib/api";
+import { COUNTRIES } from "@/lib/countries";
 
 export type TeamCategory = "open" | "country" | "company" | "university" | "school";
 
@@ -50,6 +51,14 @@ export interface TeamStats {
   best_rank: number | null;
   last_solve_at: string | null;
   members: TeamMemberStats[];
+}
+
+/** A team's headline numbers, as the list needs them. */
+export interface TeamTotals {
+  team_id: string;
+  points: number;
+  flags: number;
+  events_played: number;
 }
 
 export interface TeamJoinRequest {
@@ -131,6 +140,11 @@ export const teamsApi = {
           category: f.category ?? "",
           country: f.country ?? "",
           detail: f.detail ?? "",
+          /* Typing "Pakistan" should find PK teams, but only the code is
+             stored. The names are resolved here rather than in SQL because the
+             code→name list is curated in this app — a second copy in the
+             database would drift away from it. */
+          country_in: countryCodesMatching(f.q ?? "").join(",") || undefined,
         },
       })
     ).teams ?? [],
@@ -138,11 +152,26 @@ export const teamsApi = {
   getBySlug: async (slug: string): Promise<Team> =>
     (await api.get<{ team: Team }>(`/v1/teams/by-slug/${slug}`)).team,
 
+  /** Lookup by primary key. Scoreboard rows carry a team's UUID and no handle,
+   *  so a link out of the standings has nothing else to go on. */
+  getById: async (id: string): Promise<Team> =>
+    (await api.get<{ team: Team }>(`/v1/teams/${id}`)).team,
+
   /**
    * Team CTF stats. Served by ctf-svc (hence the /ctf prefix), which owns the
    * participation rows the numbers are aggregated from.
    */
   stats: (teamId: string) => api.get<TeamStats>(`/v1/ctf/teams/${teamId}/stats`),
+
+  /** Totals for many teams in one request — the per-team call is far too much
+   *  work to repeat down a list. */
+  totals: async (teamIds: string[]): Promise<Record<string, TeamTotals>> => {
+    if (teamIds.length === 0) return {};
+    const res = await api.get<{ items: TeamTotals[] }>(
+      `/v1/ctf/teams/stats?ids=${encodeURIComponent(teamIds.join(","))}`,
+    );
+    return Object.fromEntries((res.items ?? []).map((t) => [t.team_id, t]));
+  },
 
   requestJoin: (teamId: string, message = "") =>
     api.post<TeamJoinRequest>(`/v1/teams/${teamId}/join-requests`, { body: { message } }),
@@ -227,4 +256,11 @@ export async function getUsername(userId: string): Promise<string> {
 /** user-svc validates this server-side; mirror it so the form fails fast. */
 export function slugifyTeam(v: string): string {
   return v.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+}
+
+/** Codes whose country name contains the search text. */
+function countryCodesMatching(query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  return COUNTRIES.filter((c) => c.name.toLowerCase().includes(needle)).map((c) => c.code);
 }

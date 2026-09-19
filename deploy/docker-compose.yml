@@ -31,13 +31,22 @@ services:
   # Infrastructure
   # ==========================================================================
   postgres:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: offcon_admin
-      POSTGRES_PASSWORD: dev_only_change_in_prod
-      POSTGRES_DB: offcon
+      # From .env, like every service's DB_PASSWORD. This was a literal, which
+      # meant a clone whose bootstrap generated a password got a database
+      # initialised with a *different* one — every service would then fail
+      # authentication against a database that came up perfectly healthy.
+      POSTGRES_USER: "${DB_USER:-offcon_admin}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}"
+      POSTGRES_DB: "${DB_NAME:-offcon}"
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../database/scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
@@ -49,12 +58,34 @@ services:
     networks: [offcon]
 
   redis:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
-    ports: ["6379:6379"]
+    # Password to the container env so the start script below can expand it at
+    # runtime (compose escapes $$ -> $), which is safe for any special chars.
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    # Self-heal a power-cut-corrupted AOF before starting. On an unclean
+    # shutdown the AOF tail can be left half-written, which crashes redis on the
+    # next boot and takes every dependent service down with it. redis-check-aof
+    # --fix truncates only the unwritten tail (nothing durably saved is lost),
+    # so a power cut becomes a clean self-heal instead of a platform outage.
+    # See the storm/power-cut incident 2026-09-17.
+    command:
+      - sh
+      - -c
+      - |
+        if [ -f /data/appendonlydir/appendonly.aof.manifest ]; then
+          yes | redis-check-aof --fix /data/appendonlydir/appendonly.aof.manifest || true
+        fi
+        exec redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass "$$REDIS_PASSWORD"
+    ports: ["127.0.0.1:6379:6379"]
     volumes: [redis_data:/data]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -62,8 +93,13 @@ services:
 
   # Kafka in KRaft mode — no Zookeeper needed (official Apache image)
   kafka:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: apache/kafka:3.9.0
-    ports: ["9092:9092"]
+    ports: ["127.0.0.1:9092:9092"]
     environment:
       KAFKA_NODE_ID: "1"
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -82,12 +118,25 @@ services:
     networks: [offcon]
 
   minio:
-    image: minio/minio:latest
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
+    # quay.io, not Docker Hub. MinIO's Docker Hub repository now answers
+    # "pull access denied ... repository does not exist" for minio/minio, so a
+    # machine without the image already cached cannot start the stack at all.
+    # quay.io is where the project publishes them.
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: offcon_dev
-      MINIO_ROOT_PASSWORD: dev_only_change_in_prod
-    ports: ["9000:9000", "9101:9001"]
+      # From .env, so bootstrap.sh can generate them and keep every service's
+      # storage credentials in step. These were literals here, which meant
+      # STORAGE_ACCESS_KEY / S3_ACCESS_KEY had to be hand-matched to a string
+      # buried in this file.
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-offcon_dev}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in deploy/.env}"
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9101:9001"]
     volumes: [minio_data:/data]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -123,8 +172,13 @@ services:
     networks: [offcon]
 
   mailpit:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: axllent/mailpit:latest
-    ports: ["8025:8025", "1025:1025"]
+    ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"]
     networks: [offcon]
 
   # ==========================================================================
@@ -136,7 +190,7 @@ services:
     environment:
       HTTP_PORT: "8001"
       GRPC_PORT: "9001"
-    ports: ["8001:8001", "9001:9001"]
+    ports: ["127.0.0.1:8001:8001", "127.0.0.1:9001:9001"]
     volumes: ["./secrets:/secrets:ro"]
 
   orchestrator:
@@ -156,15 +210,31 @@ services:
       # orchestrator off the mock backend.
       DOCKER_HOST_ADDR: "unix:///var/run/docker.sock"
       DOCKER_PUBLIC_HOST: "${DOCKER_PUBLIC_HOST:-127.0.0.1}"
-      DOCKER_NETWORK: "offcon"
+      DOCKER_PORT_RANGE: "${DOCKER_PORT_RANGE:-}"
+      DOCKER_LAB_DOMAIN: "${DOCKER_LAB_DOMAIN:-}"
+      DOCKER_RUNTIME: "${DOCKER_RUNTIME:-}"
+      DOCKER_NETWORK: "${DOCKER_NETWORK:-offcon}"
       DOCKER_ALLOW_EGRESS: "false"
-    ports: ["8002:8002", "9002:9002"]
+      # Guards /internal/containers, which starts a container from any image.
+      # ctf-svc sends it; nothing else may.
+      ORCHESTRATOR_INTERNAL_TOKEN: "${ORCHESTRATOR_INTERNAL_TOKEN:?set ORCHESTRATOR_INTERNAL_TOKEN in deploy/.env}"
+    # Bound to loopback, not 0.0.0.0. The edge and ctf-svc reach this over the
+    # compose network; publishing it wide put /internal/containers on the box's
+    # public interface, which on a VPS is a remote "run anything" button.
+    ports: ["127.0.0.1:8002:8002", "127.0.0.1:9002:9002"]
     volumes:
       - "./secrets:/secrets:ro"
       # Mounting the daemon socket gives this container control of the host's
       # Docker. Acceptable for a single-host dev/event box; in production the
       # lab host must be separate from the platform host and reached over TLS.
       - "/var/run/docker.sock:/var/run/docker.sock"
+    # The socket is mode 660 root:<docker group>, and this image runs as
+    # nonroot. Joining that group is what makes the mount usable without
+    # running the service as root. The gid differs per host — Docker Desktop
+    # uses 991, most Linux distros 999 — so it is configurable:
+    #   ls -n /var/run/docker.sock   # 4th column is the gid
+    group_add:
+      - "${DOCKER_SOCKET_GID:-991}"
 
   scoring:
     <<: *svc-defaults
@@ -173,8 +243,47 @@ services:
       HTTP_PORT: "8003"
       GRPC_PORT: "9003"
       AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
-    ports: ["8003:8003", "9003:9003"]
+    ports: ["127.0.0.1:8003:8003", "127.0.0.1:9003:9003"]
     volumes: ["./secrets:/secrets:ro"]
+
+  # Turns solves into points.
+  #
+  # The scoring Dockerfile has always built this target and ctf-svc has always
+  # published to `ctf.events` — but nothing consumed it, so every solve went
+  # into Kafka and stopped there. scoring.point_history had zero rows, which is
+  # why the leaderboard was empty and the dashboard showed nothing while the
+  # profile page (which reads ctf-svc directly) showed the same player's real
+  # points.
+  #
+  # The resolver URLs turn ids into names and content into titles; without them
+  # the worker still scores, it just cannot label what it scored.
+  scoring-worker:
+    <<: *svc-defaults
+    build: { context: ../services/scoring, target: worker }
+    environment:
+      USER_SERVICE_URL: "http://user-svc:8012"
+      CONTENT_SERVICE_URL: "http://content-svc:8010"
+    volumes: ["./secrets:/secrets:ro"]
+    # A Kafka consumer, not an HTTP service; the image's healthcheck probes a
+    # port it does not listen on.
+    healthcheck:
+      disable: true
+
+  # Season rollover and the daily ELO/streak jobs. The Dockerfile has always
+  # built this target and the rollover logic has always been complete — it was
+  # simply never deployed, so seasons ran past their end date forever and the
+  # next one was never created.
+  #
+  # Single instance by design: it holds no lock, and two of them would roll the
+  # same season over twice.
+  scoring-seasonjob:
+    <<: *svc-defaults
+    build: { context: ../services/scoring, target: seasonjob }
+    volumes: ["./secrets:/secrets:ro"]
+    # Cron loop, not an HTTP service; the image's healthcheck probes a port it
+    # does not listen on.
+    healthcheck:
+      disable: true
 
   ctf-svc:
     <<: *svc-defaults
@@ -182,7 +291,10 @@ services:
     environment:
       HTTP_PORT: "8004"
       GRPC_PORT: "9004"
-    ports: ["8004:8004", "9004:9004"]
+      # Lets ctf-svc start per-team challenge containers. The orchestrator
+      # rejects the call without it.
+      ORCHESTRATOR_INTERNAL_TOKEN: "${ORCHESTRATOR_INTERNAL_TOKEN:?set ORCHESTRATOR_INTERNAL_TOKEN in deploy/.env}"
+    ports: ["127.0.0.1:8004:8004", "127.0.0.1:9004:9004"]
     volumes: ["./secrets:/secrets:ro"]
 
   # ctf-svc ships a Celery beat schedule that drives the event state machine
@@ -195,12 +307,29 @@ services:
     build: { context: ../services/ctf-svc }
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     volumes: ["./secrets:/secrets:ro"]
+    # The image bakes in `curl /livez` on port 8004, which is the API's port.
+    # This container runs celery and listens on nothing, so that check could
+    # never pass — both workers sat "unhealthy" for days while doing their job
+    # perfectly, which is worse than no check at all: a real failure would have
+    # looked exactly the same. `inspect ping` asks the worker itself.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
 
   ctf-beat:
     <<: *svc-defaults
     build: { context: ../services/ctf-svc }
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
     volumes: ["./secrets:/secrets:ro"]
+    # Beat only sends; it answers no ping and serves no port, so there is
+    # nothing honest to probe. Disabled rather than left with the image's HTTP
+    # check, which reported a false failure every 30 seconds. If beat stops, the
+    # worker goes quiet — that is the signal to watch.
+    healthcheck:
+      disable: true
 
   flag-verifier:
     <<: *svc-defaults
@@ -209,7 +338,7 @@ services:
       HTTP_PORT: "8005"
       ORCHESTRATOR_GRPC_ADDR: "orchestrator:9002"
       AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
-    ports: ["8005:8005"]
+    ports: ["127.0.0.1:8005:8005"]
     volumes: ["./secrets:/secrets:ro"]
 
   forum-svc:
@@ -218,7 +347,7 @@ services:
     environment:
       HTTP_PORT: "8006"
       GRPC_PORT: "9006"
-    ports: ["8006:8006", "9006:9006"]
+    ports: ["127.0.0.1:8006:8006", "127.0.0.1:9006:9006"]
     volumes: ["./secrets:/secrets:ro"]
 
   payment-svc:
@@ -227,7 +356,7 @@ services:
     environment:
       HTTP_PORT: "8007"
       GRPC_PORT: "9007"
-    ports: ["8007:8007", "9007:9007"]
+    ports: ["127.0.0.1:8007:8007", "127.0.0.1:9007:9007"]
     volumes: ["./secrets:/secrets:ro"]
 
   notification-svc:
@@ -236,7 +365,7 @@ services:
     environment:
       HTTP_PORT: "8008"
       GRPC_PORT: "9008"
-    ports: ["8008:8008", "9008:9008"]
+    ports: ["127.0.0.1:8008:8008", "127.0.0.1:9008:9008"]
     volumes: ["./secrets:/secrets:ro"]
 
   bounty-svc:
@@ -245,7 +374,7 @@ services:
     environment:
       HTTP_PORT: "8009"
       GRPC_PORT: "9009"
-    ports: ["8009:8009", "9009:9009"]
+    ports: ["127.0.0.1:8009:8009", "127.0.0.1:9009:9009"]
     volumes: ["./secrets:/secrets:ro"]
 
   content-svc:
@@ -254,7 +383,7 @@ services:
     environment:
       HTTP_PORT: "8010"
       GRPC_PORT: "9010"
-    ports: ["8010:8010", "9010:9010"]
+    ports: ["127.0.0.1:8010:8010", "127.0.0.1:9010:9010"]
     volumes: ["./secrets:/secrets:ro"]
 
   writeup-svc:
@@ -263,7 +392,7 @@ services:
     environment:
       HTTP_PORT: "8011"
       GRPC_PORT: "9011"
-    ports: ["8011:8011", "9011:9011"]
+    ports: ["127.0.0.1:8011:8011", "127.0.0.1:9011:9011"]
     volumes: ["./secrets:/secrets:ro"]
 
   user-svc:
@@ -273,7 +402,7 @@ services:
       HTTP_PORT: "8012"
       GRPC_PORT: "9012"
       AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
-    ports: ["8012:8012", "9012:9012"]
+    ports: ["127.0.0.1:8012:8012", "127.0.0.1:9012:9012"]
     volumes: ["./secrets:/secrets:ro"]
 
   # ==========================================================================
@@ -281,10 +410,33 @@ services:
   # stand-in for local dev; production uses the Istio gateway from Phase 14).
   # ==========================================================================
   edge:
+    # Not on x-svc-defaults, so this does not inherit the anchor's
+    # restart policy. Without it the machine reboots and the database
+    # and the edge never come back — the site stays down until someone
+    # notices and runs compose by hand.
+    restart: unless-stopped
     image: nginx:1.27-alpine
-    ports: ["8080:8080"]
+    # TLS as well as plain HTTP. The surfaces live on a real domain (see
+    # NEXT_PUBLIC_ROOT_DOMAIN) and browsers upgrade a real domain to https, so
+    # something has to answer TLS or Firefox reports
+    # SSL_ERROR_RX_RECORD_TOO_LONG.
+    #
+    # 8443 by default rather than 443: a security workstation often already has
+    # something on 443 — an intercepting proxy, a lab listener — and taking it
+    # would break their tooling. Set EDGE_TLS_PORT=443 if yours is free.
+    # Port 80 is published so the ACME challenge can be answered and so a bare
+    # http:// request redirects instead of failing. On macOS the built-in
+    # Apache claims this port when Web Sharing has ever been switched on;
+    # it has to be stopped or this container cannot bind.
+    ports: ["80:80", "8080:8080", "${EDGE_TLS_PORT:-8443}:443"]
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # Shared by both listeners so a route cannot exist on one and not the other.
+      - ./api-routes.conf:/etc/nginx/conf.d/api-routes.conf:ro
+      # Issued by the developer's own mkcert CA — see SETUP.md. Not in git.
+      - ./secrets/tls:/secrets/tls:ro
+      # Written by certbot, read by the acme-challenge location above.
+      - ./secrets/certbot-webroot:/var/www/certbot:ro
     depends_on: [auth, orchestrator, scoring, ctf-svc, forum-svc, content-svc, user-svc]
     networks: [offcon]
 
@@ -299,13 +451,25 @@ services:
         # proxy reaches the edge container (localhost inside the container
         # is the container's own loopback, not the host machine).
         NEXT_PUBLIC_API_BASE_URL: http://edge:8080
+        # Root the surfaces hang off. lvh.me in development: every subdomain
+        # of it resolves to 127.0.0.1 with no hosts-file entry, and unlike
+        # `localhost` it is a real registrable domain — which is what a shared
+        # session cookie needs. See lib/session-storage.
+        NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-lvh.me}"
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://edge:8080
+      NEXT_PUBLIC_ROOT_DOMAIN: "${NEXT_PUBLIC_ROOT_DOMAIN:-lvh.me}"
       PORT: "3000"
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on: [edge]
     restart: unless-stopped
-    networks: [offcon]
+    networks:
+      offcon:
+        # Pinned so the egress block in offcon-lab-firewall.sh has a stable
+        # address to match. This container was mined for two days through a
+        # Next.js RCE, and the payload arrived over its own outbound wget --
+        # it renders and proxies to edge, and wants nothing from the internet.
+        ipv4_address: 172.18.0.250
 
 volumes:
   postgres_data:
@@ -316,3 +480,14 @@ volumes:
 networks:
   offcon:
     name: offcon
+    # Pinned, because the edge proxies spawned challenges to the host at this
+    # gateway by literal address — nginx cannot use a name there, as a variable
+    # in proxy_pass sends it to the resolver instead of /etc/hosts. Left to
+    # Docker the subnet is a default, not a promise, and the first time this
+    # network is recreated the lab routing would break with nothing to show for
+    # it. Changing these values later needs a full `compose down && up`: Docker
+    # will not re-address a live network.
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1

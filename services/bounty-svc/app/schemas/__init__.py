@@ -67,7 +67,10 @@ class RewardTier(BaseModel):
 class ProgramCreate(BaseModel):
     slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{1,79}$")
     name: str = Field(min_length=2, max_length=160)
-    owner_org_id: UUID
+    # Optional: there is no organisation directory to pick from, so a program
+    # created from the admin screen is owned by the admin who set it up. Making
+    # this required meant the form had to invent a uuid.
+    owner_org_id: UUID | None = None
     description: str = Field(min_length=1, max_length=20_000)
     policy: str = Field(min_length=1, max_length=50_000)
     visibility: ProgramVisibility = "public"
@@ -114,15 +117,73 @@ class ProgramRead(BaseModel):
     max_reward_cents: int | None = None
     disclosure_policy: DisclosurePolicy
     safe_harbor: bool
+    # On the list, not just the detail: "how fast do they answer" is one of the
+    # few things a researcher compares programs on before opening one.
+    response_sla_hours: int
     published_at: datetime | None = None
     total_reports: int
     total_payouts_cents: int
     created_at: datetime
 
 
+class AssetTypeCount(BaseModel):
+    asset_type: str
+    count: int
+
+
+class ProgramCardRead(ProgramRead):
+    """A program as the discovery grid shows it.
+
+    The extra three are aggregates over scope and reports — see
+    ProgramService.card_stats for how each is derived and why response
+    efficiency can legitimately be null.
+    """
+
+    asset_counts: list[AssetTypeCount] = Field(default_factory=list)
+    hackers: int = 0
+    #: 0..1, or null when no report is old enough to judge the SLA against.
+    response_efficiency: float | None = None
+
+
+class ProgramCardList(BaseModel):
+    items: list[ProgramCardRead]
+    meta: PageMeta
+
+
+class ThanksEntry(BaseModel):
+    """One researcher on a program's thanks page."""
+
+    researcher_id: UUID
+    username: str | None = None
+    accepted: int
+    criticals: int
+    #: Severity-weighted; see ProgramService.thanks for the weights.
+    reputation: int
+    earned: int = 0
+
+
+class CollaboratorEntry(BaseModel):
+    researcher_id: UUID
+    username: str | None = None
+    reports: int
+    last_report_at: datetime
+
+
+class ProgramUpdateRead(BaseModel):
+    id: UUID
+    title: str
+    body_md: str
+    author_name: str | None = None
+    created_at: datetime
+
+
+class ProgramUpdateCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    body_md: str = Field(min_length=1, max_length=20_000)
+
+
 class ProgramDetailRead(ProgramRead):
     policy: str
-    response_sla_hours: int
     triage_sla_hours: int
     resolution_sla_days: int
     in_scope_summary: str | None = None
@@ -181,6 +242,12 @@ class ReportDetailRead(ReportRead):
     reproduction_steps: str
     impact: str
     rejection_reason: str | None = None
+    # Filled from ReportService.get_context. Optional so model_validate on a
+    # bare ORM row still works where the context was not fetched.
+    program_name: str | None = None
+    program_slug: str | None = None
+    researcher_name: str | None = None
+    triager_name: str | None = None
 
 
 class ReportTriagerRead(ReportDetailRead):
@@ -190,6 +257,71 @@ class ReportTriagerRead(ReportDetailRead):
 class ReportList(BaseModel):
     items: list[ReportRead]
     meta: PageMeta
+
+
+class HacktivityItem(BaseModel):
+    """A disclosed report, as the public index shows it."""
+
+    id: UUID
+    short_id: str
+    title: str
+    severity: Severity
+    state: ReportState
+    vrt_category: str | None = None
+    bounty_cents: int = 0
+    bounty_currency: str | None = None
+    program_name: str
+    program_slug: str
+    researcher_name: str | None = None
+    published_at: datetime
+
+
+class HacktivityList(BaseModel):
+    items: list[HacktivityItem]
+    meta: PageMeta
+
+
+class WeaknessRow(BaseModel):
+    name: str
+    reports: int
+    severe: int
+    accepted: int
+
+
+class ReportQueueItem(BaseModel):
+    """One row of the triager's cross-program inbox.
+
+    Carries names rather than ids for the researcher, the triager and the
+    program: this is a list someone scans, and a screen of uuids is unreadable.
+    """
+
+    id: UUID
+    short_id: str
+    title: str
+    state: ReportState
+    severity: Severity
+    program_name: str
+    program_slug: str
+    researcher_id: UUID
+    #: Null only if the account was deleted after reporting.
+    researcher_name: str | None = None
+    triager_id: UUID | None = None
+    triager_name: str | None = None
+    bounty_cents: int = 0
+    bounty_currency: str | None = None
+    #: Hours since submission, for the "how long has this been sitting" column.
+    age_hours: float = 0
+    #: Past the program's own response/triage SLA. Meaningless once a report
+    #: has left the queue, so it is false for every settled state.
+    sla_breached: bool = False
+    created_at: datetime
+    triaged_at: datetime | None = None
+
+
+class ReportQueueList(BaseModel):
+    items: list[ReportQueueItem]
+    meta: PageMeta
+
 
 
 # =============================================================================
@@ -242,6 +374,8 @@ class CommentRead(BaseModel):
     id: UUID
     report_id: UUID
     author_id: UUID
+    #: Resolved at read time — the thread shows names, not ids.
+    author_name: str | None = None
     author_role: str
     visibility: str
     body_md: str
@@ -249,6 +383,22 @@ class CommentRead(BaseModel):
     is_state_change: bool
     created_at: datetime
     edited_at: datetime | None = None
+
+
+class TimelineEntry(BaseModel):
+    """One state change, for the report history."""
+
+    id: UUID
+    from_state: str | None = None
+    to_state: str
+    reason: str | None = None
+    actor_id: UUID
+    actor_name: str | None = None
+    created_at: datetime
+
+
+class TimelineList(BaseModel):
+    items: list[TimelineEntry]
 
 
 # =============================================================================
@@ -300,8 +450,27 @@ class PayoutRead(BaseModel):
     payment_svc_payout_id: str | None = None
     provider_payout_id: str | None = None
     failure_reason: str | None = None
+    # Which finding this paid for. Filled by the listing endpoint; a payout row
+    # on its own carries only the report's uuid.
+    report_short_id: str | None = None
+    program_name: str | None = None
     requested_at: datetime
     paid_at: datetime | None = None
+
+
+class AwardRead(BaseModel):
+    """Result of setting a bounty amount.
+
+    Separate from PayoutRead because awarding and paying are two decisions:
+    a triager can agree a figure now and release the money later. The endpoint
+    used to return a payout or nothing, so the "agree now, pay later" path had
+    no success shape at all and reported an error instead.
+    """
+
+    report_id: UUID
+    amount_cents: int
+    currency: str
+    payout: PayoutRead | None = None
 
 
 class PayoutList(BaseModel):

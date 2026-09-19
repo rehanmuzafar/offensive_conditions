@@ -21,6 +21,7 @@ import {
   type AdminCtfChallenge,
   type ChallengeFile,
   type CtfChallengeInput,
+  type CtfWave,
   type DeliveryType,
 } from "@/lib/ctf-admin-api";
 
@@ -31,7 +32,7 @@ const label = "mb-1.5 block text-[12px] font-semibold uppercase tracking-wide te
 const DELIVERY_LABEL: Record<DeliveryType, string> = {
   static: "static",
   shared_host: "shared host",
-  per_player: "per-player spawn",
+  per_team: "per-team spawn",
 };
 
 const CATEGORIES = ["web", "pwn", "crypto", "reverse", "forensics", "osint", "misc"];
@@ -46,13 +47,26 @@ export function CtfChallengeManager({
   eventId,
   eventName,
   runtime = "static_only",
+  hasWaves = false,
+  wavesVersion = 0,
+  onChallengesChanged,
 }: {
   eventId: string;
   eventName: string;
-  /** Event-level setting — per-player spawning is unavailable when static_only. */
+  /** Event-level setting — per-team spawning is unavailable when static_only. */
   runtime?: "cloud" | "onsite" | "static_only";
+  /** When the event runs in waves, each challenge can be filed under one. */
+  hasWaves?: boolean;
+  /** Bumped by the wave panel; re-reads the selector options. */
+  wavesVersion?: number;
+  /** Fires after a challenge is saved or deleted, so the wave panel's
+   *  per-wave challenge counts do not keep showing a pre-edit number. */
+  onChallengesChanged?: () => void;
 }) {
   const [items, setItems] = useState<AdminCtfChallenge[]>([]);
+  /** Challenge awaiting a second click to confirm deletion. */
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -65,6 +79,11 @@ export function CtfChallengeManager({
   const [flag, setFlag] = useState("");
   const [hints, setHints] = useState<Hint[]>([]);
   const [delivery, setDelivery] = useState<DeliveryType>("static");
+  /** "" means the challenge sits outside every wave, i.e. open from the start. */
+  /** One flag per spawned instance, instead of one shared by every team. */
+  const [dynamicFlag, setDynamicFlag] = useState(false);
+  const [waveId, setWaveId] = useState<string>("");
+  const [waves, setWaves] = useState<CtfWave[]>([]);
   const [connectionUrl, setConnectionUrl] = useState("");
   const [imageRef, setImageRef] = useState("");
   const [files, setFiles] = useState<ChallengeFile[]>([]);
@@ -88,10 +107,25 @@ export function CtfChallengeManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
+  useEffect(() => {
+    if (!hasWaves) {
+      setWaves([]);
+      return;
+    }
+    // A failure here only costs the dropdown its options; the challenge form
+    // still works and files the challenge as unwaved, so it stays quiet.
+    ctfAdminApi
+      .listWaves(eventId)
+      .then((res) => setWaves(res.items))
+      .catch(() => setWaves([]));
+  }, [eventId, hasWaves, wavesVersion]);
+
   function reset() {
     setName(""); setDescription(""); setFlag(""); setPoints(100);
     setCategory("web"); setDifficulty("easy"); setHints([]);
     setDelivery("static"); setConnectionUrl(""); setImageRef(""); setFiles([]);
+    setWaveId("");
+    setDynamicFlag(false);
     setEditingId(null);
   }
 
@@ -106,6 +140,8 @@ export function CtfChallengeManager({
     setConnectionUrl(c.connection_url ?? "");
     setImageRef(c.image_ref ?? "");
     setFiles(c.files ?? []);
+    setWaveId(c.wave_id ?? "");
+    setDynamicFlag(Boolean(c.dynamic_flag));
     // The flag hash is write-only; leaving this blank keeps the existing flag.
     setFlag("");
     setHints([]);
@@ -129,13 +165,18 @@ export function CtfChallengeManager({
     if (name.trim().length < 2) return toast.error("Challenge needs a name");
     if (!description.trim()) return toast.error("Challenge needs a description");
     // On edit an empty flag means "keep the existing one" — the hash is
-    // write-only so there is nothing to prefill.
-    if (!editingId && !flag.trim()) return toast.error("Challenge needs a flag");
+    // write-only so there is nothing to prefill. A per-team challenge minting a
+    // flag per instance has no static flag to ask for: requiring one here made
+    // the author invent a value that would then never be checked against
+    // anything.
+    const needsStaticFlag = !(delivery === "per_team" && dynamicFlag);
+    if (!editingId && needsStaticFlag && !flag.trim())
+      return toast.error("Challenge needs a flag");
     if (points < 10) return toast.error("Points must be at least 10");
     if (delivery === "shared_host" && !connectionUrl.trim())
       return toast.error("A shared-host challenge needs the address players connect to");
-    if (delivery === "per_player" && !imageRef.trim())
-      return toast.error("A per-player challenge needs a container image");
+    if (delivery === "per_team" && !imageRef.trim())
+      return toast.error("A per-team challenge needs a container image");
 
     setSaving(true);
     try {
@@ -146,8 +187,21 @@ export function CtfChallengeManager({
         description: description.trim(),
         base_points: points,
         delivery_type: delivery,
-        connection_url: delivery === "shared_host" ? connectionUrl.trim() : null,
-        image_ref: delivery === "per_player" ? imageRef.trim() : null,
+        /* Saved whatever the delivery type is. It used to be nulled unless the
+           challenge was "shared host", so an author who uploaded files *and*
+           pasted a web link silently lost the link — the field was only ever
+           rendered for one of the three types. It is required for shared_host
+           and optional everywhere else. */
+        connection_url: connectionUrl.trim() || null,
+        image_ref: delivery === "per_team" ? imageRef.trim() : null,
+        dynamic_flag: delivery === "per_team" ? dynamicFlag : false,
+        /* Clearing the selection has to be said out loud: a null wave_id on its
+           own reads as "field omitted" on the service side. */
+        ...(hasWaves
+          ? waveId
+            ? { wave_id: waveId }
+            : { clear_wave: true }
+          : {}),
         files,
         ...(flag.trim() ? { static_flag_hash: await hashFlag(flag.trim()) } : {}),
         flag_pattern: "OFFCON{...}",
@@ -165,6 +219,7 @@ export function CtfChallengeManager({
       reset();
       setShowForm(false);
       void load();
+      onChallengesChanged?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the challenge");
     } finally {
@@ -246,27 +301,70 @@ export function CtfChallengeManager({
                     type="radio"
                     className="mt-1"
                     disabled={runtime === "static_only"}
-                    checked={delivery === "per_player"}
-                    onChange={() => setDelivery("per_player")}
+                    checked={delivery === "per_team"}
+                    onChange={() => setDelivery("per_team")}
                   />
                   <span>
-                    <span className="font-semibold">Per-player spawn</span>
+                    <span className="font-semibold">Per-team spawn</span>
                     <span className="block text-[12px] text-text-faint">
                       {runtime === "static_only"
                         ? "Unavailable — set the event to run challenges on cloud or on-site first."
-                        : "Each player gets their own instance and address, HackTheBox style."}
+                        : "The team gets one instance and address to work together on. A solo entry is a team of one."}
                     </span>
                   </span>
                 </label>
               </div>
 
-              {delivery === "shared_host" && (
+              {hasWaves && (
                 <div className="mt-3">
-                  <label className={label}>Address players connect to</label>
-                  <input className={field} value={connectionUrl} onChange={(e) => setConnectionUrl(e.target.value)} placeholder="http://203.0.113.10:8001" />
+                  <label className={label}>Release wave</label>
+                  <select
+                    className={field}
+                    value={waveId}
+                    onChange={(e) => setWaveId(e.target.value)}
+                  >
+                    <option value="">No wave — open from the start</option>
+                    {waves.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.state})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-text-faint">
+                    The challenge opens when its wave does and stops taking flags when
+                    the wave closes.
+                  </p>
                 </div>
               )}
-              {delivery === "per_player" && (
+
+              <div className="mt-3">
+                  <label className={label}>
+                    Link players open{delivery === "shared_host" ? "" : " (optional)"}
+                  </label>
+                  <input className={field} value={connectionUrl} onChange={(e) => setConnectionUrl(e.target.value)} placeholder="http://203.0.113.10:8001" />
+                </div>
+              {delivery === "per_team" && (
+                <label className="mt-3 flex items-start gap-2 text-[14px]">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={dynamicFlag}
+                    onChange={(e) => setDynamicFlag(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-semibold">A different flag for every team</span>
+                    <span className="block text-[12px] text-text-faint">
+                      Each spawned instance gets its own flag, so one team passing it to
+                      another gets them nothing. Your image must read it from the{" "}
+                      <code className="text-text-dim">CTF_FLAG</code> environment variable —
+                      a flag baked into the image will not match and nobody will be able to
+                      solve it.
+                    </span>
+                  </span>
+                </label>
+              )}
+
+              {delivery === "per_team" && (
                 <div className="mt-3">
                   <label className={label}>Container image</label>
                   <input className={field} value={imageRef} onChange={(e) => setImageRef(e.target.value)} placeholder="registry.offensiveconditions.org/challenges/babyrop:v1" />
@@ -376,6 +474,7 @@ export function CtfChallengeManager({
                   <p className="text-[14px] font-semibold text-text">{c.name}</p>
                   <p className="text-[12px] text-text-faint">
                     {c.category} · {c.difficulty.replace("_", " ")} · {DELIVERY_LABEL[c.delivery_type]}
+                    {hasWaves && (c.wave_name ? ` · ${c.wave_name}` : " · no wave")}
                     {c.connection_url ? ` · ${c.connection_url}` : ""} · {c.total_solves} solves
                   </p>
                 </div>
@@ -385,6 +484,37 @@ export function CtfChallengeManager({
                   </span>
                   <Button variant="ghost" onClick={() => startEdit(c)}>
                     <Pencil className="h-4 w-4" /> Edit
+                  </Button>
+                  {/* Two-step. The confirm names the challenge, because in a
+                      list of similar rows the dangerous mistake is deleting the
+                      one next to the one you meant. */}
+                  <Button
+                    variant="danger"
+                    loading={removing === c.id}
+                    onClick={() => {
+                      if (confirmingDelete !== c.id) {
+                        setConfirmingDelete(c.id);
+                        return;
+                      }
+                      setRemoving(c.id);
+                      ctfAdminApi
+                        .deleteChallenge(eventId, c.id)
+                        .then(() => {
+                          toast.success(`Deleted "${c.name}"`);
+                          setConfirmingDelete(null);
+                          void load();
+                          onChallengesChanged?.();
+                        })
+                        .catch((err) =>
+                          toast.error(
+                            err instanceof Error ? err.message : "Could not delete that challenge.",
+                          ),
+                        )
+                        .finally(() => setRemoving(null));
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {confirmingDelete === c.id ? "Confirm" : "Delete"}
                   </Button>
                 </div>
               </div>
@@ -397,7 +527,7 @@ export function CtfChallengeManager({
 }
 
 
-/** Dims the per-player row when the event has no runtime configured. */
+/** Dims the per-team row when the event has no runtime configured. */
 function cnRadio(disabled: boolean): string {
   return disabled
     ? "flex items-start gap-2 text-[14px] opacity-50 cursor-not-allowed"

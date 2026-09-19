@@ -68,7 +68,8 @@ export function useInstances() {
 export function useSpawnInstance() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (machineId: string) => labApi.spawn(machineId),
+    // A slug, not an id: the orchestrator looks the machine up by slug.
+    mutationFn: (machineSlug: string) => labApi.spawn(machineSlug),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["instances"] });
       toast.success("Spawning your machine…");

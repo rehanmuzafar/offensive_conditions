@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     func,
     select,
     Boolean,
@@ -49,9 +50,26 @@ class Event(Base, TimestampMixin):
     # Timing
     registration_starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     registration_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # When true, the column above is ignored and the event's own end is used.
+    # Kept rather than rewritten so switching back to a fixed cut-off restores
+    # the date the organiser set instead of quietly losing it.
+    registration_until_end: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    @property
+    def registration_closes_at(self) -> datetime:
+        """When registration actually shuts, whichever rule the event uses."""
+        return self.ends_at if self.registration_until_end else self.registration_ends_at
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scoreboard_freeze_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    #: Whether challenges are released in waves. False keeps the flat behaviour:
+    #: every challenge is playable from starts_at.
+    has_waves: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Scoring
     dynamic_scoring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -76,6 +94,16 @@ class Event(Base, TimestampMixin):
     entry_fee_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     currency: Mapped[str] = mapped_column(Text, nullable=False, default="USD", server_default="USD")
     refund_policy: Mapped[str | None] = mapped_column(Text)
+    # Whether to also show the fee converted into the viewer's own currency.
+    #
+    # On by default, which is the opposite of what it started as. The gateway
+    # settles in PKR whatever the event is priced in, so quoting USD does not
+    # avoid a conversion — it only hides one. Pricing in PKR and showing the
+    # visitor an approximation in their own money keeps the charged figure and
+    # the displayed figure the same number.
+    show_local_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     invitation_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     invitation_code: Mapped[str | None] = mapped_column(Text)
     max_participants: Mapped[int | None] = mapped_column(Integer)
@@ -87,6 +115,41 @@ class Event(Base, TimestampMixin):
 
     # Status
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+
+    # --- Writeups ----------------------------------------------------------
+    #: How far down the board the writeup requirement reaches. NULL = nobody.
+    writeup_required_top_n: Mapped[int | None] = mapped_column(Integer)
+    writeup_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- Pause -------------------------------------------------------------
+    # Not a status: the event is still live while paused, it is simply not
+    # accepting play. See migration 0010 for why the two are kept apart.
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pause_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pause_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pause_reason: Mapped[str | None] = mapped_column(Text)
+
+    def paused_at_time(self, moment: datetime) -> bool:
+        """Manual pause, or inside a scheduled window, at a given instant."""
+        if self.paused_at is not None:
+            return True
+        if self.pause_starts_at is None or self.pause_ends_at is None:
+            return False
+        return self.pause_starts_at <= moment < self.pause_ends_at
+
+    @property
+    def is_paused(self) -> bool:
+        """Whether play is stopped right now.
+
+        A property, not a method: `EventRead` reads this off the ORM object with
+        `from_attributes`, and a method would serialise as the bound function
+        rather than the answer.
+
+        Computed rather than stored so a scheduled pause needs nothing to switch
+        it on — the window simply becomes true when the clock enters it.
+        """
+        return self.paused_at_time(datetime.now(timezone.utc))
+
     cover_image_url: Mapped[str | None] = mapped_column(Text)
     rules_markdown: Mapped[str | None] = mapped_column(Text)
     sponsor_info: Mapped[dict[str, Any]] = mapped_column(
@@ -100,6 +163,48 @@ class Event(Base, TimestampMixin):
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict, server_default="{}"
     )
+
+
+class EventWave(Base, TimestampMixin):
+    """A release window. Challenges pointing at it open and close together.
+
+    `ends_at` NULL means the wave runs until the event itself ends. It is stored
+    as NULL rather than as a copy of the event's end so that pushing the event
+    out later moves the wave with it instead of leaving a stale timestamp.
+    """
+
+    __tablename__ = "event_waves"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("ctf.events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    def closes_at(self, event_ends_at: datetime) -> datetime:
+        """The moment this wave shuts, resolving NULL against the event."""
+        return self.ends_at or event_ends_at
+
+    def state(self, event_ends_at: datetime, now: datetime | None = None) -> str:
+        """upcoming | live | closed, from the clock alone.
+
+        The event's own start does not appear here: a wave that opens before the
+        event does is an organiser error the admin API rejects, so there is no
+        second gate to apply at read time.
+        """
+        moment = now or datetime.now(timezone.utc)
+        if moment < self.starts_at:
+            return "upcoming"
+        if moment >= self.closes_at(event_ends_at):
+            return "closed"
+        return "live"
 
 
 class EventChallenge(Base, TimestampMixin):
@@ -125,6 +230,19 @@ class EventChallenge(Base, TimestampMixin):
     requires_instance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # How this challenge reaches the player. Orthogonal to `files`, which are
     # available for every delivery type.
+    #: Give every spawned instance its own flag instead of sharing one. Only
+    #: meaningful for per_team delivery, and only works if the image reads
+    #: CTF_FLAG rather than baking a flag in.
+    dynamic_flag: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    #: The release window this challenge belongs to. NULL means it is open from
+    #: the event's start even when the event runs in waves.
+    wave_id: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("ctf.event_waves.id", ondelete="SET NULL")
+    )
+
     delivery_type: Mapped[str] = mapped_column(
         Text, nullable=False, default="static", server_default="static"
     )
@@ -212,6 +330,20 @@ class EventParticipant(Base):
     payment_provider: Mapped[str | None] = mapped_column(Text)
     payment_reference: Mapped[str | None] = mapped_column(Text)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def settled(self) -> bool:
+        """Whether this registration lets the player actually play.
+
+        The same rule, and deliberately the same name, as EventTeamEntry.settled:
+        'not_required' counts as settled because a free event still writes a row,
+        so "may this entry play?" has one answer everywhere.
+
+        The row is created the moment someone registers, before any money moves.
+        Without this the pending row was indistinguishable from a paid one and a
+        paid event could be played for free.
+        """
+        return self.payment_status in ("paid", "not_required")
 
 
 class EventSolve(Base):
@@ -309,6 +441,117 @@ class ChatMessage(Base, TimestampMixin):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class EventWriteup(Base):
+    """A team's writeup for one event.
+
+    Draft until the captain turns it in. A draft can be replaced or deleted —
+    the captain is fixing a mistake, not keeping versions — so replacing
+    overwrites this row rather than adding another, which is also what keeps
+    "have they submitted?" a question with one answer.
+    """
+
+    __tablename__ = "event_writeups"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("ctf.events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    team_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: Object key in the private bucket. Never handed to a browser directly —
+    #: the service streams it so authorisation is checked on every read.
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    uploaded_by: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+
+
+class RankPin(Base):
+    """A position an organiser fixed by hand.
+
+    Not `EventParticipant.rank`: that column is rebuilt from points every thirty
+    seconds by recompute_ranks, so an override written there would work until
+    the next tick and then disappear.
+
+    A pin breaks the board's promise that more points finishes higher, and
+    nothing here can change that — so every pin records who set it and why, and
+    the API marks the row as pinned rather than letting the board contradict
+    itself in silence. See migration 0015.
+    """
+
+    __tablename__ = "rank_pins"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("ctf.events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    team_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+    #: 1-based, as displayed. Past the end of the board it settles at the end.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+
+    actor_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+
+
+class ScoreAdjustment(Base):
+    """An organiser moving a score by hand.
+
+    Kept out of EventParticipant.points on purpose: `points` is what a player
+    earned by solving, and a team penalty is not something any one member
+    earned. Storing it here also keeps the actor and the reason, which is the
+    part that matters when a result is contested. See migration 0012.
+    """
+
+    __tablename__ = "score_adjustments"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("ctf.events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Exactly one of these; the check constraint enforces it.
+    team_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+    #: Signed. Positive awards, negative deducts; zero is rejected.
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Optional for a quiet correction; required when the change is published.
+    reason: Mapped[str | None] = mapped_column(Text)
+    #: Show this adjustment and its reason on the public scoreboard. The points
+    #: count either way — this only decides whether the board explains them.
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    actor_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+
+
 # The event payload carried no challenge count, so every card rendered
 # "0 challenges" next to a populated challenge list. A column_property keeps it
 # correct for both the list and the detail endpoint without touching callers.
@@ -318,3 +561,144 @@ Event.challenge_count = column_property(
     .correlate_except(EventChallenge)
     .scalar_subquery()
 )
+
+class ChallengeInstance(Base):
+    """A container running for one team, for one challenge.
+
+    Per team, not per player: a CTF team works one box together. See migration
+    ctf/0016 for why, and for why the one-live-instance rule is a partial
+    unique index rather than a check-then-insert.
+    """
+
+    __tablename__ = "challenge_instances"
+    __table_args__ = ({"schema": "ctf"},)
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("ctf.events.id", ondelete="CASCADE"), nullable=False
+    )
+    challenge_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("ctf.event_challenges.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Exactly one is set — team entry or solo entry.
+    team_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    spawned_by: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    # Captured at spawn time so the panel needs no cross-service lookup to
+    # credit a teammate by name. See migration ctf/0017.
+    spawned_by_name: Mapped[str | None] = mapped_column(Text)
+
+    #: sha256 of this instance's own flag. NULL when the challenge uses a static
+    #: one. Only the hash lives here; the raw flag goes into the container's
+    #: environment and is never returned to the player — finding it is the
+    #: challenge.
+    flag_hash: Mapped[str | None] = mapped_column(Text)
+
+    container_ref: Mapped[str | None] = mapped_column(Text)
+    host: Mapped[str | None] = mapped_column(Text)
+    port: Mapped[int | None] = mapped_column(Integer)
+
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="queued", server_default="queued"
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EventTeamEntry(Base):
+    """A team's paid place in an event.
+
+    The entry fee belongs to the team, so it is recorded once per
+    (event, team) rather than once per player. A captain pays, and the team is
+    in — whoever the captain adds or removes afterwards inherits that, because
+    the roster is not what was bought.
+
+    `EventParticipant.payment_status` still exists and still describes a solo
+    player paying for themselves. The two do not overlap: a participant row
+    with a team_id takes its answer from here.
+    """
+
+    __tablename__ = "event_team_entries"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    team_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+
+    # Who paid, as a record rather than a live pointer — captaincy can change
+    # hands and that must not rewrite who the transaction belonged to.
+    paid_by_user_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+    # Kept so a webhook can enter the captain without asking user-svc, which it
+    # cannot do: it arrives with no caller and no bearer token.
+    team_name: Mapped[str | None] = mapped_column(Text)
+
+    payment_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="pending", server_default="pending"
+    )
+    amount_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    currency: Mapped[str | None] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
+    provider_reference: Mapped[str | None] = mapped_column(Text)
+
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+
+    @property
+    def settled(self) -> bool:
+        """Whether this entry lets the team play.
+
+        'not_required' is included deliberately: a free event still gets a row
+        so that "has this team entered?" has one answer everywhere, rather than
+        one answer for free events and another for paid ones.
+        """
+        return self.payment_status in ("paid", "not_required")
+
+
+class EventCertificate(Base):
+    """A certificate a player claimed after an event finished.
+
+    The figures are stored rather than recomputed. Scoreboards change after the
+    fact — a challenge gets invalidated, a submission disqualified, a rank pin
+    added — and a document that silently rewrites itself is not a document. It
+    would also drift away from whatever was already shared with an employer,
+    while the verification page insisted on the new numbers.
+    """
+
+    __tablename__ = "event_certificates"
+    __table_args__ = {"schema": "ctf"}
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+
+    # Public handle: printed on the document and used in the verify URL.
+    certificate_no: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Everything the document shows, as it stood at the moment of issue.
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="NOW()"
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_reason: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def valid(self) -> bool:
+        return self.revoked_at is None

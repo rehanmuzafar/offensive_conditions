@@ -83,6 +83,26 @@ func (r *pgUserRepo) GetByEmail(ctx context.Context, email string) (*User, error
 	return scanUser(r.pool.QueryRow(ctx, q, email))
 }
 
+// UpdateUsername renames the account.
+//
+// The unique index on auth.users.username is what actually decides the race:
+// two people claiming the same handle at the same moment both pass a
+// check-then-write, and only the index catches it. So the violation is
+// translated rather than pre-empted.
+func (r *pgUserRepo) UpdateUsername(ctx context.Context, userID uuid.UUID, username string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE auth.users SET username = $2, updated_at = now() WHERE id = $1`,
+		userID, username)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("%w: %s", ErrConflict, pgErr.ConstraintName)
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *pgUserRepo) GetByUsername(ctx context.Context, username string) (*User, error) {
 	const q = `SELECT ` + colsUsers + ` FROM auth.users WHERE username = $1 AND deleted_at IS NULL`
 	return scanUser(r.pool.QueryRow(ctx, q, username))

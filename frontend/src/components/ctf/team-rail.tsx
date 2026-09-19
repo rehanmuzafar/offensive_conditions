@@ -22,7 +22,7 @@ export function TeamRail({ eventId }: { eventId: string }) {
   return (
     // Only pin to the viewport once the rail actually sits beside the board.
     // Stacked below it on narrower screens, a full-height panel is just a hole.
-    <aside className="flex h-[460px] flex-col overflow-hidden rounded-2xl border border-line bg-surface xl:h-[calc(100vh-140px)] xl:min-h-[420px]">
+    <aside className="edge-iridescent flex h-[460px] flex-col overflow-hidden glass xl:h-[calc(100vh-140px)] xl:min-h-[420px]">
       <div className="flex shrink-0 border-b border-line">
         {(
           [

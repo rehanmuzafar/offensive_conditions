@@ -155,9 +155,12 @@ const (
 )
 
 type Season struct {
-	ID                 uuid.UUID
-	Code               string
-	Name               string
+	ID   uuid.UUID
+	Code string
+	Name string
+	// Ordinal, starting at 1. Stored rather than derived from ordering because
+	// rollover names the next season from this + 1, before its row exists.
+	Number             int
 	StartsAt           time.Time
 	EndsAt             time.Time
 	State              SeasonState

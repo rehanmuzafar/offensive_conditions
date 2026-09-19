@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -43,6 +44,27 @@ type Options struct {
 	// Egress, when false, starts containers with networking that cannot reach
 	// the internet — so the box cannot be used to attack third parties.
 	AllowEgress bool
+	// PortRange bounds the host ports challenges are published on, as
+	// "40000-40049". Without it Docker picks from the kernel's ephemeral
+	// range, which is far too wide to forward through a home router. Docker
+	// itself walks the range and takes the first free port.
+	PortRange string
+	// Runtime is the OCI runtime challenges run under — "runsc" for gVisor,
+	// empty for the daemon's default. gVisor puts a userspace kernel between the
+	// container and the host's, which matters more here than for an ordinary
+	// workload: a CTF challenge is code a player is *invited* to get execution
+	// inside, so plain runc leaves one kernel bug between them and the host.
+	Runtime string
+	// LabDomain turns the published port into a name the edge can route, as
+	// "lab-40017.offensiveconditions.org". Players then reach a challenge over
+	// 443 with a real certificate, and the raw port never has to be exposed to
+	// the internet at all. Empty falls back to PublicHost:port.
+	//
+	// The name has to be derivable from the port because each one needs its own
+	// SAN on the certificate, and a certificate cannot be issued for a name
+	// that does not exist yet — so the set is fixed by PortRange, not random
+	// per instance.
+	LabDomain string
 }
 
 type Backend struct {
@@ -58,6 +80,14 @@ func New(opts Options) (*Backend, error) {
 	if opts.PublicHost == "" {
 		return nil, fmt.Errorf("docker backend: PublicHost is required; " +
 			"the daemon cannot tell us the address players should connect to")
+	}
+	if opts.PortRange != "" {
+		lo, hi, err := parsePortRange(opts.PortRange)
+		if err != nil {
+			return nil, fmt.Errorf("docker backend: PortRange %q: %w", opts.PortRange, err)
+		}
+		// Normalise, so a stray space or reversed pair cannot reach Docker.
+		opts.PortRange = strconv.Itoa(lo) + "-" + strconv.Itoa(hi)
 	}
 
 	transport := &http.Transport{}
@@ -143,8 +173,9 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 	for _, p := range req.Ports {
 		key := strconv.Itoa(p) + "/tcp"
 		exposed[key] = struct{}{}
-		// An empty HostPort tells Docker to pick a free one.
-		bindings[key] = []map[string]string{{"HostPort": ""}}
+		// An empty HostPort tells Docker to pick a free one; a range
+		// confines that choice to ports the router actually forwards.
+		bindings[key] = []map[string]string{{"HostPort": b.opts.PortRange}}
 	}
 
 	hostConfig := map[string]any{
@@ -160,6 +191,9 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 		// Writable scratch without giving up the read-only root.
 		"Tmpfs":         map[string]string{"/tmp": "rw,noexec,nosuid,size=64m"},
 		"RestartPolicy": map[string]any{"Name": "no"},
+	}
+	if b.opts.Runtime != "" {
+		hostConfig["Runtime"] = b.opts.Runtime
 	}
 	if b.opts.Network != "" {
 		hostConfig["NetworkMode"] = b.opts.Network
@@ -186,7 +220,17 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 		ID string `json:"Id"`
 	}
 	q := url.Values{"name": {name}}
-	if err := b.do(ctx, http.MethodPost, "/containers/create?"+q.Encode(), create, &created); err != nil {
+	err := b.do(ctx, http.MethodPost, "/containers/create?"+q.Encode(), create, &created)
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		// The daemon does not pull on create. Without this an organizer who
+		// registers a challenge image sees the first spawn fail with a raw
+		// Docker error and no way to act on it.
+		if perr := b.pullImage(ctx, req.Image); perr != nil {
+			return nil, fmt.Errorf("image %s is not available: %w", req.Image, perr)
+		}
+		err = b.do(ctx, http.MethodPost, "/containers/create?"+q.Encode(), create, &created)
+	}
+	if err != nil {
 		return nil, err
 	}
 	if err := b.do(ctx, http.MethodPost, "/containers/"+created.ID+"/start", nil, nil); err != nil {
@@ -196,6 +240,56 @@ func (b *Backend) Spawn(ctx context.Context, req backends.SpawnRequest) (*backen
 	}
 
 	return &backends.SpawnResult{Ref: created.ID, NodeName: b.opts.PublicHost}, nil
+}
+
+// pullImage fetches an image the host does not have yet.
+//
+// /images/create streams progress and only reports failure in that stream, not
+// in the status code — a 200 with an "errorDetail" line is still a failure, so
+// the body has to be read to the end and inspected.
+func (b *Backend) pullImage(ctx context.Context, image string) error {
+	ref, tag := image, "latest"
+	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
+		ref, tag = image[:i], image[i+1:]
+	}
+	q := url.Values{"fromImage": {ref}, "tag": {tag}}
+
+	// Pulling a large image over a slow link takes minutes; the caller's
+	// request deadline is far shorter than that.
+	pullCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(
+		pullCtx, http.MethodPost, b.endpoint("/images/create?"+q.Encode()), nil,
+	)
+	if err != nil {
+		return err
+	}
+	res, err := b.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("docker daemon unreachable: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		return fmt.Errorf("docker api pull %s: %d", image, res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return fmt.Errorf("pull stream: %w", err)
+	}
+	if bytes.Contains(body, []byte(`"errorDetail"`)) {
+		var line struct {
+			Error string `json:"error"`
+		}
+		for _, raw := range bytes.Split(body, []byte("\n")) {
+			if json.Unmarshal(raw, &line) == nil && line.Error != "" {
+				return fmt.Errorf("pull failed: %s", line.Error)
+			}
+		}
+		return fmt.Errorf("pull failed")
+	}
+	return nil
 }
 
 // Status reports the container state and, once running, the address players use.
@@ -235,7 +329,7 @@ func (b *Backend) Status(ctx context.Context, ref string) (*backends.Status, err
 	for _, bindings := range insp.NetworkSettings.Ports {
 		for _, bind := range bindings {
 			if bind.HostPort != "" {
-				st.IPAddress = b.opts.PublicHost + ":" + bind.HostPort
+				st.IPAddress = b.address(bind.HostPort)
 				return st, nil
 			}
 		}
@@ -353,4 +447,39 @@ func sanitize(s string) string {
 		return "lab"
 	}
 	return b.String()
+}
+
+// parsePortRange reads "40000-40199" into its bounds. Both ends are inclusive
+// and must be real, ordered, non-privileged ports — a bad range here would
+// otherwise surface as an opaque Docker error at spawn time.
+func parsePortRange(v string) (int, int, error) {
+	lo, hi, ok := strings.Cut(strings.TrimSpace(v), "-")
+	if !ok {
+		return 0, 0, fmt.Errorf(`want "START-END"`)
+	}
+	start, err := strconv.Atoi(strings.TrimSpace(lo))
+	if err != nil {
+		return 0, 0, fmt.Errorf("start: %w", err)
+	}
+	end, err := strconv.Atoi(strings.TrimSpace(hi))
+	if err != nil {
+		return 0, 0, fmt.Errorf("end: %w", err)
+	}
+	if start < 1024 || end > 65535 {
+		return 0, 0, fmt.Errorf("must be within 1024-65535")
+	}
+	if start > end {
+		return 0, 0, fmt.Errorf("start %d is above end %d", start, end)
+	}
+	return start, end, nil
+}
+
+// address is what the player is told to open. With a lab domain configured it
+// is an https URL the edge terminates and proxies inward; without one it falls
+// back to the raw host and port, which only works where that port is reachable.
+func (b *Backend) address(hostPort string) string {
+	if b.opts.LabDomain == "" {
+		return b.opts.PublicHost + ":" + hostPort
+	}
+	return "https://lab-" + hostPort + "." + b.opts.LabDomain
 }

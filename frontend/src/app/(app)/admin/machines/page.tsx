@@ -2,6 +2,9 @@
 
 import { useState, useMemo } from "react";
 import { Search, Plus, MoreVertical } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { MachineForm } from "@/components/admin/machine-form";
 
 import { Button } from "@/components/ui/button";
 import { Card, Skeleton } from "@/components/ui/card";
@@ -19,6 +22,8 @@ const STATUS_STYLE: Record<AdminMachine["status"], string> = {
 };
 
 export default function AdminMachinesPage() {
+  const [creating, setCreating] = useState(false);
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const { data, isLoading } = useAdminMachines();
   const setStatus = useSetMachineStatus();
@@ -42,7 +47,9 @@ export default function AdminMachinesPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-[20px] font-bold">Machine management</h2>
-        <Button><Plus className="h-[18px] w-[18px]" /> New machine</Button>
+        <Button onClick={() => setCreating(true)}>
+          <Plus className="h-[18px] w-[18px]" /> New machine
+        </Button>
       </div>
 
       <div className="relative max-w-sm">
@@ -72,7 +79,7 @@ export default function AdminMachinesPage() {
                 </div>
               </div>
               <div className="hidden sm:block"><DifficultyBadge difficulty={m.difficulty} /></div>
-              <span className={cn("inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11.5px] font-semibold capitalize", STATUS_STYLE[m.status])}>{m.status}</span>
+              <span className={cn("inline-flex w-fit items-center px-2 py-0.5 text-[11.5px] font-semibold capitalize", STATUS_STYLE[m.status])}>{m.status}</span>
               <span className="hidden text-[13px] text-text-dim sm:block">{formatNumber(m.userOwns)}</span>
               <span className="hidden text-[12.5px] text-text-faint sm:block">{m.releasedAt ? formatDate(m.releasedAt) : "—"}</span>
               <div className="relative flex justify-end">
@@ -91,6 +98,12 @@ export default function AdminMachinesPage() {
             </div>
           ))}
         </Card>
+      )}
+      {creating && (
+        <MachineForm
+          onClose={() => setCreating(false)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ["admin-machines"] })}
+        />
       )}
     </div>
   );

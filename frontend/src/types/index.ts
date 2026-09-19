@@ -18,7 +18,12 @@ export type Tier =
   | "pro_hacker"
   | "elite_hacker"
   | "guru"
-  | "elite_operator";
+  | "elite_operator"
+  // The three above Elite Operator. Appended rather than slotted in, so every
+  // tier already stored on an account keeps the meaning it had.
+  | "shadow_operator"
+  | "phantom"
+  | "legend";
 
 export interface UserSummary {
   id: string;

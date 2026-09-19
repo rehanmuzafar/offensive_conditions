@@ -56,7 +56,12 @@ export default function TeamPage() {
 
   const load = useCallback(async () => {
     try {
-      const t = await teamsApi.getBySlug(slug);
+      /* The route is named [slug] but is reached with a UUID from the
+         scoreboard, where rows carry an id and no handle. Resolve by shape
+         rather than adding a second route for the same page. */
+      const looksLikeId =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
+      const t = looksLikeId ? await teamsApi.getById(slug) : await teamsApi.getBySlug(slug);
       setTeam(t);
 
       // Each of these belongs to a different service; one being down must not
@@ -510,7 +515,7 @@ function SettingsTab({ team, onSaved }: { team: Team; onSaved: () => Promise<voi
               className={field}
               value={detail}
               onChange={(e) => setDetail(e.target.value)}
-              placeholder="Optional — e.g. NUST Islamabad"
+              placeholder="Optional — e.g. Google"
             />
             <p className="mt-1.5 text-[12px] text-text-faint">
               Shown on your team card and searchable. Leave it empty if your team

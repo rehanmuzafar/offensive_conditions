@@ -42,6 +42,17 @@ _FEED_SQL = text(
       JOIN ctf.event_challenges c ON c.id = s.challenge_id
       LEFT JOIN ctf.event_participants p ON p.id = s.participant_id
      WHERE s.event_id = :event_id
+       -- Respect the scoreboard freeze. :cutoff is NULL for organisers and
+       -- while the board is live, which leaves the feed unfiltered; once the
+       -- freeze starts it is the freeze timestamp, so players stop seeing who
+       -- solved what in the final hour. Without this the feed was a live
+       -- scoreboard by another name and made the freeze decorative.
+       --
+       -- The cast is required, not decorative: the parameter appears only in
+       -- NULL-comparison contexts, so Postgres cannot infer its type and
+       -- asyncpg fails the whole statement with AmbiguousParameterError.
+       AND (CAST(:cutoff AS timestamptz) IS NULL
+            OR s.solved_at < CAST(:cutoff AS timestamptz))
      ORDER BY s.solved_at DESC
      LIMIT :limit
     """
@@ -52,9 +63,19 @@ class ActivityService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def feed(self, event_id: UUID, limit: int = 50) -> list[ActivityItem]:
+    async def feed(
+        self,
+        event_id: UUID,
+        limit: int = 50,
+        *,
+        cutoff: datetime | None = None,
+    ) -> list[ActivityItem]:
+        """Recent solves. `cutoff`, when given, hides solves at or after it —
+        the caller passes the scoreboard freeze time for non-organisers."""
         rows = (
-            await self.session.execute(_FEED_SQL, {"event_id": event_id, "limit": limit})
+            await self.session.execute(
+                _FEED_SQL, {"event_id": event_id, "limit": limit, "cutoff": cutoff}
+            )
         ).all()
         return [
             ActivityItem(
