@@ -19,7 +19,7 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,6 +93,32 @@ class InstanceService:
         existing = await self.get_for_participant(challenge.id, participant)
         if existing is not None:
             return existing, False
+
+        # Cap how many containers one entry may hold at once. The published port
+        # range is finite (30 on this deployment), and the only previous limit
+        # was one instance per challenge — so an entrant could hold a container
+        # for every instanced challenge at the same time, and a few accounts
+        # could take the whole range and stall the event for everybody else.
+        #
+        # Counted after the same-challenge check above, so pressing Spawn again
+        # on a box you already have still hands back that box rather than
+        # spending a slot.
+        limit = getattr(self._cfg, "max_concurrent_instances_per_entry", 3)
+        if limit > 0:
+            live = await self._db.scalar(
+                select(func.count())
+                .select_from(ChallengeInstance)
+                .where(
+                    ChallengeInstance.status.in_(LIVE),
+                    *self._subject_filter(participant),
+                )
+            )
+            if (live or 0) >= limit:
+                raise AppError(
+                    ErrorCode.VALIDATION,
+                    f"you already have {live} running instances, which is the limit of "
+                    f"{limit} — stop one before starting another",
+                )
 
         ttl = timedelta(minutes=self._cfg.challenge_instance_ttl_minutes)
         expires_at = datetime.now(timezone.utc) + ttl

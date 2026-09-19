@@ -492,12 +492,20 @@ class RegistrationService:
         if not participant:
             raise AppError(ErrorCode.NOT_REGISTERED, "that player is not entered under this team")
 
+        # Only decrement what was actually counted. total_registered is
+        # incremented when an entry settles — at registration for a free event,
+        # or at payment confirmation for a paid one — so removing an entry that
+        # never settled must not decrement it. Doing so drove the counter
+        # negative on a paid event, one register/unregister cycle at a time,
+        # until max_participants could never be reached.
+        counted = participant.settled
         await self.session.delete(participant)
-        await self.session.execute(
-            Event.__table__.update()
-            .where(Event.id == event_id)
-            .values(total_registered=Event.total_registered - 1)
-        )
+        if counted:
+            await self.session.execute(
+                Event.__table__.update()
+                .where(Event.id == event_id)
+                .values(total_registered=Event.total_registered - 1)
+            )
         await self.session.flush()
         await self._recount_teams(event_id)
         await self.session.flush()
@@ -524,12 +532,20 @@ class RegistrationService:
         if not participant:
             raise AppError(ErrorCode.NOT_REGISTERED, "you are not registered")
 
+        # Only decrement what was actually counted. total_registered is
+        # incremented when an entry settles — at registration for a free event,
+        # or at payment confirmation for a paid one — so removing an entry that
+        # never settled must not decrement it. Doing so drove the counter
+        # negative on a paid event, one register/unregister cycle at a time,
+        # until max_participants could never be reached.
+        counted = participant.settled
         await self.session.delete(participant)
-        await self.session.execute(
-            Event.__table__.update()
-            .where(Event.id == event_id)
-            .values(total_registered=Event.total_registered - 1)
-        )
+        if counted:
+            await self.session.execute(
+                Event.__table__.update()
+                .where(Event.id == event_id)
+                .values(total_registered=Event.total_registered - 1)
+            )
         await self.session.flush()
         await self._recount_teams(event_id)
         await self.session.flush()
@@ -540,13 +556,33 @@ class RegistrationService:
     # =========================================================================
 
     async def get_my_participation(
-        self, event_id: UUID, *, user_id: UUID, bearer: str | None = None
+        self,
+        event_id: UUID,
+        *,
+        user_id: UUID,
+        bearer: str | None = None,
+        require_settled: bool = True,
     ) -> EventParticipant | None:
-        """The caller's own registration row.
+        """The caller's own registration row, if they may play on it.
 
         Every registration now belongs to a person, so this is a direct lookup
         again — the previous model stored one row for a whole team with no
         user_id, which is why this used to need a user-svc round trip.
+
+        `require_settled` defaults to True because almost every caller is asking
+        "may this person play?", not "is there a row?". Registering for a paid
+        event writes the row immediately with payment_status='pending', and for a
+        while every consumer — the challenge list, flag submission, hint unlocks,
+        instance spawning — treated that row as entitlement, so a paid event
+        could be played without paying.
+
+        Pass require_settled=False only where the unpaid state is the subject:
+        the payment screens, and /my-participation, which has to be able to say
+        "you owe an entry fee".
+
+        Raises ENTRY_FEE_UNPAID rather than returning None so the caller reports
+        the real reason. Returning None would surface as "register first" to
+        somebody who has already registered and is one payment away from playing.
         """
         result = await self.session.execute(
             select(EventParticipant).where(
@@ -556,7 +592,13 @@ class RegistrationService:
                 )
             )
         )
-        return result.scalar_one_or_none()
+        participant = result.scalar_one_or_none()
+        if participant is not None and require_settled and not participant.settled:
+            raise AppError(
+                ErrorCode.ENTRY_FEE_UNPAID,
+                "this event has an entry fee and yours has not been paid yet",
+            )
+        return participant
 
     async def list_my_event_ids(self, *, user_id: UUID) -> list[UUID]:
         """Events this player has entered.

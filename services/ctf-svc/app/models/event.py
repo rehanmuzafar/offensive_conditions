@@ -331,6 +331,20 @@ class EventParticipant(Base):
     payment_reference: Mapped[str | None] = mapped_column(Text)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    @property
+    def settled(self) -> bool:
+        """Whether this registration lets the player actually play.
+
+        The same rule, and deliberately the same name, as EventTeamEntry.settled:
+        'not_required' counts as settled because a free event still writes a row,
+        so "may this entry play?" has one answer everywhere.
+
+        The row is created the moment someone registers, before any money moves.
+        Without this the pending row was indistinguishable from a paid one and a
+        paid event could be played for free.
+        """
+        return self.payment_status in ("paid", "not_required")
+
 
 class EventSolve(Base):
     __tablename__ = "event_solves"

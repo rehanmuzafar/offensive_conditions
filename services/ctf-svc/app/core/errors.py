@@ -39,6 +39,10 @@ class ErrorCode(StrEnum):
     CHALLENGE_PREREQ_MISSING = "CHALLENGE_PREREQ_MISSING"
     ALREADY_REGISTERED = "ALREADY_REGISTERED"
     NOT_REGISTERED = "NOT_REGISTERED"
+    # Registered, but the entry fee has not settled. Distinct from
+    # NOT_REGISTERED so the UI can send the player to payment rather than back
+    # to a registration form they have already filled in.
+    ENTRY_FEE_UNPAID = "ENTRY_FEE_UNPAID"
     NOT_ORGANIZER = "NOT_ORGANIZER"
     NOT_CAPTAIN = "NOT_CAPTAIN"
     ALREADY_SOLVED = "ALREADY_SOLVED"
@@ -61,6 +65,7 @@ _STATUS_MAP: dict[ErrorCode, int] = {
     ErrorCode.PARTICIPANT_DISQUALIFIED: 403,
     ErrorCode.EVENT_INVITATION_REQUIRED: 403,
     ErrorCode.EVENT_INVITATION_INVALID: 403,
+    ErrorCode.ENTRY_FEE_UNPAID: 402,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.EVENT_NOT_FOUND: 404,
     ErrorCode.CHALLENGE_NOT_FOUND: 404,

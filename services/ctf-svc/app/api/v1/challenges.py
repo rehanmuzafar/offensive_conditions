@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -82,15 +83,42 @@ async def list_event_challenges(
     model = (
         EventChallengeOrganizerRead if claims.is_ctf_organizer else EventChallengeRead
     )
+    now = datetime.now(timezone.utc)
     items = []
     for c in challenges:
         view = model.model_validate(c)
         view.hint_summaries = ch_svc.hint_summaries(c, unlocked.get(c.id))
         view.is_solved = c.id in solved_ids
-        if c.wave_id and (w := waves.get(c.wave_id)):
-            view.wave_name = w["name"]
-            view.wave_position = w["position"]
-            view.wave_state = w["state"]
+        wave = waves.get(c.wave_id) if c.wave_id else None
+        if wave:
+            view.wave_name = wave["name"]
+            view.wave_position = wave["position"]
+            view.wave_state = wave["state"]
+
+        # A challenge that has not been released yet is listed but not
+        # disclosed. The detail endpoint has always refused these; the list did
+        # not, and returned the full description, attachment links and hint
+        # summaries — so a staged release only held on the page that nobody had
+        # to use, and later waves could be worked on from the moment an event
+        # went live.
+        #
+        # A *closed* wave is deliberately not redacted: those challenges were
+        # open, players solved them, and the board still has to show what they
+        # did. Only "upcoming" is withheld.
+        if not claims.is_ctf_organizer:
+            withheld = ch_svc.is_withheld(
+                c,
+                wave_state=wave["state"] if wave else None,
+                solved_ids=solved_ids,
+                now=now,
+            )
+            if withheld:
+                # Enough to render a locked row — name, points, category, when
+                # it opens — and nothing that helps anybody start early.
+                view.description = ""
+                view.files = []
+                view.hint_summaries = []
+                view.connection_url = None
         items.append(view)
     if claims.is_ctf_organizer:
         return EventChallengeOrganizerList(items=items)
@@ -119,10 +147,24 @@ async def get_event_challenge(
         view.hints = challenge.hints
         return view
 
-    # Non-organizers: enforce unlocked
+    # Non-organizers: the same gate the list endpoint applies — event live, and
+    # the caller actually entered it. Fetching a challenge by id used to skip
+    # all of this and check only the unlock rules, so any account could read a
+    # running event's challenges one id at a time without ever registering.
     participant = await reg_svc.get_my_participation(
         event_id, user_id=claims.user_id, bearer=authorization
     )
+    await ch_svc.assert_may_read_challenges(
+        event_id,
+        viewer_participant_id=participant.id if participant else None,
+        viewer_is_organizer=False,
+    )
+
+    # Hidden challenges are organiser-only. The list endpoint filters them out;
+    # without this, asking for one by id returned it in full.
+    if challenge.is_hidden:
+        raise AppError(ErrorCode.CHALLENGE_NOT_FOUND, "challenge not in this event")
+
     await ch_svc.check_unlocked(
         challenge,
         viewer_participant_id=participant.id if participant else None,
@@ -451,6 +493,20 @@ async def spawn_instance(
     challenge = await ch_svc.get(challenge_id)
     if challenge.event_id != event_id:
         raise AppError(ErrorCode.NOT_FOUND, "challenge not found in this event")
+
+    # Containers may only be started while the event is actually running. This
+    # was missing entirely: registration was checked and the unlock rules were
+    # checked, but the event's own state never was — so instances could be
+    # spawned before an event began and after it ended, against a published port
+    # range of thirty that the whole competition shares.
+    event = await ch_svc.assert_may_read_challenges(
+        event_id,
+        viewer_participant_id=participant.id,
+        viewer_is_organizer=claims.is_ctf_organizer,
+    )
+    if not claims.is_ctf_organizer and getattr(event, "is_paused", False):
+        raise AppError(ErrorCode.EVENT_NOT_LIVE, "the event is paused")
+
     # Raises if locked or a prerequisite is unsolved.
     await ch_svc.check_unlocked(
         challenge,

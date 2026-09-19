@@ -807,8 +807,12 @@ async def my_participation(
     claims: Claims = Depends(get_claims),
     reg: RegistrationService = Depends(get_registration_service),
 ) -> ParticipantRead | None:
+    # require_settled=False on purpose: this endpoint is how the UI discovers
+    # that an entry fee is outstanding, so it must return the pending row rather
+    # than refuse it. `payment_status` travels on ParticipantRead, and every
+    # route that grants access applies the settled check itself.
     p = await reg.get_my_participation(
-        event_id, user_id=claims.user_id, bearer=authorization
+        event_id, user_id=claims.user_id, bearer=authorization, require_settled=False
     )
     if not p:
         return None

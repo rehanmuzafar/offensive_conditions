@@ -421,6 +421,10 @@ class ParticipantRead(BaseModel):
     rank: int | None = None
     is_disqualified: bool
     registered_at: datetime
+    #: 'not_required' | 'pending' | 'paid'. Exposed so the UI can tell a
+    #: registered-but-unpaid entry from a playable one and send the player to
+    #: checkout: every access path refuses the former with ENTRY_FEE_UNPAID.
+    payment_status: str = "not_required"
 
 
 class LeaderboardEntry(BaseModel):

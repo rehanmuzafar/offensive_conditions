@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
+from app.db.session import get_session_factory
 from app.models import (
     ChallengeInstance,
     Event,
@@ -53,11 +54,93 @@ class SubmissionService:
         decay_factor: float = 0.012,
         decay_power: int = 4,
         first_blood_percentages: list[float] | None = None,
+        redis: Any | None = None,
+        per_challenge_per_minute: int = 12,
+        per_participant_per_minute: int = 40,
     ) -> None:
         self.session = session
         self.decay_factor = decay_factor
         self.decay_power = decay_power
         self.first_blood_percentages = first_blood_percentages or [0.05, 0.03, 0.01]
+        self._redis = redis
+        self._per_challenge = per_challenge_per_minute
+        self._per_participant = per_participant_per_minute
+
+    # =========================================================================
+    # Throttling + durable attempt log
+    # =========================================================================
+
+    async def _check_rate_limit(self, participant_id: UUID, challenge_id: UUID) -> None:
+        """Refuse a submission that is arriving too fast.
+
+        Fixed one-minute windows via INCR/EXPIRE rather than a sorted-set sliding
+        window: two round trips instead of four, and the difference between them
+        only matters to someone pacing their guesses exactly at the boundary,
+        who is still capped at twice the rate over any two minutes.
+
+        Fails **open** on a Redis error. A throttle is a guard rail, and taking
+        the whole CTF offline because a cache blinked would be the worse
+        outcome — the same call the auth service makes.
+        """
+        if self._redis is None:
+            return
+
+        buckets = (
+            (f"ctf:sub:{participant_id}:{challenge_id}", self._per_challenge),
+            (f"ctf:sub:{participant_id}", self._per_participant),
+        )
+        try:
+            for key, limit in buckets:
+                count = await self._redis.incr(key)
+                if count == 1:
+                    await self._redis.expire(key, 60)
+                if count > limit:
+                    ttl = await self._redis.ttl(key)
+                    raise AppError(
+                        ErrorCode.RATE_LIMITED,
+                        "too many flag attempts — wait a moment and try again",
+                        details={"retry_after_seconds": max(ttl, 1)},
+                    )
+        except AppError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — cache failure must not stop play
+            log.warning("flag_rate_limit_unavailable", error=str(exc))
+
+    async def _record_rejected_attempt(
+        self,
+        *,
+        event_id: UUID,
+        challenge_id: UUID,
+        participant_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        """Persist a rejected attempt in its own transaction.
+
+        submit() raises on a wrong flag, and the request session is rolled back
+        on the way out — which correctly undoes any partial scoring work, but
+        also discarded the attempt row that the code went to the trouble of
+        writing. The result was that only successful solves were ever stored, so
+        brute force left no trace and the anti-cheat queue had nothing to read.
+
+        A separate session makes the audit record independent of the outcome.
+        Best effort: failing to log an attempt must not turn a rejected flag
+        into a 500.
+        """
+        try:
+            factory = get_session_factory()
+            async with factory() as audit:
+                audit.add(
+                    FlagSubmissionAttempt(
+                        event_id=event_id,
+                        challenge_id=challenge_id,
+                        participant_id=participant_id,
+                        user_id=user_id,
+                        accepted=False,
+                    )
+                )
+                await audit.commit()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("flag_attempt_log_failed", error=str(exc))
 
     async def _load_event_state(self, event_id: UUID) -> Event:
         result = await self.session.execute(select(Event).where(Event.id == event_id))
@@ -153,8 +236,21 @@ class SubmissionService:
         # 2. Participant ok?
         if participant.is_disqualified:
             raise AppError(ErrorCode.PARTICIPANT_DISQUALIFIED, "you are disqualified")
+        # Entitlement, not just identity. get_my_participation already refuses an
+        # unsettled entry, so this is the second lock: it keeps the rule true for
+        # any caller that obtains a participant some other way.
+        if not participant.settled:
+            raise AppError(
+                ErrorCode.ENTRY_FEE_UNPAID,
+                "the entry fee for this event has not been paid",
+            )
 
-        # 3. Challenge exists + unlocked + not already solved
+        # 3. Rate limit. Before any flag comparison and before the challenge is
+        # loaded, so a flood costs one Redis round trip rather than a string of
+        # database queries.
+        await self._check_rate_limit(participant.id, challenge_id)
+
+        # 4. Challenge exists + unlocked + not already solved
         challenge_result = await self.session.execute(
             select(EventChallenge).where(
                 and_(
@@ -185,24 +281,21 @@ class SubmissionService:
         if existing.scalar_one_or_none() is not None:
             raise AppError(ErrorCode.ALREADY_SOLVED, "you already solved this challenge")
 
-        # 4. Always record the attempt (for rate limiting + audit)
-        attempt = FlagSubmissionAttempt(
-            event_id=event_id,
-            challenge_id=challenge_id,
-            participant_id=participant.id,
-            user_id=submitting_user_id,
-            accepted=False,
-        )
-        self.session.add(attempt)
-
         # 5. Verify
         accepted = await self._verify_flag(
             submitted_flag=flag, challenge=challenge, participant=participant
         )
-        attempt.accepted = accepted
 
         if not accepted:
-            await self.session.flush()
+            # Logged through its own session: this one is about to be rolled
+            # back by the error below, which is what used to erase the record of
+            # every wrong guess.
+            await self._record_rejected_attempt(
+                event_id=event_id,
+                challenge_id=challenge_id,
+                participant_id=participant.id,
+                user_id=submitting_user_id,
+            )
             log.info(
                 "submit_rejected",
                 event_id=str(event_id),
@@ -210,6 +303,18 @@ class SubmissionService:
                 participant_id=str(participant.id),
             )
             raise AppError(ErrorCode.FLAG_INCORRECT, "incorrect flag")
+
+        # Accepted: this attempt rides the request transaction alongside the
+        # solve, so the two either both land or both do not.
+        self.session.add(
+            FlagSubmissionAttempt(
+                event_id=event_id,
+                challenge_id=challenge_id,
+                participant_id=participant.id,
+                user_id=submitting_user_id,
+                accepted=True,
+            )
+        )
 
         # 6. Determine first blood
         solve_count_before_result = await self.session.execute(
@@ -364,6 +469,14 @@ class SubmissionService:
             raise AppError(ErrorCode.EVENT_NOT_LIVE, "the event is paused")
         if participant.is_disqualified:
             raise AppError(ErrorCode.PARTICIPANT_DISQUALIFIED, "you are disqualified")
+        # Entitlement, not just identity. get_my_participation already refuses an
+        # unsettled entry, so this is the second lock: it keeps the rule true for
+        # any caller that obtains a participant some other way.
+        if not participant.settled:
+            raise AppError(
+                ErrorCode.ENTRY_FEE_UNPAID,
+                "the entry fee for this event has not been paid",
+            )
 
         challenge_result = await self.session.execute(
             select(EventChallenge).where(

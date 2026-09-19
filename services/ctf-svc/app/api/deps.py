@@ -122,6 +122,15 @@ async def get_submission_service(
         decay_factor=settings.dynamic_scoring_decay_factor,
         decay_power=settings.dynamic_scoring_decay_power,
         first_blood_percentages=settings.first_blood_bonus_percentages,
+        # Flag submission throttling. getattr rather than a direct attribute so
+        # a worker built from an older settings object still constructs.
+        redis=getattr(request.app.state, "redis", None),
+        per_challenge_per_minute=getattr(
+            settings, "flag_submit_per_challenge_per_minute", 12
+        ),
+        per_participant_per_minute=getattr(
+            settings, "flag_submit_per_participant_per_minute", 40
+        ),
     )
 
 

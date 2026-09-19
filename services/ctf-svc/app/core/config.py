@@ -159,12 +159,29 @@ class Settings(BaseSettings):
     #: orchestrator will refuse every spawn, which is the intended failure.
     orchestrator_internal_token: str = ""
     challenge_instance_ttl_minutes: int = 120
+    #: Live containers one entry (team, or solo player) may hold at once.
+    #: The lab port range is small — 30 ports on this deployment — so without a
+    #: per-entry ceiling a handful of entrants can hold every port and nobody
+    #: else can spawn anything for the rest of the event.
+    max_concurrent_instances_per_entry: int = 3
     # Ports opened for a challenge container when the challenge does not name
     # its own. One TCP service is the overwhelmingly common shape.
     challenge_default_port: int = 1337
 
     # --- Scoring rules ---
     # Default CTFd-style decay: f(n) = max(min_points, base * ((1 - (n-1)*0.012)^4))
+    # Flag submission throttling. The submit path documented a Redis sliding
+    # window for a long time without having one, so guessing was unbounded and
+    # rejected attempts were rolled back rather than recorded.
+    #
+    # Two buckets: one per challenge, so hammering a single flag is stopped
+    # quickly, and a wider one per participant, so spreading the guessing across
+    # challenges is stopped too. Both are per minute. Generous enough that a
+    # player typing fast never meets them, tight enough that scripted guessing
+    # is pointless.
+    flag_submit_per_challenge_per_minute: int = 12
+    flag_submit_per_participant_per_minute: int = 40
+
     dynamic_scoring_decay_factor: float = 0.012
     dynamic_scoring_decay_power: int = 4
     # First blood bonus order (1st = 5%, 2nd = 3%, 3rd = 1% of base by default)

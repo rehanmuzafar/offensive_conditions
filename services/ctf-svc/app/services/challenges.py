@@ -30,24 +30,35 @@ class ChallengeService:
             raise AppError(ErrorCode.CHALLENGE_NOT_FOUND, "challenge not found")
         return ch
 
-    async def list_for_event(
+    async def assert_may_read_challenges(
         self,
         event_id: UUID,
         *,
         viewer_participant_id: UUID | None,
         viewer_is_organizer: bool,
-    ) -> tuple[list[EventChallenge], set[UUID]]:
-        """List challenges visible to the viewer + the set of IDs they've solved."""
-        # Load event to check live status
+    ) -> Event:
+        """Gate on the event itself: is this viewer allowed to see its challenges?
+
+        Lives here rather than in a handler because it has to hold for every way
+        in. It used to be inline in list_for_event only, so fetching a challenge
+        by its own id skipped all of it — and challenge ids are not secret, they
+        travel on the public activity feed. Any account could read a paid or
+        invite-only event's challenges by asking for them one at a time.
+
+        Returns the event so callers do not load it twice.
+        """
         event_result = await self.session.execute(select(Event).where(Event.id == event_id))
         event = event_result.scalar_one_or_none()
         if not event:
             raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
 
+        if viewer_is_organizer:
+            return event
+
         # Challenges are visible only while the event is actually running —
         # not before it starts, and not after it ends. Organisers always see
         # them so they can prepare and review.
-        if not viewer_is_organizer and event.status != "live":
+        if event.status != "live":
             msg = (
                 "this event has ended"
                 if event.status in ("ended", "archived")
@@ -59,11 +70,53 @@ class ChallengeService:
         # could read every challenge of a running event — descriptions, hints,
         # attachment links — without registering, which leaks the whole CTF to
         # non-participants and to anyone who missed the registration window.
-        if not viewer_is_organizer and viewer_participant_id is None:
+        if viewer_participant_id is None:
             raise AppError(
                 ErrorCode.NOT_REGISTERED,
                 "register for the event to see its challenges",
             )
+        return event
+
+    @staticmethod
+    def is_withheld(
+        challenge: EventChallenge,
+        *,
+        wave_state: str | None,
+        solved_ids: set[UUID],
+        now: datetime,
+    ) -> bool:
+        """Whether this challenge's content must be kept back from a player.
+
+        The list endpoint returns every challenge so the board can show what is
+        coming, but a challenge that has not been released yet must not hand out
+        its description, attachments or hints — that is what let a team start on
+        a later wave the moment an event went live.
+
+        A *closed* wave is deliberately not withheld: those challenges were
+        open, were solved, and the board still has to show what happened. Only
+        content that was never released is held back.
+
+        Kept as a pure function so the rule can be tested without a request.
+        """
+        if challenge.unlocks_at is not None and now < challenge.unlocks_at:
+            return True
+        if wave_state == "upcoming":
+            return True
+        return any(req not in solved_ids for req in (challenge.requires_solving_ids or []))
+
+    async def list_for_event(
+        self,
+        event_id: UUID,
+        *,
+        viewer_participant_id: UUID | None,
+        viewer_is_organizer: bool,
+    ) -> tuple[list[EventChallenge], set[UUID]]:
+        """List challenges visible to the viewer + the set of IDs they've solved."""
+        await self.assert_may_read_challenges(
+            event_id,
+            viewer_participant_id=viewer_participant_id,
+            viewer_is_organizer=viewer_is_organizer,
+        )
 
         stmt = (
             select(EventChallenge)
