@@ -45,6 +45,10 @@ type AuthService struct {
 	tfaEncKey     []byte // Used to encrypt TOTP secrets at rest (from Vault)
 }
 
+// Config exposes the loaded configuration to the HTTP layer, which needs the
+// refresh-cookie settings to set and clear it.
+func (s *AuthService) Config() *config.Config { return s.cfg }
+
 // GetUserByID loads a full user account by ID (used by the /me profile endpoint).
 func (s *AuthService) GetUserByID(ctx context.Context, id uuid.UUID) (*repository.User, error) {
 	return s.users.GetByID(ctx, id)

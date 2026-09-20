@@ -152,6 +152,13 @@ type SecurityConfig struct {
 	SessionTTL                time.Duration
 	BackupCodesCount          int
 	MinPasswordLength         int
+	// The refresh token is delivered as an HttpOnly cookie so page scripts
+	// cannot read it. Domain must be the registrable domain when the platform
+	// spans subdomains, otherwise the cookie is host-only and a surface on
+	// another subdomain cannot refresh.
+	RefreshCookieName   string
+	RefreshCookieDomain string
+	RefreshCookieSecure bool
 }
 
 // Load reads configuration from environment variables.
@@ -276,6 +283,9 @@ func Load() (*Config, error) {
 			SessionTTL:                v.GetDuration("SEC_SESSION_TTL"),
 			BackupCodesCount:          v.GetInt("SEC_BACKUP_CODES_COUNT"),
 			MinPasswordLength:         v.GetInt("SEC_MIN_PASSWORD_LENGTH"),
+			RefreshCookieName:         v.GetString("SEC_REFRESH_COOKIE_NAME"),
+			RefreshCookieDomain:       v.GetString("SEC_REFRESH_COOKIE_DOMAIN"),
+			RefreshCookieSecure:       v.GetBool("SEC_REFRESH_COOKIE_SECURE"),
 		},
 	}
 
@@ -359,6 +369,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("SEC_SESSION_TTL", "168h") // 7 days
 	v.SetDefault("SEC_BACKUP_CODES_COUNT", 10)
 	v.SetDefault("SEC_MIN_PASSWORD_LENGTH", 12)
+	v.SetDefault("SEC_REFRESH_COOKIE_NAME", "offcon_rt")
+	// Empty means host-only, which is the safe default. Production sets the
+	// registrable domain so dashboard./ctf./bugbounty. can all refresh.
+	v.SetDefault("SEC_REFRESH_COOKIE_DOMAIN", "")
+	v.SetDefault("SEC_REFRESH_COOKIE_SECURE", true)
 }
 
 func (c *Config) Validate() error {

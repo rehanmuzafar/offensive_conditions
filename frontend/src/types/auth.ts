@@ -41,7 +41,14 @@ export interface AccountIdentity {
 /** Tokens returned on a successful login / refresh. */
 export interface AuthTokens {
   accessToken: string;
-  refreshToken: string;
+  /**
+   * Optional, and deliberately unused by the client.
+   *
+   * The refresh token is delivered as an HttpOnly cookie that page scripts
+   * cannot read (OFFCON-2026-002). The field is kept only so responses that
+   * still carry it type-check; nothing stores or sends it.
+   */
+  refreshToken?: string;
   /** seconds until the access token expires */
   expiresIn: number;
 }

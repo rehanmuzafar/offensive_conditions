@@ -16,7 +16,9 @@ import { SignInTransition } from "@/components/auth/sign-in-transition";
  * Landing page for the backend's OAuth redirect.
  * The auth service completes the token exchange server-side, then redirects
  * here with tokens in the URL hash fragment:
- *   /auth/callback#access_token=...&refresh_token=...&expires_in=...&user_id=...
+ *   /auth/callback#access_token=...&expires_in=...&user_id=...
+ *
+ * The refresh token is NOT in the fragment: it arrives as an HttpOnly cookie.
  *
  * Hash fragments are never sent to the server, so tokens stay client-only.
  */
@@ -41,10 +43,13 @@ function CallbackInner() {
     }
 
     const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
     const expiresIn = Number(params.get("expires_in") ?? "3600");
 
-    if (!accessToken || !refreshToken) {
+    // No refresh token here any more. auth-svc sets it as an HttpOnly cookie on
+    // the redirect instead of putting it in the fragment — a credential in a URL
+    // ends up in history and in whatever reads the address bar, and it was
+    // readable by any script on the page.
+    if (!accessToken) {
       setError("missing_tokens");
       return;
     }
@@ -52,7 +57,7 @@ function CallbackInner() {
     // Store the token first so the API client is authenticated, then fetch the
     // real profile (username/tier/roles) before landing on the dashboard —
     // otherwise the topbar falls back to "operator".
-    setSession({ accessToken, refreshToken, expiresIn }, null as never);
+    setSession({ accessToken, expiresIn }, null as never);
 
     (async () => {
       // The same sign-in cinematic the email/password path plays. It lived only

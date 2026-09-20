@@ -36,8 +36,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (initializing || isAuthed) return;
 
-    const canRecover = Boolean(useAuthStore.getState().refreshToken);
-    if (!canRecover) {
+    // There is no longer a token here to check: it is an HttpOnly cookie this
+    // code cannot read. A persisted user is the signal that somebody was signed
+    // in on this browser, so a refresh is worth attempting; if the cookie is
+    // gone or expired the attempt fails and that is what counts as signed out.
+    const worthAttempting = Boolean(useAuthStore.getState().user);
+    if (!worthAttempting) {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
     }

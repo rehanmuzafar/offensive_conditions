@@ -47,13 +47,12 @@ export function useLogin() {
         router.push(`/two-factor?challenge=${res.tfa_challenge}`);
         return;
       }
-      if (!res.access_token || !res.refresh_token) {
+      if (!res.access_token) {
         toast.error("Could not sign you in. Please try again.");
         return;
       }
       const tokens: AuthTokens = {
         accessToken: res.access_token,
-        refreshToken: res.refresh_token,
         expiresIn: res.expires_in ?? 900,
       };
       // Pull the real roles (and id) out of the JWT so staff/admin gating works.

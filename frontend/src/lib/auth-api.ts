@@ -153,21 +153,26 @@ export const authApi = {
     }),
 
   /**
-   * Exchange a refresh token for a new access token.
+   * Exchange the refresh token for a new access token.
    *
-   * auth returns snake_case and rotates the refresh token on every call, so the
-   * caller must persist the returned refresh_token — the old one is revoked and
-   * replaying it trips the service's token-reuse detection.
+   * Nothing is passed in: the token lives in an HttpOnly cookie that the browser
+   * attaches itself, and this code could not read it even if it wanted to.
+   * That is the point — it used to sit in a cookie readable by page scripts, on
+   * the parent domain, which made any XSS anywhere on the site (or on a
+   * lab-<port> challenge host) worth a seven-day credential.
+   *
+   * auth still rotates on every call; the rotated token comes back as a fresh
+   * cookie rather than in the body.
    */
-  refresh: (refreshToken: string) =>
+  refresh: () =>
     api.post<{
       access_token: string;
-      refresh_token: string;
+      refresh_token?: string;
       token_type: string;
       expires_in: number;
     }>("/v1/auth/refresh", {
       anonymous: true,
-      body: { refresh_token: refreshToken },
+      body: {},
     }),
 
   logout: () => api.post<void>("/v1/auth/logout"),

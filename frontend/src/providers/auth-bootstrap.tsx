@@ -18,7 +18,6 @@ import { useEffect } from "react";
 import { setTokenGetter, setTokenRefresher } from "@/lib/api";
 import { authApi } from "@/lib/auth-api";
 import { useAuthStore } from "@/stores/auth-store";
-import { sharedSessionStorage } from "@/lib/session-storage";
 
 // Wire the getter immediately at module load (before any request fires).
 setTokenGetter(() => useAuthStore.getState().accessToken);
@@ -44,14 +43,16 @@ setTokenGetter(() => useAuthStore.getState().accessToken);
  * up whatever the winner just stored instead of the copy it started with.
  */
 async function exchange(): Promise<string | null> {
-  // Deliberately re-read here: another tab may have rotated the token while
-  // this call was queued behind the lock.
-  const stored = readPersistedRefreshToken() ?? useAuthStore.getState().refreshToken;
-  if (!stored) return null;
+  // No token is read or passed. It is in an HttpOnly cookie the browser
+  // attaches on its own, so there is nothing here to go stale between tabs —
+  // which also removes the reason this used to re-read shared storage.
+  //
+  // The Web Lock below is still worth keeping: rotation means two simultaneous
+  // refreshes would have the second replay a token the first just revoked, and
+  // auth treats a replayed token as theft and kills the whole family.
   try {
-    const res = await authApi.refresh(stored);
+    const res = await authApi.refresh();
     useAuthStore.getState().setAccessToken(res.access_token, res.expires_in);
-    useAuthStore.getState().setRefreshToken(res.refresh_token);
     return res.access_token;
   } catch {
     useAuthStore.getState().clear();
@@ -69,23 +70,6 @@ export async function refreshAccessToken(): Promise<string | null> {
   return exchange();
 }
 
-/**
- * The refresh token as it currently sits in shared storage.
- *
- * Zustand's persisted copy is the only thing every tab agrees on — each tab's
- * in-memory state is a snapshot from whenever it last wrote.
- */
-function readPersistedRefreshToken(): string | null {
-  try {
-    const raw = sharedSessionStorage.getItem("offcon-auth");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw as string);
-    return parsed?.state?.refreshToken ?? null;
-  } catch {
-    return null;
-  }
-}
-
 setTokenRefresher(refreshAccessToken);
 
 /**
@@ -97,7 +81,6 @@ const RENEW_MARGIN_MS = 60_000;
 
 export function AuthBootstrap() {
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
-  const setRefreshToken = useAuthStore((s) => s.setRefreshToken);
   const setUser = useAuthStore((s) => s.setUser);
   const setInitializing = useAuthStore((s) => s.setInitializing);
 
@@ -128,21 +111,22 @@ export function AuthBootstrap() {
 
     (async () => {
       try {
-        // Zustand rehydrates from localStorage before this effect runs.
-        const stored = useAuthStore.getState().refreshToken;
-        if (!stored) return;
-
-        const res = await authApi.refresh(stored);
+        // Nothing to read first: the refresh token is an HttpOnly cookie the
+        // browser attaches by itself. A visitor who has never signed in simply
+        // has no cookie and this call fails, which is the same "stay logged
+        // out" path as an expired one.
+        //
+        // Rotation is handled entirely server-side now — the new token comes
+        // back as a fresh cookie, so there is nothing here to store and no way
+        // for this tab to replay a revoked one.
+        const res = await authApi.refresh();
         if (cancelled) return;
         setAccessToken(res.access_token, res.expires_in);
-        // The token is rotated server-side; keep the new one or the next
-        // reload replays a revoked token and the family gets killed.
-        setRefreshToken(res.refresh_token);
         // Fetch fresh profile now that we have a token.
         const user = await authApi.meWithProfile();
         if (!cancelled) setUser(user);
       } catch {
-        // Expired or revoked refresh token — stay logged out, that's fine.
+        // No cookie, or it is expired or revoked — stay logged out, that's fine.
         useAuthStore.getState().clear();
       } finally {
         if (!cancelled) setInitializing(false);
@@ -152,7 +136,7 @@ export function AuthBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [setAccessToken, setRefreshToken, setUser, setInitializing]);
+  }, [setAccessToken, setUser, setInitializing]);
 
   // Access tokens last 15 minutes. Renew a minute before expiry so work in
   // progress — a half-filled challenge form — never hits a 401 at submit time.
