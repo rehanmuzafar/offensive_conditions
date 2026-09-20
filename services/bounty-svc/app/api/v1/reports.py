@@ -64,7 +64,19 @@ admin_router = APIRouter(prefix="/admin", tags=["reports"])
 
 
 def _is_triager(claims: Claims) -> bool:
-    return claims.is_moderator or "triager" in (claims.roles or [])
+    """May read and act on ANY report on the platform.
+
+    `moderator` is deliberately not accepted. A report holds an unpatched
+    vulnerability in somebody else's product, sent in confidence — that is not
+    the same trust as moderating a forum, and conflating them meant every
+    community moderator could read every customer's undisclosed findings and
+    the internal triage notes on them.
+
+    Still platform-wide rather than per-programme, which is the next thing to
+    fix: a triager should see the programmes they are assigned to, not all of
+    them.
+    """
+    return "admin" in (claims.roles or []) or "triager" in (claims.roles or [])
 
 
 # =============================================================================
