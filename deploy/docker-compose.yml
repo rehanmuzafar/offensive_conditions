@@ -19,7 +19,9 @@ name: offcon
 x-svc-defaults: &svc-defaults
   env_file: [.env]
   restart: unless-stopped
-  networks: [offcon]
+  # Two networks: `offcon` to reach the edge and each other, `offcon-data` to
+  # reach the stores. The frontend is deliberately on `offcon` only.
+  networks: [offcon, offcon-data]
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
@@ -55,7 +57,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    networks: [offcon]
+    # Reachable only from the services. The frontend is not on this
+    # network, so a repeat of the September RCE cannot reach it.
+    networks: [offcon-data]
 
   redis:
     # Not on x-svc-defaults, so this does not inherit the anchor's
@@ -89,7 +93,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    networks: [offcon]
+    # Reachable only from the services. The frontend is not on this
+    # network, so a repeat of the September RCE cannot reach it.
+    networks: [offcon-data]
 
   # Kafka in KRaft mode — no Zookeeper needed (official Apache image)
   kafka:
@@ -115,7 +121,9 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
     volumes: [kafka_data:/var/lib/kafka/data]
-    networks: [offcon]
+    # Reachable only from the services. The frontend is not on this
+    # network, so a repeat of the September RCE cannot reach it.
+    networks: [offcon-data]
 
   minio:
     # Not on x-svc-defaults, so this does not inherit the anchor's
@@ -143,7 +151,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [offcon]
+    # Both networks: the edge proxies /media/ here and the edge is not on
+    # offcon-data. Frontend reach to MinIO is accepted residual risk -- the
+    # media bucket is public-read by design and the root credentials are
+    # being rotated (OFFCON-2026-009 9.1).
+    networks: [offcon, offcon-data]
 
   # Catches all outbound email locally — UI at http://localhost:8025
   # One-shot: applies database/migrations/<schema> in dependency order.
@@ -169,7 +181,9 @@ services:
         echo "==> migrations complete"
     env_file: [.env]
     restart: "no"
-    networks: [offcon]
+    # Reachable only from the services. The frontend is not on this
+    # network, so a repeat of the September RCE cannot reach it.
+    networks: [offcon-data]
 
   mailpit:
     # Not on x-svc-defaults, so this does not inherit the anchor's
@@ -179,7 +193,9 @@ services:
     restart: unless-stopped
     image: axllent/mailpit:latest
     ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"]
-    networks: [offcon]
+    # Reachable only from the services. The frontend is not on this
+    # network, so a repeat of the September RCE cannot reach it.
+    networks: [offcon-data]
 
   # ==========================================================================
   # Go core services
@@ -478,6 +494,13 @@ volumes:
   minio_data:
 
 networks:
+  # Data plane. `internal: true` -- these stores have no business reaching the
+  # internet. The frontend is not attached, so the component that was already
+  # remotely exploited once can no longer reach PostgreSQL, Redis or Kafka.
+  offcon-data:
+    name: offcon-data
+    internal: true
+
   offcon:
     name: offcon
     # Pinned, because the edge proxies spawned challenges to the host at this
