@@ -38,7 +38,14 @@ async function main(): Promise<void> {
   const app = Fastify({
     logger: false,
     bodyLimit: 1024 * 1024 * 2,
-    trustProxy: true,
+    // The Docker networks only. `true` trusts every hop, which makes req.ip
+    // the left-most X-Forwarded-For entry -- a value the client supplies, since
+    // nginx appends rather than replaces. Rotating that header then handed out
+    // a fresh rate-limit bucket per request and the limits below meant nothing.
+    // Naming the proxy range makes Fastify walk the header from the right and
+    // stop at the first address it does not trust, which is the real client.
+    // Same range the Go services use via HTTP_TRUSTED_PROXIES.
+    trustProxy: ["127.0.0.1/8", "::1/128", "172.16.0.0/12"],
     disableRequestLogging: true,
   });
 
