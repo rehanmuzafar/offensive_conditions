@@ -49,9 +49,26 @@ services:
       POSTGRES_DB: "${DB_NAME:-offcon}"
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
     ports: ["127.0.0.1:5432:5432"]
+    # TLS. Without this DB_SSLMODE has to stay `disable`, and every service's
+    # own config validation refuses to run in production with that set -- so
+    # this is what unblocks APP_ENV=production.
+    #
+    # The certificate is issued by a private CA with SAN DNS:postgres, so
+    # clients can move from `require` (encrypt, do not verify) to `verify-full`
+    # later by mounting ca.crt and pointing sslrootcert at it, rather than
+    # reissuing anything.
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgres-tls/server.crt
+      - -c
+      - ssl_key_file=/etc/postgres-tls/server.key
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../database/scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./secrets/postgres:/etc/postgres-tls:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U offcon_admin -d offcon"]
       interval: 5s
@@ -351,6 +368,18 @@ services:
     <<: *svc-defaults
     build: { context: ../services/flag-verifier }
     environment:
+      # Deliberately NOT production, and the only service that is not.
+      #
+      # Its config refuses to start in production unless VAULT_ENABLED is true,
+      # because machine flag secrets are meant to live in Vault -- with the
+      # static store that is configured instead, every machine shares one HMAC
+      # secret and a single leak forges every flag. There is no Vault deployed,
+      # so the guard is telling the truth: this service is not production
+      # configured.
+      #
+      # Overriding the label rather than the guard keeps that visible. Remove
+      # this line when Vault is deployed (OFFCON-2026-009 9.3).
+      APP_ENV: "development"
       HTTP_PORT: "8005"
       ORCHESTRATOR_GRPC_ADDR: "orchestrator:9002"
       AUTH_JWT_PUBLIC_KEY_PATH: "/secrets/jwt-public.pem"
