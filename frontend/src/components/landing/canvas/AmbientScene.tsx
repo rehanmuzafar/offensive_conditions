@@ -62,27 +62,47 @@ export default function AmbientScene({
   /** Pointer-wake strength, 0..1. */
   wakeGain?: number;
 }) {
-  const [enabled, setEnabled] = useState(true);
+  // Same three tiers as the landing scene: off (no scene), mid (cheaper glass
+  // transmission, native dpr, no multisampling), high (unchanged).
+  const [tier, setTier] = useState<"off" | "mid" | "high">("high");
+  const [frameloop, setFrameloop] = useState<"always" | "never">("always");
   const [, setReady] = useState(false);
 
   useEffect(() => {
-    // Same capability gate as the landing: no WebGL2, reduced-motion, or a
-    // machine with too few cores, and the scene simply does not appear.
     const probe = document.createElement("canvas");
     const hasWebGL2 = !!probe.getContext("webgl2");
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const weak = navigator.hardwareConcurrency !== undefined && navigator.hardwareConcurrency <= 2;
-    setEnabled(hasWebGL2 && !reduced && !weak);
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const cores = navigator.hardwareConcurrency ?? 8;
+    const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
+
+    if (!hasWebGL2 || reduced || cores <= 2 || mem <= 2 || (coarse && (cores <= 4 || mem <= 4))) {
+      setTier("off");
+    } else if (cores <= 4 || mem <= 4 || coarse) {
+      setTier("mid");
+    } else {
+      setTier("high");
+    }
   }, []);
 
-  if (!enabled) return null;
+  // Idle in a hidden/background tab rather than running the loop unseen.
+  useEffect(() => {
+    const onVis = () => setFrameloop(document.hidden ? "never" : "always");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  if (tier === "off") return null;
+
+  const high = tier === "high";
 
   return (
     <div aria-hidden className={className ?? "pointer-events-none fixed inset-0 -z-10"}>
       <Canvas
-        dpr={[1, 1.35]}
+        dpr={high ? [1, 1.35] : [1, 1]}
+        frameloop={frameloop}
         gl={{
-          antialias: true,
+          antialias: high,
           alpha: true,
           powerPreference: "high-performance",
           stencil: false,
@@ -103,7 +123,7 @@ export default function AmbientScene({
           {matrix && <DataBackdrop />}
           <CurvedGrid wakeGain={wakeGain} />
           <DustField />
-          {skull && <GlassSkull mode="ambient" anchor={anchor} faceForward={faceForward} />}
+          {skull && <GlassSkull mode="ambient" quality={high ? "high" : "mid"} anchor={anchor} faceForward={faceForward} />}
           <Preload all />
         </Suspense>
         <Rig />
