@@ -57,6 +57,7 @@ const GATEWAY = (
 const REVALIDATE = 3600;
 
 export interface PublicEvent extends IndexableEvent {
+  id: string;
   slug: string;
   name: string;
   description: string | null;
@@ -74,6 +75,7 @@ export interface PublicEvent extends IndexableEvent {
 }
 
 export interface PublicMachine extends IndexableMachine {
+  id: string;
   slug: string;
   name: string;
   description: string | null;
@@ -176,4 +178,37 @@ export function machineBySlug(slug: string): Promise<PublicMachine | null> {
 
 export function pathBySlug(slug: string): Promise<PublicPath | null> {
   return fetchOne<PublicPath>(`/v1/paths/by-slug/${encodeURIComponent(slug)}`);
+}
+
+/**
+ * The admin-curated order of ids for a marketing surface, or an empty array
+ * when nothing has been featured (in which case the page shows everything).
+ */
+export async function featuredIds(
+  surface: "landing_machines" | "labs_page" | "ctf_page",
+): Promise<string[]> {
+  try {
+    const res = await fetch(`${GATEWAY}/v1/content/featured?surface=${surface}`, {
+      headers: { accept: "application/json" },
+      next: { revalidate: REVALIDATE },
+    });
+    if (!res.ok) return [];
+    const body: unknown = await res.json();
+    const items = (body as { items?: { item_id?: string }[] }).items;
+    return Array.isArray(items) ? items.map((i) => String(i.item_id)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Keep only the featured items, in the admin's order. With no featured ids the
+ * full list is returned unchanged, so curation is an optional overlay.
+ */
+export function orderByFeatured<T>(items: T[], ids: string[], getId: (t: T) => string): T[] {
+  if (ids.length === 0) return items;
+  const rank = new Map(ids.map((id, i) => [id, i] as const));
+  return items
+    .filter((t) => rank.has(getId(t)))
+    .sort((a, b) => (rank.get(getId(a)) ?? 0) - (rank.get(getId(b)) ?? 0));
 }

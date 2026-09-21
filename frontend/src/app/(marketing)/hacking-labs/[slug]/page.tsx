@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/card";
 import { JsonLd } from "@/components/seo/json-ld";
 import { CLUSTERS, absolute } from "@/lib/seo/config";
 import { formatDate } from "@/lib/seo/format";
+import { tagLabel } from "@/lib/format";
 import { isIndexableMachine } from "@/lib/seo/indexable";
 import {
   breadcrumbNode,
@@ -108,7 +109,7 @@ export default async function MachinePage({ params }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         {m.os && <Badge tone="info">{m.os}</Badge>}
         {m.difficulty && <Badge tone="brand">{m.difficulty.replace(/_/g, " ")}</Badge>}
-        {m.tags?.slice(0, 4).map((t) => <Badge key={t}>{t}</Badge>)}
+        {m.tags?.slice(0, 4).map((t) => { const l = tagLabel(t); return l ? <Badge key={l}>{l}</Badge> : null; })}
       </div>
 
       <h1 className="mt-5 font-display text-[clamp(32px,4.4vw,52px)] font-extrabold leading-[1.06] tracking-[-1.4px]">

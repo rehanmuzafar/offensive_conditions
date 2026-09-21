@@ -2,6 +2,10 @@
 
 import { useRef } from "react";
 import clsx from "clsx";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { featuredApi } from "@/lib/featured-api";
+import { formatNumber, tagLabel } from "@/lib/format";
 import { Reveal, RevealWords } from "@/components/landing/ui/Reveal";
 import { Eyebrow, GhostWord } from "@/components/landing/ui/Bits";
 
@@ -14,13 +18,58 @@ type Machine = {
   tags: string[];
 };
 
-const MACHINES: Machine[] = [
-  { name: "SENTINEL", os: "Linux", difficulty: "Medium", points: 30, rooted: "4,182", tags: ["web", "pivot", "suid"] },
-  { name: "GLASSHOUSE", os: "Windows", difficulty: "Hard", points: 40, rooted: "912", tags: ["ad", "kerberos", "relay"] },
-  { name: "TIDEPOOL", os: "Linux", difficulty: "Easy", points: 20, rooted: "18,340", tags: ["enum", "cron"] },
-  { name: "BLACKSITE", os: "OT", difficulty: "Insane", points: 60, rooted: "137", tags: ["modbus", "firmware", "rce"] },
-  { name: "PALEHOUR", os: "Windows", difficulty: "Medium", points: 30, rooted: "3,047", tags: ["uac", "dpapi"] },
-];
+/** Raw machine as the public catalogue API returns it. */
+interface RawMachine {
+  id: string;
+  name: string;
+  os: string | null;
+  difficulty: string | null;
+  status: string | null;
+  retired_at: string | null;
+  total_root_owns: number | null;
+  base_root_points: number | null;
+  base_challenge_points: number | null;
+  tags: unknown[] | null;
+}
+
+function toCard(m: RawMachine): Machine {
+  const os: Machine["os"] = m.os === "windows" ? "Windows" : m.os === "linux" ? "Linux" : "OT";
+  const difficulty: Machine["difficulty"] =
+    m.difficulty === "insane" ? "Insane" : m.difficulty === "hard" ? "Hard" : m.difficulty === "medium" ? "Medium" : "Easy";
+  return {
+    name: m.name.toUpperCase(),
+    os,
+    difficulty,
+    points: m.base_root_points ?? m.base_challenge_points ?? 0,
+    rooted: formatNumber(m.total_root_owns ?? 0),
+    tags: (m.tags ?? []).map(tagLabel).filter(Boolean).slice(0, 3),
+  };
+}
+
+/**
+ * Real machines for the rail. Shows the admin-curated `landing_machines`
+ * selection in order; with none set it falls back to the active catalogue. No
+ * more invented SENTINEL/GLASSHOUSE placeholders.
+ */
+function useLandingMachines(): Machine[] {
+  const { data } = useQuery({
+    queryKey: ["landing-machines"],
+    queryFn: async () => {
+      const [feat, list] = await Promise.all([
+        featuredApi.get("landing_machines").catch(() => ({ items: [] as { item_id: string }[] })),
+        api.get<{ items: RawMachine[] }>("/v1/machines", { params: { limit: 200 }, anonymous: true }),
+      ]);
+      const all = list.items ?? [];
+      const ids = feat.items.map((i) => i.item_id);
+      const chosen = ids.length
+        ? ids.map((id) => all.find((m) => m.id === id)).filter((m): m is RawMachine => Boolean(m))
+        : all.filter((m) => m.status === "active" && !m.retired_at);
+      return chosen.slice(0, 8).map(toCard);
+    },
+    staleTime: 60_000,
+  });
+  return data ?? [];
+}
 
 const DIFFICULTY_TONE: Record<Machine["difficulty"], string> = {
   Easy: "text-emerald-400",
@@ -157,6 +206,7 @@ function Transcript() {
 }
 
 export default function Machines() {
+  const machines = useLandingMachines();
   return (
     <section id="machines" className="relative overflow-hidden px-6 py-28 lg:px-10">
       <div className="mx-auto max-w-[1440px]">
@@ -188,7 +238,7 @@ export default function Machines() {
           className="-mx-6 mt-16 flex gap-5 overflow-x-auto px-6 pb-8 pt-4 lg:-mx-10 lg:px-10 [scrollbar-width:none]"
           style={{ perspective: "1400px" }}
         >
-          {MACHINES.map((m, i) => (
+          {machines.map((m, i) => (
             <MachineCard key={m.name} machine={m} index={i} />
           ))}
         </div>

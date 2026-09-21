@@ -22,6 +22,7 @@ import {
   Settings,
   ShieldAlert,
   Users,
+  Star,
 } from "lucide-react";
 
 export interface NavItem {
@@ -89,6 +90,7 @@ export const APP_NAV: NavItem[] = [
 export const ADMIN_NAV: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard, roles: ["admin", "moderator"] },
   { label: "Machines", href: "/admin/machines", icon: Server, roles: ["admin", "moderator"] },
+  { label: "Featured", href: "/admin/featured", icon: Star, roles: ["admin", "moderator"] },
   { label: "CTF", href: "/admin/ctf", icon: Flag, roles: ["admin", "ctf_organizer"] },
   { label: "Forum", href: "/admin/forum", icon: MessagesSquare, roles: ["admin", "moderator"] },
   { label: "Writeups", href: "/admin/writeups", icon: BookOpen, roles: ["admin", "moderator"] },

@@ -17,6 +17,7 @@
  */
 
 import { SITE, SOCIAL_PROFILES, absolute } from "./config";
+import { tagLabel } from "@/lib/format";
 import type { PublicEvent, PublicMachine, PublicPath } from "./public-data";
 
 /** Stable node identities, so nodes can point at each other across pages. */
@@ -251,7 +252,7 @@ export function machineNode(m: PublicMachine): Node {
     provider: { "@id": ID.organization },
     learningResourceType: "Hands-on lab",
     educationalLevel: m.difficulty ?? undefined,
-    teaches: m.tags?.length ? m.tags.join(", ") : undefined,
+    teaches: m.tags?.length ? m.tags.map(tagLabel).filter(Boolean).join(", ") : undefined,
     inLanguage: "en",
   };
 }

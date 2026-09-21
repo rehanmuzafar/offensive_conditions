@@ -31,7 +31,8 @@ import {
   webPageNode,
   websiteNode,
 } from "@/lib/seo/jsonld";
-import { indexableMachines, type PublicMachine } from "@/lib/seo/public-data";
+import { indexableMachines, featuredIds, orderByFeatured, type PublicMachine } from "@/lib/seo/public-data";
+import { tagLabel } from "@/lib/format";
 
 const C = CLUSTERS.labs;
 
@@ -123,7 +124,9 @@ const FAQ: QA[] = [
 
 export default async function HackingLabsPage({ searchParams }: Props) {
   const { q, os, difficulty } = await searchParams;
-  const all = await indexableMachines();
+  const [everything, fids] = await Promise.all([indexableMachines(), featuredIds("labs_page")]);
+  // Admin-curated selection when set; otherwise the full indexable catalogue.
+  const all = orderByFeatured(everything, fids, (m) => m.id);
   const machines = filterMachines(all, { q, os, difficulty });
 
   const byOs = countBy(all, (m) => m.os);
@@ -285,7 +288,7 @@ function filterMachines(
     if (f.os && m.os !== f.os) return false;
     if (f.difficulty && m.difficulty !== f.difficulty) return false;
     if (needle) {
-      const hay = `${m.name} ${m.description ?? ""} ${(m.tags ?? []).join(" ")}`.toLowerCase();
+      const hay = `${m.name} ${m.description ?? ""} ${(m.tags ?? []).map(tagLabel).join(" ")}`.toLowerCase();
       if (!hay.includes(needle)) return false;
     }
     return true;

@@ -33,7 +33,7 @@ import {
   websiteNode,
 } from "@/lib/seo/jsonld";
 import { isIndexableEvent } from "@/lib/seo/indexable";
-import { publicEvents, type PublicEvent } from "@/lib/seo/public-data";
+import { publicEvents, featuredIds, orderByFeatured, type PublicEvent } from "@/lib/seo/public-data";
 import { formatDate } from "@/lib/seo/format";
 import { link } from "@/lib/surfaces";
 
@@ -169,7 +169,9 @@ export default async function CtfCompetitionsPage() {
   // actually live right now. The SEO gate is applied only to what gets *indexed*
   // (the sitemap, the per-event noindex, and the structured data below) - a
   // test/seed event is still shown to a human here but kept out of Google.
-  const events = await publicEvents();
+  const [everything, fids] = await Promise.all([publicEvents(), featuredIds("ctf_page")]);
+  // Admin-curated selection when set; otherwise every public event.
+  const events = orderByFeatured(everything, fids, (e) => e.id);
   const live = events.filter((e) => e.status === "live");
   const upcoming = events.filter((e) => e.status === "upcoming" || e.status === "registration");
   const past = events.filter((e) => e.status === "ended");
