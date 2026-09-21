@@ -35,21 +35,40 @@ function ReadyFlag() {
 }
 
 export default function Scene() {
-  const [enabled, setEnabled] = useState(true);
+  // Three tiers. "off" gets the CSS fallback; "mid" a materially cheaper scene
+  // (half the transmission resolution, a quarter of the blur taps, no rain-glass
+  // pass, no super-sampling, native dpr); "high" the full thing. The transmission
+  // FBO is essentially the whole frame cost, so tuning it down is what makes the
+  // page smooth on a laptop iGPU or a phone instead of dropping the scene.
+  const [tier, setTier] = useState<"off" | "mid" | "high">("high");
+  const [frameloop, setFrameloop] = useState<"always" | "never">("always");
 
   useEffect(() => {
-    // Bail out entirely where the effect would cost more than it gives:
-    // no WebGL2, or a user who has asked for reduced motion.
     const canvas = document.createElement("canvas");
     const hasWebGL2 = !!canvas.getContext("webgl2");
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // Transmission renders the scene to an FBO every frame; on a 2-core
-    // machine that is a slideshow, and a static page is the better product.
-    const weak = navigator.hardwareConcurrency !== undefined && navigator.hardwareConcurrency <= 2;
-    setEnabled(hasWebGL2 && !reduced && !weak);
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const cores = navigator.hardwareConcurrency ?? 8;
+    const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
+
+    if (!hasWebGL2 || reduced || cores <= 2 || mem <= 2 || (coarse && (cores <= 4 || mem <= 4))) {
+      setTier("off"); // no WebGL2, reduced-motion, or genuinely low-end / weak phone
+    } else if (cores <= 4 || mem <= 4 || coarse) {
+      setTier("mid"); // capable but not a desktop GPU — a phone or a light laptop
+    } else {
+      setTier("high");
+    }
   }, []);
 
-  if (!enabled) {
+  // A hidden or background tab renders nothing anyone can see; keep the GPU idle
+  // there rather than burning a continuous transmission loop.
+  useEffect(() => {
+    const onVis = () => setFrameloop(document.hidden ? "never" : "always");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  if (tier === "off") {
     // Static stand-in: the same grid, drawn in CSS, so the page never looks
     // broken — just quieter.
     return (
@@ -64,6 +83,8 @@ export default function Scene() {
     );
   }
 
+  const high = tier === "high";
+
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
       <Canvas
@@ -72,9 +93,9 @@ export default function Scene() {
            fragment-bound and scales with the square of the pixel ratio. Capped
            below a Retina 2x for that reason; AdaptiveDpr walks it down further
            if the GPU cannot hold the frame. */
-        dpr={[1, 1.5]}
+        dpr={high ? [1, 1.5] : [1, 1]}
         gl={{
-          antialias: true,
+          antialias: high,
           alpha: false,
           powerPreference: "high-performance",
           stencil: false,
@@ -89,7 +110,7 @@ export default function Scene() {
           gl.toneMappingExposure = 1.05;
           gl.setClearColor("#000000", 1);
         }}
-        frameloop="always"
+        frameloop={frameloop}
       >
         {/* Ahead of everything else in the frame loop — see SceneDrivers. */}
         <SceneDrivers />
@@ -99,10 +120,11 @@ export default function Scene() {
           <CurvedGrid />
           <DataBackdrop />
           <DustField />
-          <GlassSkull />
+          <GlassSkull quality={high ? "high" : "mid"} />
           {/* Last in the scene and depth-test disabled: the wet pane is on the
-              viewer's side of everything. */}
-          <RainGlass />
+              viewer's side of everything. A full-screen pass, so it is dropped
+              on the lighter tier. */}
+          {high && <RainGlass />}
           <Preload all />
         </Suspense>
         <Rig />
