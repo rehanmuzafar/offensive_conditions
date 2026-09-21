@@ -6,6 +6,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.31.0
 gunicorn==23.0.0
+python-multipart==0.0.12  # attachment uploads arrive as multipart form data
 
 # Database
 sqlalchemy[asyncio]==2.0.35
@@ -20,6 +21,9 @@ pydantic-settings==2.5.2
 # Auth
 pyjwt[crypto]==2.9.0
 cryptography==43.0.1
+
+# Object storage (report attachments)
+minio==7.2.9
 
 # Cache + queue
 redis==5.1.1

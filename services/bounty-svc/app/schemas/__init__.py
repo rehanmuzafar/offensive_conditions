@@ -406,18 +406,19 @@ class TimelineList(BaseModel):
 # =============================================================================
 
 
-class AttachmentUploadRequest(BaseModel):
-    filename: str = Field(min_length=1, max_length=255)
-    content_type: str = Field(min_length=1, max_length=120)
-    byte_size: int = Field(gt=0)
-
-
 class AttachmentUploadResponse(BaseModel):
+    """What the caller gets back after the file is already stored.
+
+    No upload URL and no signed form fields: the bytes came through the
+    service, so by the time this is returned there is nothing left to upload
+    and no credential to hand out.
+    """
+
     attachment_id: UUID
     s3_key: str
-    presigned_url: str
-    presigned_fields: dict[str, str] = Field(default_factory=dict)
-    expires_at: datetime
+    filename: str
+    content_type: str
+    byte_size: int
 
 
 class AttachmentRead(BaseModel):

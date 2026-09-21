@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import (
     get_attachment_service,
@@ -24,7 +26,6 @@ from app.core.errors import AppError, ErrorCode
 from app.schemas import (
     AcceptAction,
     AttachmentRead,
-    AttachmentUploadRequest,
     AttachmentUploadResponse,
     AwardAction,
     CommentCreate,
@@ -289,33 +290,45 @@ async def add_report_comment(
     response_model=AttachmentUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def request_attachment_upload(
+async def upload_attachment(
     report_id: UUID,
-    body: AttachmentUploadRequest,
+    file: UploadFile = File(...),
     claims: Claims = Depends(get_claims),
     reports: ReportService = Depends(get_report_service),
     attachments: AttachmentService = Depends(get_attachment_service),
 ) -> AttachmentUploadResponse:
+    """Upload a proof-of-concept file to a report.
+
+    The body comes through this service rather than going straight to object
+    storage, so the size and the content type are the ones we actually
+    received instead of the ones the client promised.
+    """
     report = await reports.get(report_id)
     is_author = report.researcher_id == claims.user_id
     is_triager = _is_triager(claims)
     if not (is_author or is_triager):
         raise AppError(ErrorCode.REPORT_NOT_FOUND, "report not found")
 
-    attachment, presigned = await attachments.request_upload(
+    # Measure the spooled body rather than trusting a declared length.
+    file.file.seek(0, os.SEEK_END)
+    byte_size = file.file.tell()
+    file.file.seek(0)
+
+    attachment = await attachments.store_upload(
         report_id,
         uploader_id=claims.user_id,
         is_program_member=is_triager,
-        data=body,
+        filename=file.filename or "attachment",
+        content_type=file.content_type or "application/octet-stream",
+        data=file.file,
+        byte_size=byte_size,
     )
-    from datetime import datetime, timezone
-
     return AttachmentUploadResponse(
         attachment_id=attachment.id,
         s3_key=attachment.s3_key,
-        presigned_url=presigned["url"],
-        presigned_fields=presigned["fields"],
-        expires_at=datetime.fromtimestamp(presigned["expires_at"], tz=timezone.utc),
+        filename=attachment.filename,
+        content_type=attachment.content_type,
+        byte_size=attachment.byte_size,
     )
 
 
@@ -343,12 +356,30 @@ async def download_attachment(
     attachment_id: UUID,
     claims: Claims = Depends(get_claims),
     attachments: AttachmentService = Depends(get_attachment_service),
-) -> dict:
+) -> StreamingResponse:
+    """Stream an attachment to a viewer who is allowed to have it.
+
+    Served through the service rather than from a presigned URL so the viewer's
+    access is checked on every request — a presigned link outlives the check
+    and can be forwarded to anyone, and these files are strangers' exploit
+    code. `attachment` disposition plus `nosniff` because the uploader chose
+    the filename and the content type, and neither should be able to talk a
+    browser into rendering the file as something live.
+    """
     is_triager = _is_triager(claims)
-    url = await attachments.get_download_url(
+    attachment, stream = await attachments.open_for_download(
         attachment_id, viewer_id=claims.user_id, is_program_member=is_triager
     )
-    return {"url": url}
+    return StreamingResponse(
+        stream,
+        media_type=attachment.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{attachment.filename}"',
+            "Content-Length": str(attachment.byte_size),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 # =============================================================================
