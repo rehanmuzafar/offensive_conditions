@@ -8,6 +8,7 @@ import CurvedGrid from "./CurvedGrid";
 import DataBackdrop from "./DataBackdrop";
 import DustField from "./DustField";
 import GlassSkull from "./GlassSkull";
+import FrameLimiter from "./FrameLimiter";
 import Lighting from "./Lighting";
 import Rig from "./Rig";
 import SceneDrivers from "./SceneDrivers";
@@ -64,8 +65,7 @@ export default function AmbientScene({
 }) {
   // Same three tiers as the landing scene: off (no scene), mid (cheaper glass
   // transmission, native dpr, no multisampling), high (unchanged).
-  const [tier, setTier] = useState<"off" | "mid" | "high">("high");
-  const [frameloop, setFrameloop] = useState<"always" | "never">("always");
+  const [tier, setTier] = useState<"off" | "low" | "mid" | "high">("high");
   const [, setReady] = useState(false);
 
   useEffect(() => {
@@ -76,20 +76,15 @@ export default function AmbientScene({
     const cores = navigator.hardwareConcurrency ?? 8;
     const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
 
-    if (!hasWebGL2 || reduced || cores <= 2 || mem <= 2 || (coarse && (cores <= 4 || mem <= 4))) {
+    if (!hasWebGL2 || reduced) {
       setTier("off");
+    } else if (cores <= 2 || mem <= 2) {
+      setTier("low");
     } else if (cores <= 4 || mem <= 4 || coarse) {
       setTier("mid");
     } else {
       setTier("high");
     }
-  }, []);
-
-  // Idle in a hidden/background tab rather than running the loop unseen.
-  useEffect(() => {
-    const onVis = () => setFrameloop(document.hidden ? "never" : "always");
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   if (tier === "off") return null;
@@ -100,7 +95,7 @@ export default function AmbientScene({
     <div aria-hidden className={className ?? "pointer-events-none fixed inset-0 -z-10"}>
       <Canvas
         dpr={high ? [1, 1.35] : [1, 1]}
-        frameloop={frameloop}
+        frameloop="demand"
         gl={{
           antialias: high,
           alpha: true,
@@ -118,12 +113,13 @@ export default function AmbientScene({
         }}
       >
         <SceneDrivers />
+        <FrameLimiter activeFps={60} idleFps={10} />
         <Suspense fallback={null}>
           <Lighting />
           {matrix && <DataBackdrop />}
           <CurvedGrid wakeGain={wakeGain} />
           <DustField />
-          {skull && <GlassSkull mode="ambient" quality={high ? "high" : "mid"} anchor={anchor} faceForward={faceForward} />}
+          {skull && <GlassSkull mode="ambient" quality={tier} anchor={anchor} faceForward={faceForward} />}
           <Preload all />
         </Suspense>
         <Rig />

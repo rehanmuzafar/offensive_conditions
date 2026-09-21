@@ -88,9 +88,9 @@ export default function GlassSkull({
   quality = "high",
 }: {
   mode?: SkullMode;
-  /** "mid" halves the transmission resolution and the blur taps — the FBO is
-   *  the frame budget, so this is what makes it run on a weak GPU. */
-  quality?: "mid" | "high";
+  /** The transmission FBO is the frame budget; lower tiers shrink it so the
+   *  skull still renders on a weak GPU instead of being dropped. */
+  quality?: "low" | "mid" | "high";
   /**
    * Ambient mode only. `true` keeps the mark square to camera and lets the
    * pointer add no more than a slight tilt — right for a sign-in page, where
@@ -469,8 +469,8 @@ export default function GlassSkull({
              take that reading with the tab focused, since a background tab has
              its animation frames throttled to near zero and will report single
              digits no matter what these are set to. */
-          samples={quality === "mid" ? 2 : 6}
-          resolution={quality === "mid" ? 256 : 512}
+          samples={quality === "low" ? 1 : quality === "mid" ? 2 : 6}
+          resolution={quality === "low" ? 160 : quality === "mid" ? 256 : 512}
           transmission={1}
           thickness={1.2}
           roughness={0.04}

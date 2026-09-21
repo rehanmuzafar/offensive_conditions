@@ -9,6 +9,7 @@ import DataBackdrop from "./DataBackdrop";
 import DustField from "./DustField";
 import RainGlass from "./RainGlass";
 import GlassSkull from "./GlassSkull";
+import FrameLimiter from "./FrameLimiter";
 import Lighting from "./Lighting";
 import Rig from "./Rig";
 import SceneDrivers from "./SceneDrivers";
@@ -40,8 +41,13 @@ export default function Scene() {
   // pass, no super-sampling, native dpr); "high" the full thing. The transmission
   // FBO is essentially the whole frame cost, so tuning it down is what makes the
   // page smooth on a laptop iGPU or a phone instead of dropping the scene.
-  const [tier, setTier] = useState<"off" | "mid" | "high">("high");
-  const [frameloop, setFrameloop] = useState<"always" | "never">("always");
+  // Four tiers. "off" is the CSS fallback, reserved for devices that genuinely
+  // cannot run WebGL2 (or a reduced-motion request); everyone else keeps the
+  // skull. "low" is the cheapest live scene (tiny transmission FBO, native dpr,
+  // no rain-glass, no multisampling), "mid" a middle step, "high" the full
+  // thing. The transmission FBO is essentially the whole cost, so shrinking it —
+  // not dropping the scene — is what makes the skull show on a weak machine.
+  const [tier, setTier] = useState<"off" | "low" | "mid" | "high">("high");
 
   useEffect(() => {
     const canvas = document.createElement("canvas");
@@ -51,21 +57,15 @@ export default function Scene() {
     const cores = navigator.hardwareConcurrency ?? 8;
     const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
 
-    if (!hasWebGL2 || reduced || cores <= 2 || mem <= 2 || (coarse && (cores <= 4 || mem <= 4))) {
-      setTier("off"); // no WebGL2, reduced-motion, or genuinely low-end / weak phone
+    if (!hasWebGL2 || reduced) {
+      setTier("off");
+    } else if (cores <= 2 || mem <= 2) {
+      setTier("low"); // genuinely low-end — still gets a (tiny) skull
     } else if (cores <= 4 || mem <= 4 || coarse) {
-      setTier("mid"); // capable but not a desktop GPU — a phone or a light laptop
+      setTier("mid"); // a phone or a light laptop
     } else {
       setTier("high");
     }
-  }, []);
-
-  // A hidden or background tab renders nothing anyone can see; keep the GPU idle
-  // there rather than burning a continuous transmission loop.
-  useEffect(() => {
-    const onVis = () => setFrameloop(document.hidden ? "never" : "always");
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   if (tier === "off") {
@@ -110,17 +110,20 @@ export default function Scene() {
           gl.toneMappingExposure = 1.05;
           gl.setClearColor("#000000", 1);
         }}
-        frameloop={frameloop}
+        /* Paints only when FrameLimiter asks, which caps the GPU. */
+        frameloop="demand"
       >
         {/* Ahead of everything else in the frame loop — see SceneDrivers. */}
         <SceneDrivers />
+        {/* ~60fps while scrolling/pointing, ~10fps while reading, 0 when hidden. */}
+        <FrameLimiter activeFps={60} idleFps={10} />
 
         <Suspense fallback={null}>
           <Lighting />
           <CurvedGrid />
           <DataBackdrop />
           <DustField />
-          <GlassSkull quality={high ? "high" : "mid"} />
+          <GlassSkull quality={tier} />
           {/* Last in the scene and depth-test disabled: the wet pane is on the
               viewer's side of everything. A full-screen pass, so it is dropped
               on the lighter tier. */}
