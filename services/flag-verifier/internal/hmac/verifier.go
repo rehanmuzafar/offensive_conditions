@@ -2,13 +2,29 @@
 //
 // Flag format:
 //
-//	OFFCON{<slug>_<user_short>_<HMAC_hex>}
+//	OFFCON{<slug>_<flag_type>_<user_short>_<HMAC_hex>}
 //
 // The HMAC is computed as:
 //
-//	HMAC-SHA256(secret, "<content_id>:<user_id>:<instance_id>")[:HMACBytes]
+//	HMAC-SHA256(secret, "<content_id>:<user_id>:<instance_id>:<flag_type>")[:HMACBytes]
 //
 // where secret comes from Vault and is unique per machine version.
+//
+// The flag type is part of both the string and the signed message, and that is
+// load-bearing. A machine issues a user flag and a root flag for the same
+// (content, user, instance) tuple; if the type were not signed, the two would
+// be the same value, and owning the box as a low-privilege user would hand you
+// the root flag for free. Carrying it in the string as well means the verifier
+// can tell which flag was submitted instead of inferring it from machine
+// metadata — inference cannot distinguish the two and silently credited the
+// wrong one.
+//
+// This format is the platform's wire contract for flags and is implemented
+// twice: here, and in the orchestrator that mints them
+// (`orchestrator/internal/flag/generator.go`). The services are separate Go
+// modules with separate Docker build contexts, so the code cannot be shared.
+// Both sides carry the same contract test vectors instead — if you change
+// anything in this file, change them together or the vectors will fail.
 //
 // All comparisons use constant-time equality to prevent timing attacks.
 package hmac
@@ -23,20 +39,37 @@ import (
 	"github.com/google/uuid"
 )
 
+// FlagType values. A flag is one of these and nothing else.
+const (
+	FlagTypeUser      = "user"
+	FlagTypeRoot      = "root"
+	FlagTypeChallenge = "challenge"
+)
+
+// ValidFlagType reports whether s is a flag type this platform issues.
+func ValidFlagType(s string) bool {
+	switch s {
+	case FlagTypeUser, FlagTypeRoot, FlagTypeChallenge:
+		return true
+	}
+	return false
+}
+
 // Parsed represents a successfully-decomposed flag string.
 type Parsed struct {
-	Slug       string // human-readable content slug
-	UserShort  string // first 6 chars of user UUID hex
-	HMACHex    string // hex-encoded HMAC bytes
-	Raw        string // original full flag
+	Slug      string // human-readable content slug
+	FlagType  string // user | root | challenge
+	UserShort string // first 6 chars of user UUID hex
+	HMACHex   string // hex-encoded HMAC bytes
+	Raw       string // original full flag
 }
 
 // Parser knows how to split flag strings into components.
 type Parser struct {
-	prefix     string
-	suffix     string
-	hmacChars  int // 2 * hmacBytes
-	maxLength  int
+	prefix    string
+	suffix    string
+	hmacChars int // 2 * hmacBytes
+	maxLength int
 }
 
 func NewParser(prefix, suffix string, hmacBytes, maxLength int) *Parser {
@@ -63,14 +96,16 @@ func (p *Parser) Parse(raw string) (*Parsed, error) {
 
 	inner := raw[len(p.prefix) : len(raw)-len(p.suffix)]
 	parts := strings.Split(inner, "_")
-	if len(parts) < 3 {
-		return nil, fmt.Errorf("expected 3+ underscore-separated parts; got %d", len(parts))
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("expected 4+ underscore-separated parts; got %d", len(parts))
 	}
 
-	// HMAC is the last part; user_short is the part before; slug is everything before that
+	// Read from the right: the slug is the only field that may contain "_",
+	// so fixing the other three by position from the end keeps it unambiguous.
 	hmacHex := parts[len(parts)-1]
 	userShort := parts[len(parts)-2]
-	slug := strings.Join(parts[:len(parts)-2], "_")
+	flagType := parts[len(parts)-3]
+	slug := strings.Join(parts[:len(parts)-3], "_")
 
 	if len(hmacHex) != p.hmacChars {
 		return nil, fmt.Errorf("HMAC must be %d hex chars; got %d", p.hmacChars, len(hmacHex))
@@ -84,12 +119,16 @@ func (p *Parser) Parse(raw string) (*Parsed, error) {
 	if _, err := hex.DecodeString(userShort); err != nil {
 		return nil, fmt.Errorf("user short is not hex: %w", err)
 	}
+	if !ValidFlagType(flagType) {
+		return nil, fmt.Errorf("unknown flag type %q", flagType)
+	}
 	if slug == "" {
 		return nil, fmt.Errorf("slug is empty")
 	}
 
 	return &Parsed{
 		Slug:      slug,
+		FlagType:  flagType,
 		UserShort: userShort,
 		HMACHex:   hmacHex,
 		Raw:       raw,
@@ -120,49 +159,57 @@ type VerifyInput struct {
 
 // Result describes the verification outcome.
 type Result struct {
-	Valid         bool
-	UserBinding   bool // does the user_short in the flag match this user?
-	Reason        string
+	Valid       bool
+	UserBinding bool   // does the user_short in the flag match this user?
+	FlagType    string // which flag was submitted, straight from the flag itself
+	Reason      string
 }
 
 // Verify checks the HMAC against the expected value.
 // All comparisons are constant-time.
+//
+// The flag type is taken from the submitted flag and folded into the signed
+// message, so a user flag cannot verify as a root flag: change the type and
+// the HMAC no longer matches.
 func (v *Verifier) Verify(in VerifyInput) Result {
 	// 1. Check the user_short binding (defence in depth)
 	expectedUserShort := userShortHex(in.UserID)
 	if !constantTimeStringEqual(in.Flag.UserShort, expectedUserShort) {
-		return Result{Valid: false, Reason: "user_binding_mismatch"}
+		return Result{Valid: false, FlagType: in.Flag.FlagType, Reason: "user_binding_mismatch"}
 	}
 
 	// 2. Compute expected HMAC
-	message := buildMessage(in.ContentID, in.UserID, in.InstanceID)
+	message := buildMessage(in.ContentID, in.UserID, in.InstanceID, in.Flag.FlagType)
 	expectedHex := computeHMACHex(in.Secret, message, v.hmacBytes)
 
 	// 3. Constant-time compare
 	submittedBytes, err := hex.DecodeString(in.Flag.HMACHex)
 	if err != nil {
-		return Result{Valid: false, Reason: "hmac_not_hex"}
+		return Result{Valid: false, FlagType: in.Flag.FlagType, Reason: "hmac_not_hex"}
 	}
 	expectedBytes, _ := hex.DecodeString(expectedHex)
 
 	if !hmac.Equal(submittedBytes, expectedBytes) {
-		return Result{Valid: false, UserBinding: true, Reason: "hmac_mismatch"}
+		return Result{
+			Valid: false, UserBinding: true,
+			FlagType: in.Flag.FlagType, Reason: "hmac_mismatch",
+		}
 	}
 
-	return Result{Valid: true, UserBinding: true}
+	return Result{Valid: true, UserBinding: true, FlagType: in.Flag.FlagType}
 }
 
-// ComputeHMAC computes the canonical HMAC for a (content, user, instance) tuple.
-// Useful for tests and for the orchestrator generating flags.
-func ComputeHMAC(secret []byte, contentID, userID, instanceID uuid.UUID, hmacBytes int) string {
-	message := buildMessage(contentID, userID, instanceID)
+// ComputeHMAC computes the canonical HMAC for a (content, user, instance, type)
+// tuple. Useful for tests and for the orchestrator generating flags.
+func ComputeHMAC(secret []byte, contentID, userID, instanceID uuid.UUID, flagType string, hmacBytes int) string {
+	message := buildMessage(contentID, userID, instanceID, flagType)
 	return computeHMACHex(secret, message, hmacBytes)
 }
 
 // BuildFlag constructs the full flag string from components.
 // Mirrors what the orchestrator does. Useful for tests.
-func BuildFlag(prefix, suffix, slug string, userID uuid.UUID, hmacHex string) string {
-	return fmt.Sprintf("%s%s_%s_%s%s", prefix, slug, userShortHex(userID), hmacHex, suffix)
+func BuildFlag(prefix, suffix, slug, flagType string, userID uuid.UUID, hmacHex string) string {
+	return fmt.Sprintf("%s%s_%s_%s_%s%s", prefix, slug, flagType, userShortHex(userID), hmacHex, suffix)
 }
 
 // UserShortFor returns the user-binding component for a given UUID.
@@ -179,10 +226,11 @@ func UserShortFor(userID uuid.UUID) string {
 // We use a simple colon-separated format because:
 //   - it's stable across services (orchestrator + verifier must agree)
 //   - any ambiguity (e.g. instance_id containing a colon) is impossible since
-//     UUIDs have a fixed character set
-func buildMessage(contentID, userID, instanceID uuid.UUID) []byte {
+//     UUIDs have a fixed character set, and the flag type is drawn from a
+//     closed set that contains no colons
+func buildMessage(contentID, userID, instanceID uuid.UUID, flagType string) []byte {
 	// Use a fixed separator that cannot appear in UUID strings
-	return []byte(fmt.Sprintf("%s:%s:%s", contentID, userID, instanceID))
+	return []byte(fmt.Sprintf("%s:%s:%s:%s", contentID, userID, instanceID, flagType))
 }
 
 func computeHMACHex(secret, message []byte, hmacBytes int) string {

@@ -10,10 +10,11 @@ import (
 
 func TestParser_HappyPath(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	flag := "OFFCON{lame_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}"
+	flag := "OFFCON{lame_user_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}"
 	parsed, err := p.Parse(flag)
 	require.NoError(t, err)
 	assert.Equal(t, "lame", parsed.Slug)
+	assert.Equal(t, FlagTypeUser, parsed.FlagType)
 	assert.Equal(t, "a4b9c3", parsed.UserShort)
 	assert.Equal(t, "d7f8e2a1b3c9d4e5f697283abc12def4", parsed.HMACHex)
 	assert.Equal(t, flag, parsed.Raw)
@@ -21,7 +22,7 @@ func TestParser_HappyPath(t *testing.T) {
 
 func TestParser_MultiWordSlug(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	flag := "OFFCON{multi_word_slug_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}"
+	flag := "OFFCON{multi_word_slug_user_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}"
 	parsed, err := p.Parse(flag)
 	require.NoError(t, err)
 	assert.Equal(t, "multi_word_slug", parsed.Slug)
@@ -29,38 +30,38 @@ func TestParser_MultiWordSlug(t *testing.T) {
 
 func TestParser_InvalidPrefix(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	_, err := p.Parse("HTB{lame_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}")
+	_, err := p.Parse("HTB{lame_user_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4}")
 	assert.Error(t, err)
 }
 
 func TestParser_InvalidSuffix(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	_, err := p.Parse("OFFCON{lame_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4")
+	_, err := p.Parse("OFFCON{lame_user_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4")
 	assert.Error(t, err)
 }
 
 func TestParser_WrongHMACLength(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	_, err := p.Parse("OFFCON{lame_a4b9c3_d7f8e2a1b3c9d4e5}")
+	_, err := p.Parse("OFFCON{lame_user_a4b9c3_d7f8e2a1b3c9d4e5}")
 	assert.Error(t, err)
 }
 
 func TestParser_NonHexHMAC(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	_, err := p.Parse("OFFCON{lame_a4b9c3_ZZZZZ2a1b3c9d4e5f697283abc12def4}")
+	_, err := p.Parse("OFFCON{lame_user_a4b9c3_ZZZZZ2a1b3c9d4e5f697283abc12def4}")
 	assert.Error(t, err)
 }
 
 func TestParser_TooLong(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 64)
-	_, err := p.Parse("OFFCON{lame_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4_padding_padding}")
+	_, err := p.Parse("OFFCON{lame_user_a4b9c3_d7f8e2a1b3c9d4e5f697283abc12def4_padding_padding}")
 	assert.Error(t, err)
 }
 
 func TestParser_MissingUserShort(t *testing.T) {
 	p := NewParser("OFFCON{", "}", 16, 256)
-	_, err := p.Parse("OFFCON{lame_d7f8e2a1b3c9d4e5f697283abc12def4}")
-	assert.Error(t, err) // only 2 parts after split
+	_, err := p.Parse("OFFCON{lame_user_d7f8e2a1b3c9d4e5f697283abc12def4}")
+	assert.Error(t, err) // only 3 parts after split; 4 are required
 }
 
 func TestVerifier_RoundTrip(t *testing.T) {
@@ -70,8 +71,8 @@ func TestVerifier_RoundTrip(t *testing.T) {
 	instanceID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
 	// Generator side: orchestrator builds a flag
-	hmacHex := ComputeHMAC(secret, contentID, userID, instanceID, 16)
-	flagStr := BuildFlag("OFFCON{", "}", "test_machine", userID, hmacHex)
+	hmacHex := ComputeHMAC(secret, contentID, userID, instanceID, FlagTypeUser, 16)
+	flagStr := BuildFlag("OFFCON{", "}", "test_machine", FlagTypeUser, userID, hmacHex)
 
 	// Verifier side
 	p := NewParser("OFFCON{", "}", 16, 256)
@@ -98,8 +99,8 @@ func TestVerifier_WrongSecret(t *testing.T) {
 	contentID := uuid.New()
 	instanceID := uuid.New()
 
-	hmacHex := ComputeHMAC(correctSecret, contentID, userID, instanceID, 16)
-	flagStr := BuildFlag("OFFCON{", "}", "machine", userID, hmacHex)
+	hmacHex := ComputeHMAC(correctSecret, contentID, userID, instanceID, FlagTypeUser, 16)
+	flagStr := BuildFlag("OFFCON{", "}", "machine", FlagTypeUser, userID, hmacHex)
 	p := NewParser("OFFCON{", "}", 16, 256)
 	parsed, _ := p.Parse(flagStr)
 
@@ -122,8 +123,8 @@ func TestVerifier_WrongUser(t *testing.T) {
 	instanceID := uuid.New()
 
 	// Generate flag for Alice
-	hmacHex := ComputeHMAC(secret, contentID, alice, instanceID, 16)
-	flagStr := BuildFlag("OFFCON{", "}", "machine", alice, hmacHex)
+	hmacHex := ComputeHMAC(secret, contentID, alice, instanceID, FlagTypeUser, 16)
+	flagStr := BuildFlag("OFFCON{", "}", "machine", FlagTypeUser, alice, hmacHex)
 	p := NewParser("OFFCON{", "}", 16, 256)
 	parsed, _ := p.Parse(flagStr)
 
@@ -147,8 +148,8 @@ func TestVerifier_WrongInstance(t *testing.T) {
 	inst1 := uuid.New()
 	inst2 := uuid.New()
 
-	hmacHex := ComputeHMAC(secret, contentID, userID, inst1, 16)
-	flagStr := BuildFlag("OFFCON{", "}", "machine", userID, hmacHex)
+	hmacHex := ComputeHMAC(secret, contentID, userID, inst1, FlagTypeUser, 16)
+	flagStr := BuildFlag("OFFCON{", "}", "machine", FlagTypeUser, userID, hmacHex)
 	p := NewParser("OFFCON{", "}", 16, 256)
 	parsed, _ := p.Parse(flagStr)
 
@@ -173,8 +174,8 @@ func TestComputeHMAC_DeterministicAndStable(t *testing.T) {
 	instanceID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
 	// Same inputs → same output every time
-	h1 := ComputeHMAC(secret, contentID, userID, instanceID, 16)
-	h2 := ComputeHMAC(secret, contentID, userID, instanceID, 16)
+	h1 := ComputeHMAC(secret, contentID, userID, instanceID, FlagTypeUser, 16)
+	h2 := ComputeHMAC(secret, contentID, userID, instanceID, FlagTypeUser, 16)
 	assert.Equal(t, h1, h2)
 
 	// 32 hex chars for 16 bytes
