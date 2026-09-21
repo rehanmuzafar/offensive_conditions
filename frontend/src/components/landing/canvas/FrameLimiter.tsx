@@ -18,7 +18,7 @@ let lastActivity = typeof performance !== "undefined" ? performance.now() : 0;
 
 export default function FrameLimiter({
   activeFps = 60,
-  idleFps = 10,
+  idleFps = 60,
   idleAfterMs = 2200,
 }: {
   activeFps?: number;

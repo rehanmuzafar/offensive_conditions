@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { AdaptiveDpr, Preload } from "@react-three/drei";
+import { Preload } from "@react-three/drei";
 import * as THREE from "three";
 import CurvedGrid from "./CurvedGrid";
 import DataBackdrop from "./DataBackdrop";
@@ -94,7 +94,7 @@ export default function AmbientScene({
   return (
     <div aria-hidden className={className ?? "pointer-events-none fixed inset-0 -z-10"}>
       <Canvas
-        dpr={high ? [1, 1.35] : [1, 1]}
+        dpr={high ? [1, 2] : [1, 1]}
         frameloop="demand"
         gl={{
           antialias: high,
@@ -103,7 +103,6 @@ export default function AmbientScene({
           stencil: false,
         }}
         camera={{ position: [0, 0, 6.4], fov: 38, near: 0.1, far: 60 }}
-        performance={{ min: 0.4 }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.05;
@@ -113,7 +112,7 @@ export default function AmbientScene({
         }}
       >
         <SceneDrivers />
-        <FrameLimiter activeFps={60} idleFps={10} />
+        <FrameLimiter activeFps={60} idleFps={60} />
         <Suspense fallback={null}>
           <Lighting />
           {matrix && <DataBackdrop />}
@@ -124,7 +123,6 @@ export default function AmbientScene({
         </Suspense>
         <Rig />
         <ReadyGate onReady={() => setReady(true)} />
-        <AdaptiveDpr pixelated={false} />
       </Canvas>
     </div>
   );

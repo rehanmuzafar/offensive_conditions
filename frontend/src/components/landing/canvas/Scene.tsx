@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { AdaptiveDpr, AdaptiveEvents, Preload } from "@react-three/drei";
+import { Preload } from "@react-three/drei";
 import * as THREE from "three";
 import CurvedGrid from "./CurvedGrid";
 import DataBackdrop from "./DataBackdrop";
@@ -89,11 +89,12 @@ export default function Scene() {
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
       <Canvas
         /* Two full-screen shader planes are drawn twice per frame (once into
-           the transmission buffer, once to screen), so cost is almost entirely
-           fragment-bound and scales with the square of the pixel ratio. Capped
-           below a Retina 2x for that reason; AdaptiveDpr walks it down further
-           if the GPU cannot hold the frame. */
-        dpr={high ? [1, 1.5] : [1, 1]}
+           the transmission buffer, once to screen), so cost is fragment-bound
+           and scales with the square of the pixel ratio. High tier renders at
+           full Retina 2x so the glass stays crisp; lighter tiers cap at 1x. The
+           frame rate is held steady by FrameLimiter instead of trading the
+           resolution away, so the scene never softens mid-view. */
+        dpr={high ? [1, 2] : [1, 1]}
         gl={{
           antialias: high,
           alpha: false,
@@ -102,9 +103,6 @@ export default function Scene() {
           depth: true,
         }}
         camera={{ position: [0, 0, 6.4], fov: 38, near: 0.1, far: 60 }}
-        /* Let AdaptiveDpr fall as far as 40% of the target before giving up —
-           a soft-focus scene at 60fps beats a crisp one at 20. */
-        performance={{ min: 0.4 }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.05;
@@ -115,8 +113,8 @@ export default function Scene() {
       >
         {/* Ahead of everything else in the frame loop — see SceneDrivers. */}
         <SceneDrivers />
-        {/* ~60fps while scrolling/pointing, ~10fps while reading, 0 when hidden. */}
-        <FrameLimiter activeFps={60} idleFps={10} />
+        {/* Steady ~60fps whenever the tab is visible; nothing when it is hidden. */}
+        <FrameLimiter activeFps={60} idleFps={60} />
 
         <Suspense fallback={null}>
           <Lighting />
@@ -132,9 +130,6 @@ export default function Scene() {
         </Suspense>
         <Rig />
         <ReadyFlag />
-        {/* Drop resolution rather than frames when the GPU falls behind. */}
-        <AdaptiveDpr pixelated={false} />
-        <AdaptiveEvents />
       </Canvas>
 
       {/* Vignette. The scene is lit for the centre of the frame; without this
