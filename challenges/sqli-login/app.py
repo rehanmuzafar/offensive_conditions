@@ -35,42 +35,111 @@ PAGE = """<!doctype html>
 <title>SecureVault</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0d1117;color:#c9d1d9;
-       max-width:520px;margin:56px auto;padding:0 16px}
-  h2{margin-bottom:4px}
-  .sub{color:#8b949e;font-size:13px;margin-top:0}
-  .mode{margin:18px 0}
-  .mode a{display:inline-block;padding:6px 16px;border:1px solid #30363d;text-decoration:none;
-          color:#c9d1d9;margin-right:8px;border-radius:6px;font-size:13px}
-  .mode a.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
-  .hint{color:#8b949e;font-size:13px;line-height:1.6}
-  code{background:#161b22;padding:1px 5px;border-radius:4px}
-  input{width:100%;box-sizing:border-box;padding:9px;margin:6px 0;background:#161b22;
-        border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-family:inherit}
-  button{padding:9px 20px;background:#238636;color:#fff;border:0;border-radius:6px;
-         cursor:pointer;font-family:inherit;margin-top:4px}
-  .msg{padding:10px 12px;margin:14px 0;border-left:3px solid #f85149;background:#161b22;
-       border-radius:0 6px 6px 0;font-size:14px}
-  .ok{border-left-color:#3fb950}
-  .flag{padding:12px;margin:14px 0;border:1px solid #3fb950;background:#0f1f14;
-        border-radius:6px;color:#3fb950;word-break:break-all}
+  :root{
+    --bg:#050108; --panel:#0d0518; --purple:#a855f7; --purple-dim:#7c3aed;
+    --purple-glow:rgba(168,85,247,.45); --border:rgba(168,85,247,.35);
+    --text:#ede9fe; --text-dim:#a78bda; --text-faint:#6b5b8f;
+    --pink:#f0abfc; --danger:#fb7185; --danger-glow:rgba(251,113,133,.4);
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--bg);color:var(--text);
+    min-height:100vh;margin:0;padding:40px 16px;display:flex;align-items:center;justify-content:center;
+    background-image:
+      linear-gradient(rgba(168,85,247,.08) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(168,85,247,.08) 1px,transparent 1px);
+    background-size:34px 34px;
+    background-position:center;
+  }
+  .card{
+    width:100%;max-width:480px;background:linear-gradient(180deg,var(--panel),#080311);
+    border:1px solid var(--border);border-radius:14px;padding:32px 28px;
+    box-shadow:0 0 0 1px rgba(168,85,247,.08),0 0 40px rgba(168,85,247,.16),
+               inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .prompt{color:var(--text-faint);font-size:12px;letter-spacing:.06em;margin:0 0 6px}
+  .prompt .cur{display:inline-block;width:7px;height:13px;background:var(--purple);
+               margin-left:2px;vertical-align:-2px;animation:blink 1.1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+  h2{
+    margin:0 0 2px;font-size:26px;letter-spacing:.02em;color:#fff;
+    text-shadow:0 0 10px var(--purple-glow),0 0 24px rgba(168,85,247,.35);
+  }
+  .sub{color:var(--text-dim);font-size:13px;margin:0 0 20px}
+  .mode{display:flex;gap:8px;margin-bottom:16px}
+  .mode a{
+    flex:1;text-align:center;padding:8px 0;border:1px solid var(--border);text-decoration:none;
+    color:var(--text-dim);border-radius:8px;font-size:12px;letter-spacing:.1em;font-weight:600;
+    transition:all .15s;
+  }
+  .mode a:hover{border-color:var(--purple);color:var(--text)}
+  .mode a.active{
+    background:linear-gradient(135deg,var(--purple),var(--purple-dim));border-color:var(--purple);
+    color:#fff;box-shadow:0 0 18px var(--purple-glow);
+  }
+  .hint{color:var(--text-dim);font-size:12.5px;line-height:1.7;margin:0 0 20px;
+        border-left:2px solid var(--border);padding-left:10px}
+  code{background:rgba(168,85,247,.12);color:var(--pink);padding:1px 6px;border-radius:4px;
+       border:1px solid rgba(168,85,247,.2)}
+  input{
+    width:100%;padding:11px 12px;margin:0 0 10px;background:#0a0512;
+    border:1px solid var(--border);color:var(--text);border-radius:8px;font-family:inherit;
+    font-size:14px;transition:all .15s;
+  }
+  input::placeholder{color:var(--text-faint)}
+  input:focus{
+    outline:none;border-color:var(--purple);
+    box-shadow:0 0 0 3px rgba(168,85,247,.15),0 0 16px rgba(168,85,247,.25);
+  }
+  button{
+    width:100%;padding:11px 20px;margin-top:4px;
+    background:linear-gradient(135deg,var(--purple) 0%,var(--purple-dim) 100%);
+    color:#fff;border:0;border-radius:8px;cursor:pointer;font-family:inherit;font-size:14px;
+    font-weight:600;letter-spacing:.04em;box-shadow:0 0 18px var(--purple-glow);
+    transition:transform .1s,box-shadow .15s;
+  }
+  button:hover{box-shadow:0 0 28px rgba(168,85,247,.6);transform:translateY(-1px)}
+  button:active{transform:translateY(0)}
+  .msg{
+    padding:10px 14px;margin:0 0 16px;border-radius:8px;font-size:13.5px;
+    border:1px solid rgba(251,113,133,.4);background:rgba(251,113,133,.08);color:var(--danger);
+    box-shadow:0 0 14px var(--danger-glow);
+  }
+  .msg.ok{
+    border-color:rgba(168,85,247,.4);background:rgba(168,85,247,.08);color:var(--text);
+    box-shadow:0 0 14px var(--purple-glow);
+  }
+  .flag{
+    padding:14px;margin:0 0 18px;border-radius:8px;word-break:break-all;font-size:14px;
+    color:#fff;text-align:center;font-weight:600;letter-spacing:.02em;
+    border:1px solid rgba(217,70,239,.55);
+    background:linear-gradient(135deg,rgba(168,85,247,.16),rgba(217,70,239,.1));
+    box-shadow:0 0 26px rgba(217,70,239,.35),inset 0 0 20px rgba(168,85,247,.08);
+    animation:pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{box-shadow:0 0 20px rgba(217,70,239,.28),inset 0 0 16px rgba(168,85,247,.06)}
+    50%{box-shadow:0 0 34px rgba(217,70,239,.5),inset 0 0 24px rgba(168,85,247,.12)}
+  }
 </style>
-<h2>&#128274; SecureVault</h2>
-<p class="sub">internal staff login</p>
-<div class="mode">
-  <a href="/?mode=easy" class="{{ 'active' if mode=='easy' else '' }}">EASY</a>
-  <a href="/?mode=hard" class="{{ 'active' if mode=='hard' else '' }}">HARD</a>
+<div class="card">
+  <p class="prompt">root@securevault:~$ authenticate<span class="cur"></span></p>
+  <h2>&#128274; SecureVault</h2>
+  <p class="sub">internal staff login</p>
+  <div class="mode">
+    <a href="/?mode=easy" class="{{ 'active' if mode=='easy' else '' }}">EASY</a>
+    <a href="/?mode=hard" class="{{ 'active' if mode=='hard' else '' }}">HARD</a>
+  </div>
+  <p class="hint">{{ hint|safe }}</p>
+  {% if message %}<div class="msg {{ 'ok' if ok else '' }}">{{ message }}</div>{% endif %}
+  {% if flag %}<div class="flag">&#127937; {{ flag }}</div>{% endif %}
+  <form method="post" action="/login?mode={{ mode }}">
+    <input name="username" placeholder="username" autocomplete="off">
+    <input name="password" placeholder="password" autocomplete="off">
+    <button type="submit">Sign in</button>
+  </form>
 </div>
-<p class="hint">{{ hint|safe }}</p>
-{% if message %}<div class="msg {{ 'ok' if ok else '' }}">{{ message }}</div>{% endif %}
-{% if flag %}<div class="flag">&#127937; {{ flag }}</div>{% endif %}
-<form method="post" action="/login?mode={{ mode }}">
-  <input name="username" placeholder="username" autocomplete="off">
-  <input name="password" placeholder="password" autocomplete="off">
-  <button type="submit">Sign in</button>
-</form>
 """
-
 
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
