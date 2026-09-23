@@ -223,6 +223,7 @@ export type CtfEventUpdateInput = Partial<
     | "scoreboard_visibility"
     | "starts_at"
     | "registration_ends_at"
+    | "registration_until_end"
     | "ends_at"
   >
 >;

@@ -48,6 +48,7 @@ export function CtfEventEdit({
   const [description, setDescription] = useState(event.description ?? "");
   const [rules, setRules] = useState(event.rules_markdown ?? "");
   const [regEnd, setRegEnd] = useState(toLocalInput(event.registration_ends_at));
+  const [regUntilEnd, setRegUntilEnd] = useState(event.registration_until_end ?? false);
   const [start, setStart] = useState(toLocalInput(event.starts_at));
   const [end, setEnd] = useState(toLocalInput(event.ends_at));
   const [runtime, setRuntime] = useState<ChallengeRuntime>(event.challenge_runtime);
@@ -87,7 +88,7 @@ export function CtfEventEdit({
     const st = new Date(start).getTime();
     const en = new Date(end).getTime();
     if ([re, st, en].some(Number.isNaN)) return toast.error("All dates are required");
-    if (!(re <= st)) return toast.error("Registration must close at or before the event starts");
+    if (!regUntilEnd && !(re <= st)) return toast.error("Registration must close at or before the event starts");
     if (!(st < en)) return toast.error("The event must start before it ends");
     if (isPaid && !(Number(fee) > 0)) return toast.error("A paid event needs an entry fee above 0");
 
@@ -108,16 +109,11 @@ export function CtfEventEdit({
            history. Extending the end (giving everyone more time) and moving
            when registration closes are decisions about a running event, and
            ctf-svc accepts both. */
+        registration_ends_at: new Date(regUntilEnd ? end : regEnd).toISOString(),
+        registration_until_end: regUntilEnd,
         ...(started
-          ? {
-              registration_ends_at: new Date(regEnd).toISOString(),
-              ends_at: new Date(end).toISOString(),
-            }
-          : {
-              registration_ends_at: new Date(regEnd).toISOString(),
-              starts_at: new Date(start).toISOString(),
-              ends_at: new Date(end).toISOString(),
-            }),
+          ? { ends_at: new Date(end).toISOString() }
+          : { starts_at: new Date(start).toISOString(), ends_at: new Date(end).toISOString() }),
       };
       await ctfAdminApi.updateEvent(event.id, body);
       toast.success("Event updated");
@@ -175,9 +171,26 @@ export function CtfEventEdit({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <label className={label}>Registration closes</label>
-            <input type="datetime-local" className={field} value={regEnd} disabled={finished} onChange={(e) => setRegEnd(e.target.value)} />
+            <label className="mb-2 flex items-center gap-2 text-[12.5px] text-text-dim">
+              <input
+                type="checkbox"
+                checked={regUntilEnd}
+                disabled={finished}
+                onChange={(e) => setRegUntilEnd(e.target.checked)}
+              />
+              When the event ends
+            </label>
+            <input
+              type="datetime-local"
+              className={field}
+              value={regUntilEnd ? end : regEnd}
+              disabled={finished || regUntilEnd}
+              onChange={(e) => setRegEnd(e.target.value)}
+            />
             <p className="mt-1 text-[11.5px] text-text-faint">
-              May be any time up to the event&apos;s end — latecomers can still join.
+              {regUntilEnd
+                ? "Players can enter while the event is running — a late entrant just has less time on the clock."
+                : "May be any time up to the event's end — latecomers can still join."}
             </p>
           </div>
           <div>
