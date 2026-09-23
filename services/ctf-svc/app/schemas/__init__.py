@@ -78,6 +78,9 @@ class EventCreate(BaseModel):
     writeup_deadline: datetime | None = None
     invitation_only: bool = False
     invitation_code: str | None = None
+    # False: registration is entirely organiser-managed (see the model field
+    # docstring). True everywhere existing behaviour must not change.
+    self_serve_registration: bool = True
     max_participants: int | None = Field(default=None, ge=1)
     prize_pool: list[PrizeTier] = Field(default_factory=list)
     cover_image_url: str | None = None
@@ -129,6 +132,7 @@ class EventUpdate(BaseModel):
     rules_markdown: str | None = None
     sponsor_info: dict[str, Any] | None = None
     invitation_code: str | None = None
+    self_serve_registration: bool | None = None
     entry_fee_cents: int | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=8)
     refund_policy: str | None = None
@@ -184,6 +188,7 @@ class EventRead(BaseModel):
     pause_ends_at: datetime | None = None
     pause_reason: str | None = None
     invitation_only: bool
+    self_serve_registration: bool = True
     max_participants: int | None = None
     prize_pool: list[dict[str, Any]] = Field(default_factory=list)
     status: str

@@ -61,7 +61,8 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
   const [start, setStart] = useState(plusHours(24));
   const [end, setEnd] = useState(plusHours(72));
   const [tier, setTier] = useState<CtfRequiredTier>("free");
-  const [isPaid, setIsPaid] = useState(false);
+  const [entryMode, setEntryMode] = useState<"free" | "paid" | "manual">("free");
+  const isPaid = entryMode !== "free";
   const [fee, setFee] = useState("10.00");
   const [currency, setCurrency] = useState("USD");
   const [refundPolicy, setRefundPolicy] = useState("");
@@ -132,6 +133,7 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         // fixed cut-off restores the date rather than starting from blank.
         registration_ends_at: toIso(regUntilEnd ? end : regEnd),
         registration_until_end: regUntilEnd,
+        self_serve_registration: entryMode !== "manual",
         has_waves: hasWaves,
         starts_at: toIso(start),
         ends_at: toIso(end),
@@ -349,10 +351,13 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         <div className="rounded-xl border border-line bg-bg-elevated/50 p-4">
           <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-[14px]">
-              <input type="radio" checked={!isPaid} onChange={() => setIsPaid(false)} /> Free entry
+              <input type="radio" checked={entryMode === "free"} onChange={() => setEntryMode("free")} /> Free entry
             </label>
             <label className="flex items-center gap-2 text-[14px]">
-              <input type="radio" checked={isPaid} onChange={() => setIsPaid(true)} /> Paid entry
+              <input type="radio" checked={entryMode === "paid"} onChange={() => setEntryMode("paid")} /> Paid entry
+            </label>
+            <label className="flex items-center gap-2 text-[14px]">
+              <input type="radio" checked={entryMode === "manual"} onChange={() => setEntryMode("manual")} /> Manual entry
             </label>
           </div>
           {isPaid && (
@@ -376,9 +381,16 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
               </div>
             </div>
           )}
-          {isPaid && (
+          {entryMode === "paid" && (
             <p className="mt-3 text-[12px] text-warning">
               Registrations stay pending until payment settles, and only count toward the participant total once paid.
+            </p>
+          )}
+          {entryMode === "manual" && (
+            <p className="mt-3 text-[12px] text-text-dim">
+              No self-serve register button is shown to players. Add every team yourself from the event&apos;s
+              management page once it exists -- useful while a payment gateway is not yet live but the event should
+              still carry a price.
             </p>
           )}
         </div>

@@ -69,7 +69,7 @@ interface ApiCtfEvent {
   id: string; slug: string; name: string; description: string | null;
   format: string; status: string; starts_at: string; ends_at: string;
   total_registered: number; total_teams: number; challenge_count: number;
-  entry_fee_cents?: number; currency?: string;
+  entry_fee_cents?: number; currency?: string; self_serve_registration?: boolean;
   scoreboard_visibility?: "public" | "participants" | "hidden";
   is_paused?: boolean;
   pause_starts_at?: string | null;
@@ -97,6 +97,7 @@ function mapCtfEvent(e: ApiCtfEvent, challengeCount?: number, isRegistered = fal
     endsAt: e.ends_at,
     participantCount: e.total_registered ?? 0,
     entryFeeCents: e.entry_fee_cents ?? 0,
+    selfServeRegistration: e.self_serve_registration ?? true,
     currency: e.currency ?? "USD",
     scoreboardVisibility: e.scoreboard_visibility ?? "public",
     isPaused: Boolean(e.is_paused),

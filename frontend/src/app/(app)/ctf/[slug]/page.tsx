@@ -171,6 +171,7 @@ export default function CtfEventPage({ params }: { params: Promise<{ slug: strin
                         teamPlay={event.teamPlay}
                         entryFeeCents={event.entryFeeCents}
                         currency={event.currency}
+                        selfServeRegistration={event.selfServeRegistration}
                       />
                     </div>
                   </>
@@ -209,6 +210,7 @@ export default function CtfEventPage({ params }: { params: Promise<{ slug: strin
                           teamPlay={event.teamPlay}
                           entryFeeCents={event.entryFeeCents}
                           currency={event.currency}
+                          selfServeRegistration={event.selfServeRegistration}
                         />
                       </div>
                     )}

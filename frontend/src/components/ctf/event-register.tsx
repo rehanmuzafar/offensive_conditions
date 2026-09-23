@@ -45,6 +45,7 @@ export function EventRegister({
   teamPlay,
   entryFeeCents = 0,
   currency = "USD",
+  selfServeRegistration = true,
 }: {
   slug: string;
   registered: boolean;
@@ -52,6 +53,9 @@ export function EventRegister({
   /** Minor units. Above zero turns registration into a two-step flow. */
   entryFeeCents?: number;
   currency?: string;
+  /** False: the organiser adds every entry by hand. No self-serve control is
+   *  shown at all -- there is nothing here for a player to press. */
+  selfServeRegistration?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const me = useAuthStore((s) => s.user);
@@ -70,6 +74,14 @@ export function EventRegister({
       <span className="block w-full bg-success/12 px-4 py-2 text-center text-[14px] font-semibold text-success">
         ✓ Registered
       </span>
+    );
+  }
+
+  if (!selfServeRegistration) {
+    return (
+      <p className="border border-line bg-surface-hover px-4 py-2.5 text-center text-[12.5px] leading-relaxed text-text-dim">
+        Registration for this event is managed by the organiser. Contact them to be added.
+      </p>
     );
   }
 

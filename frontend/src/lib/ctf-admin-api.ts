@@ -155,6 +155,7 @@ export interface AdminCtfEvent {
   entry_fee_cents: number;
   currency: string;
   refund_policy: string | null;
+  self_serve_registration: boolean;
   challenge_runtime: ChallengeRuntime;
   scoreboard_visibility: "public" | "participants" | "hidden";
   max_participants: number | null;
@@ -192,6 +193,7 @@ export interface CtfEventCreateInput {
   entry_fee_cents: number;
   currency: string;
   refund_policy?: string | null;
+  self_serve_registration?: boolean;
   challenge_runtime: ChallengeRuntime;
   scoreboard_visibility?: "public" | "participants" | "hidden";
   max_participants?: number | null;
@@ -219,6 +221,7 @@ export type CtfEventUpdateInput = Partial<
     | "entry_fee_cents"
     | "currency"
     | "refund_policy"
+    | "self_serve_registration"
     | "challenge_runtime"
     | "scoreboard_visibility"
     | "starts_at"

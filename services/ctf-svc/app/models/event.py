@@ -105,6 +105,12 @@ class Event(Base, TimestampMixin):
         Boolean, nullable=False, default=True, server_default="true"
     )
     invitation_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # False: the player-initiated register/pay flow is off entirely and every
+    # entry is added by an organiser (admin_comp). Independent of entry_fee_cents
+    # -- an event can be priced and still take zero self-serve entries.
+    self_serve_registration: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     invitation_code: Mapped[str | None] = mapped_column(Text)
     max_participants: Mapped[int | None] = mapped_column(Integer)
 

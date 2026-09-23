@@ -40,6 +40,8 @@ export interface CtfEvent {
   participantCount: number;
   /** Entry fee in minor units — 0 for a free event. Money is never a float. */
   entryFeeCents: number;
+  /** False: registration is organiser-managed only, no self-serve button shown. */
+  selfServeRegistration: boolean;
   currency: string;
   teamCount: number;
   challengeCount: number;

@@ -59,7 +59,10 @@ export function CtfEventEdit({
     event.writeup_required_top_n ? String(event.writeup_required_top_n) : "",
   );
   const [writeupDeadline, setWriteupDeadline] = useState(toLocalInput(event.writeup_deadline));
-  const [isPaid, setIsPaid] = useState(event.entry_fee_cents > 0);
+  const [entryMode, setEntryMode] = useState<"free" | "paid" | "manual">(
+    !event.self_serve_registration ? "manual" : event.entry_fee_cents > 0 ? "paid" : "free",
+  );
+  const isPaid = entryMode !== "free";
   const [fee, setFee] = useState((event.entry_fee_cents / 100).toFixed(2));
   const [currency, setCurrency] = useState(event.currency);
   const [banner, setBanner] = useState<string | null>(event.cover_image_url);
@@ -105,6 +108,7 @@ export function CtfEventEdit({
         writeup_deadline: writeupDeadline ? new Date(writeupDeadline).toISOString() : null,
         entry_fee_cents: isPaid ? Math.round(Number(fee) * 100) : 0,
         currency,
+        self_serve_registration: entryMode !== "manual",
         /* While the event runs, only *when it started* is off-limits — that is
            history. Extending the end (giving everyone more time) and moving
            when registration closes are decisions about a running event, and
@@ -294,12 +298,21 @@ export function CtfEventEdit({
         <div className="rounded-xl border border-line bg-bg-elevated/50 p-4">
           <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-[14px]">
-              <input type="radio" checked={!isPaid} onChange={() => setIsPaid(false)} /> Free entry
+              <input type="radio" checked={entryMode === "free"} disabled={finished} onChange={() => setEntryMode("free")} /> Free entry
             </label>
             <label className="flex items-center gap-2 text-[14px]">
-              <input type="radio" checked={isPaid} onChange={() => setIsPaid(true)} /> Paid entry
+              <input type="radio" checked={entryMode === "paid"} disabled={finished} onChange={() => setEntryMode("paid")} /> Paid entry
+            </label>
+            <label className="flex items-center gap-2 text-[14px]">
+              <input type="radio" checked={entryMode === "manual"} disabled={finished} onChange={() => setEntryMode("manual")} /> Manual entry
             </label>
           </div>
+          {entryMode === "manual" && (
+            <p className="mt-3 text-[12px] text-text-dim">
+              No self-serve register button is shown to players. Add every team yourself from the Comp team panel
+              below.
+            </p>
+          )}
           {isPaid && (
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>

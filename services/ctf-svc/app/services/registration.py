@@ -56,6 +56,13 @@ class RegistrationService:
         if event.total_registered >= event.max_participants:
             raise AppError(ErrorCode.EVENT_REGISTRATION_FULL, "event is full")
 
+    def _check_self_serve(self, event: Event) -> None:
+        if not event.self_serve_registration:
+            raise AppError(
+                ErrorCode.EVENT_MANUAL_REGISTRATION_ONLY,
+                "registration for this event is managed by the organiser -- contact them to be added",
+            )
+
     async def _check_invitation(self, event: Event, code: str | None) -> None:
         if not event.invitation_only and event.visibility != "private":
             return
@@ -142,6 +149,7 @@ class RegistrationService:
 
         await self._check_registration_window(event)
         await self._check_capacity(event)
+        self._check_self_serve(event)
         await self._check_invitation(event, invitation_code)
 
         # Already registered?
@@ -252,6 +260,7 @@ class RegistrationService:
 
         await self._check_registration_window(event)
         await self._check_capacity(event)
+        self._check_self_serve(event)
         await self._check_invitation(event, invitation_code)
 
         if event.max_team_size and member_count > event.max_team_size:
