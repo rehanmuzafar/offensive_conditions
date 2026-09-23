@@ -24,8 +24,8 @@ export function CtfEventCard({ event }: { event: CtfEvent }) {
      vocabulary across every card in the product. */
   return (
     <Tilt className="h-full">
-      <Link href={`/ctf/${event.slug}`} className="block">
-        <Card interactive className="group h-full overflow-hidden">
+      <Link href={`/ctf/${event.slug}`} className="block h-full">
+        <Card interactive className="group flex h-full flex-col overflow-hidden">
           <div
             className={`relative h-40 overflow-hidden border-b border-line ${
               hasArtwork ? "" : "bg-grid"
@@ -69,7 +69,7 @@ export function CtfEventCard({ event }: { event: CtfEvent }) {
             </div>
           </div>
 
-          <div className="p-4">
+          <div className="flex flex-1 flex-col p-4">
             <p className="line-clamp-2 text-[12.5px] leading-[1.7] text-text-dim">{event.description}</p>
 
             {/* timing */}
@@ -94,7 +94,7 @@ export function CtfEventCard({ event }: { event: CtfEvent }) {
             </div>
 
             {/* stats */}
-            <div className="mt-4 flex items-center gap-4 border-t border-line pt-3 text-[12.5px] text-text-faint">
+            <div className="mt-auto flex items-center gap-4 border-t border-line pt-3 text-[12.5px] text-text-faint">
               <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" /> {formatNumber(event.participantCount)}</span>
               <span className="flex items-center gap-1.5"><Flag className="h-3.5 w-3.5" /> {event.challengeCount} challenges</span>
               {event.isRegistered && (

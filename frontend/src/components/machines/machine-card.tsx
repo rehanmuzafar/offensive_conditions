@@ -26,8 +26,8 @@ export function MachineCard({ machine }: { machine: Machine }) {
      answers the mouse the way the rest of the product does. */
   return (
     <Tilt className="h-full">
-      <Link href={`/machines/${machine.slug}`} className="block">
-        <Card interactive className="group relative h-full overflow-hidden">
+      <Link href={`/machines/${machine.slug}`} className="block h-full">
+        <Card interactive className="group relative flex h-full flex-col overflow-hidden">
           {/* Identity stripe — the only place the per-machine colour survives. */}
           <span
             aria-hidden
@@ -64,7 +64,7 @@ export function MachineCard({ machine }: { machine: Machine }) {
           </div>
 
           {/* body */}
-          <div className="p-4">
+          <div className="flex flex-1 flex-col p-4">
             <div className="flex items-center justify-between">
               <DifficultyBadge difficulty={machine.difficulty} />
               <span className="font-display text-[15px] font-bold tabular-nums">
@@ -87,7 +87,7 @@ export function MachineCard({ machine }: { machine: Machine }) {
               <Rating value={machine.rating} count={machine.ratingCount} />
             </div>
 
-            <div className="mt-2.5 flex items-center gap-4 text-[11px] tabular-nums text-text-faint">
+            <div className="mt-auto flex items-center gap-4 pt-2.5 text-[11px] tabular-nums text-text-faint">
               <span className="flex items-center gap-1.5">
                 <Users className="h-3 w-3" /> {formatNumber(machine.userOwns)} user
               </span>
