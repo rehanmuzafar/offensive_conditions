@@ -285,6 +285,16 @@ func registerRoutes(r *gin.Engine, d *routeDeps) {
 	authed.Use(middleware.RequireAuth(d.validator, d.log))
 	authed.Use(middleware.LastSeenTracker(d.track))
 
+	// Moderation. RequireRole rejects anyone without the admin role before a
+	// handler runs, so these routes need no per-action ownership check of
+	// their own the way the self-service ones above do.
+	admin := v1.Group("/admin")
+	admin.Use(middleware.RequireAuth(d.validator, d.log))
+	admin.Use(middleware.RequireRole("admin"))
+	admin.DELETE("/teams/:id", d.team.AdminDisband)
+	admin.POST("/users/:id/delete", d.gdpr.AdminRequestDeletion)
+	admin.GET("/users/:id/delete", d.gdpr.AdminDeletionStatus)
+
 	// Profile
 	authed.GET("/users/me", d.profile.Me)
 	authed.PATCH("/users/me", d.profile.UpdateMe)

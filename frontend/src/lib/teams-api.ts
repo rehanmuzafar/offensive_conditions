@@ -199,6 +199,9 @@ export const teamsApi = {
 
   disband: (id: string) => api.delete<void>(`/v1/teams/${id}`),
 
+  /** Moderation: disband any team regardless of ownership. Admin-role only. */
+  adminDisband: (id: string) => api.delete<void>(`/v1/admin/teams/${id}`),
+
   members: async (id: string): Promise<TeamMember[]> =>
     (await api.get<{ members: TeamMember[] }>(`/v1/teams/${id}/members`)).members ?? [],
 

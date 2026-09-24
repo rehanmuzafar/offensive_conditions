@@ -3,29 +3,34 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Users } from "lucide-react";
+import { Search, Trash2, Users } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Card, Skeleton } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/identity";
 import { Flag } from "@/components/ui/flag";
 import { teamsApi } from "@/lib/teams-api";
+import { useAdminDisbandTeam } from "@/hooks/use-admin";
 
 /**
- * Team monitoring.
+ * Team monitoring, and moderation.
  *
- * Read-only, and deliberately so: user-svc owns teams and exposes no
- * moderation endpoint, so anything beyond looking would be a button that
- * cannot work. The roster it does serve — name, category, country, size,
- * whether it is recruiting — is enough to answer the question an organiser
- * actually has, which is who is out there and how big they are.
+ * Disbanding is a soft delete (user-svc's AdminDisband): the row stays for
+ * anything elsewhere that still keys off its id, it just stops appearing in
+ * this listing or any search. There is no hard delete here on purpose --
+ * this platform has no cross-service transaction, so hard-deleting a team_id
+ * that a different service still references would leave dangling rows there
+ * instead of a live team here.
  */
 export default function AdminTeamsPage() {
   const [q, setQ] = useState("");
+  const [confirming, setConfirming] = useState<string | null>(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ["admin-teams", q.trim()],
     queryFn: () => teamsApi.browse({ q: q.trim() }),
     staleTime: 30_000,
   });
+  const disband = useAdminDisbandTeam();
 
   const teams = data ?? [];
 
@@ -60,21 +65,22 @@ export default function AdminTeamsPage() {
       ) : teams.length === 0 ? (
         <Card>
           <p className="px-5 py-14 text-center text-[13px] text-text-dim">
-            {q.trim() ? `No team matches “${q.trim()}”.` : "No public teams yet."}
+            {q.trim() ? `No team matches "${q.trim()}".` : "No public teams yet."}
           </p>
         </Card>
       ) : (
         <Card className="p-0">
-          <div className="grid grid-cols-[1fr_100px_90px] gap-3 border-b border-line px-5 py-3 text-[12px] font-bold uppercase tracking-[1px] text-text-faint sm:grid-cols-[1fr_150px_110px_100px]">
+          <div className="grid grid-cols-[1fr_100px_90px_80px] gap-3 border-b border-line px-5 py-3 text-[12px] font-bold uppercase tracking-[1px] text-text-faint sm:grid-cols-[1fr_150px_110px_100px_90px]">
             <span>Team</span>
             <span className="hidden sm:block">Category</span>
             <span>Country</span>
             <span className="text-right">Members</span>
+            <span></span>
           </div>
           {teams.map((t) => (
             <div
               key={t.id}
-              className="grid grid-cols-[1fr_100px_90px] items-center gap-3 border-b border-line px-5 py-3.5 last:border-0 hover:bg-surface-hover sm:grid-cols-[1fr_150px_110px_100px]"
+              className="grid grid-cols-[1fr_100px_90px_80px] items-center gap-3 border-b border-line px-5 py-3.5 last:border-0 hover:bg-surface-hover sm:grid-cols-[1fr_150px_110px_100px_90px]"
             >
               <Link href={`/teams/${t.slug || t.id}`} className="flex min-w-0 items-center gap-3">
                 <Avatar username={t.name} size="sm" />
@@ -104,6 +110,24 @@ export default function AdminTeamsPage() {
                 {t.member_count}
                 {t.max_members ? `/${t.max_members}` : ""}
               </span>
+              {/* Two-step, same shape as the challenge-delete confirm: in a
+                  list of similar rows the dangerous mistake is disbanding the
+                  one next to the one you meant. */}
+              <Button
+                variant="danger"
+                size="sm"
+                loading={disband.isPending && confirming === t.id}
+                onClick={() => {
+                  if (confirming !== t.id) {
+                    setConfirming(t.id);
+                    return;
+                  }
+                  disband.mutate(t.id, { onSuccess: () => setConfirming(null) });
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {confirming === t.id ? "Confirm" : "Delete"}
+              </Button>
             </div>
           ))}
         </Card>

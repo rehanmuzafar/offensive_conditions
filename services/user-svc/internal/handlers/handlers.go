@@ -384,6 +384,26 @@ func (h *TeamHandler) Disband(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// AdminDisband is the moderation path: any team, any owner, gated on the
+// admin role at the route rather than on who owns the team.
+func (h *TeamHandler) AdminDisband(c *gin.Context) {
+	uid, ok := middleware.UserIDFrom(c)
+	if !ok {
+		respondError(c, uerrors.New(uerrors.CodeUnauthorized, "no user"))
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, uerrors.New(uerrors.CodeBadRequest, "invalid team id"))
+		return
+	}
+	if err := h.svc.AdminDisband(c.Request.Context(), id, uid, middleware.RequestIDFrom(c)); err != nil {
+		respondError(c, asUErr(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 type inviteRequest struct {
 	InviteeID uuid.UUID `json:"invitee_id"`
 	Message   string    `json:"message,omitempty"`
@@ -902,6 +922,42 @@ func (h *GDPRHandler) RequestDeletion(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"ok": true, "message": "deletion scheduled; check status for the date"})
+}
+
+// AdminRequestDeletion schedules deletion for any account, admin-only. It
+// calls the identical service method a user's own "delete my account" does
+// -- same 30-day grace, same erasure job, same audit trail -- so an account
+// an admin deletes is erased exactly as safely as one that deletes itself.
+// There is no immediate-purge path: that would be a second, less-tested way
+// to destroy account data, for a case (getting rid of a test account) that
+// does not need one.
+func (h *GDPRHandler) AdminRequestDeletion(c *gin.Context) {
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, uerrors.New(uerrors.CodeBadRequest, "invalid user id"))
+		return
+	}
+	if err := h.svc.RequestDeletion(c.Request.Context(), targetID, middleware.RequestIDFrom(c)); err != nil {
+		respondError(c, asUErr(err))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"ok": true, "message": "deletion scheduled; check status for the date"})
+}
+
+// AdminDeletionStatus lets an admin see the scheduled date for any account,
+// the same shape as a user checking their own.
+func (h *GDPRHandler) AdminDeletionStatus(c *gin.Context) {
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondError(c, uerrors.New(uerrors.CodeBadRequest, "invalid user id"))
+		return
+	}
+	status, err := h.svc.GetDeletionStatus(c.Request.Context(), targetID)
+	if err != nil {
+		respondError(c, asUErr(err))
+		return
+	}
+	c.JSON(http.StatusOK, status)
 }
 
 func (h *GDPRHandler) CancelDeletion(c *gin.Context) {

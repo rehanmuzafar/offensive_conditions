@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { adminApi, mapQueueItem } from "@/lib/admin-api";
+import { teamsApi } from "@/lib/teams-api";
 import {
   MOCK_OVERVIEW,
   mockAdminMachines,
@@ -138,6 +139,20 @@ export function useSetUserStatus() {
   });
 }
 
+/** Schedules the same 30-day GDPR erasure the user's own "delete my account"
+ *  does -- not an instant purge. See lib/admin-api.ts. */
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteUser(id),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+      toast.success(res.message || "Deletion scheduled");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't schedule deletion"),
+  });
+}
+
 export function useFlaggedContent() {
   return useQuery({ queryKey: ["flagged"], queryFn: () => withMock(() => adminApi.flaggedContent(), () => MOCK_FLAGGED) });
 }
@@ -165,5 +180,20 @@ export function useCreateBroadcast() {
       toast.success("Broadcast created");
     },
     onError: () => toast.error("Couldn't create broadcast"),
+  });
+}
+
+/** Moderation: disband any team, regardless of ownership. Soft-delete --
+ *  the row stays for anything elsewhere that still references its id, it
+ *  just stops appearing in any listing or search. */
+export function useAdminDisbandTeam() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => teamsApi.adminDisband(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-teams"] });
+      toast.success("Team disbanded");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Couldn't disband team"),
   });
 }

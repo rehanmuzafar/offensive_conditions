@@ -254,6 +254,26 @@ func (s *Service) Disband(ctx context.Context, teamID, actorID uuid.UUID, reques
 	return nil
 }
 
+// AdminDisband disbands any team regardless of ownership. The self-service
+// path above is deliberately owner-only; moderation and test-data cleanup
+// need to reach a team whose owner is gone, unreachable, or the one being
+// moderated -- waiting on them is not an option. Same soft-delete underneath
+// (teamRepo.Disband), so history in other services that references this
+// team_id stays intact; the row just stops appearing anywhere teams are
+// listed or searched.
+func (s *Service) AdminDisband(ctx context.Context, teamID, adminID uuid.UUID, requestID string) error {
+	if _, err := s.Get(ctx, teamID); err != nil {
+		return err
+	}
+	if err := s.teamRepo.Disband(ctx, teamID); err != nil {
+		return uerrors.Internal(err)
+	}
+	if s.publisher != nil {
+		_ = s.publisher.PublishTeamDisbanded(ctx, teamID, adminID, requestID)
+	}
+	return nil
+}
+
 // =============================================================================
 // Invitations
 // =============================================================================

@@ -288,6 +288,12 @@ export const adminApi = {
   setUserRoles: (id: string, roles: string[]) =>
     api.post<void>(`/v1/admin/users/${id}/roles`, { body: { roles } }),
 
+  /** Schedules the same 30-day GDPR erasure a user gets requesting their own
+   *  deletion -- there is no immediate-purge path here, admin or not. */
+  deleteUser: (id: string) => api.post<{ ok: boolean; message: string }>(`/v1/admin/users/${id}/delete`),
+  userDeletionStatus: (id: string) =>
+    api.get<{ Status: string; ScheduledAt: string | null } | null>(`/v1/admin/users/${id}/delete`),
+
   // moderation
   flaggedContent: () => api.get<FlaggedContent[]>("/v1/admin/moderation/flagged"),
   moderate: (id: string, action: "approve" | "remove" | "lock") =>
