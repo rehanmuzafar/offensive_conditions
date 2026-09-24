@@ -9,6 +9,7 @@ import { FormField, Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { OAuthButtons, OrDivider } from "../_components/oauth-buttons";
 import { useLogin } from "@/hooks/use-auth";
+import { SignInFormFade } from "@/components/auth/sign-in-transition";
 
 export default function LoginPage() {
   const login = useLogin();
@@ -21,7 +22,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="animate-fade-up">
+    <SignInFormFade>
+      <div className="animate-fade-up">
       <h1 className="font-display text-[28px] font-extrabold tracking-[-0.5px]">Welcome back</h1>
       <p className="mt-1.5 text-[15px] text-text-dim">
         Sign in to continue your offensive security journey.
@@ -72,6 +74,7 @@ export default function LoginPage() {
           Create an account
         </Link>
       </p>
-    </div>
+      </div>
+    </SignInFormFade>
   );
 }

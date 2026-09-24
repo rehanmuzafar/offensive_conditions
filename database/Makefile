@@ -12,9 +12,9 @@ DB_HOST ?= localhost
 DB_PORT ?= 5432
 DB_NAME ?= offcon
 DB_ADMIN_USER ?= offcon_admin
-DB_ADMIN_PASS ?= dev_only_change_in_prod
+DB_ADMIN_PASS ?= dev-only-local-password-change-me
 DB_MIGRATOR_USER ?= migrator
-DB_MIGRATOR_PASS ?= dev_only_change_in_prod
+DB_MIGRATOR_PASS ?= dev-only-local-password-change-me
 
 # Colors
 CYAN := \033[36m

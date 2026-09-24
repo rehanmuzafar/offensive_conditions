@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, UserPlus, X } from "lucide-react";
+import { Check, ChevronDown, UserPlus, X } from "lucide-react";
 
 import { useSetChallengeProgress } from "@/hooks/use-progress";
 import {
@@ -116,7 +116,7 @@ function StatusPicker({
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false));
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-menu-open={open ? "true" : undefined}>
       <button
         disabled={pending}
         onClick={() => setOpen((v) => !v)}
@@ -129,20 +129,31 @@ function StatusPicker({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1.5 w-44 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
-          {PICKABLE.map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                onPick(s);
-                setOpen(false);
-              }}
-              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13.5px] text-text hover:bg-surface-hover"
-            >
-              <Diamond status={s} />
-              {STATUS_LABEL[s]}
-            </button>
-          ))}
+        /* Opaque, not .glass: that panel wash sits at 0.62 alpha so the page can
+           show through, which is right for a panel and wrong for a menu -- the
+           SOLVED block's column headers were legible straight through this one. */
+        <div className="absolute left-0 top-full z-30 mt-1.5 w-44 overflow-hidden rounded-xl border border-line bg-bg-elevated shadow-xl">
+          {PICKABLE.map((s) => {
+            const isCurrent = s === status;
+            return (
+              <button
+                key={s}
+                onClick={() => {
+                  onPick(s);
+                  setOpen(false);
+                }}
+                aria-current={isCurrent ? "true" : undefined}
+                className={cn(
+                  "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13.5px] hover:bg-surface-hover",
+                  isCurrent ? "bg-surface-hover font-semibold text-text" : "text-text",
+                )}
+              >
+                <Diamond status={s} />
+                <span className="min-w-0 flex-1 truncate">{STATUS_LABEL[s]}</span>
+                {isCurrent && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+              </button>
+            );
+          })}
           {status !== "untouched" && (
             <button
               onClick={() => {
@@ -181,7 +192,7 @@ function AssigneePicker({
   const shown = mates.filter((m) => m.username.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" data-menu-open={open ? "true" : undefined}>
       <button
         disabled={pending}
         onClick={() => setOpen((v) => !v)}
@@ -202,7 +213,7 @@ function AssigneePicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1.5 w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+        <div className="absolute right-0 top-full z-30 mt-1.5 w-56 overflow-hidden rounded-xl border border-line bg-bg-elevated shadow-xl">
           <p className="border-b border-line px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-text-dim">
             Assign team member
           </p>
@@ -219,21 +230,31 @@ function AssigneePicker({
                 className="w-full border-b border-line bg-transparent px-3 py-2 text-[13px] text-text outline-none placeholder:text-text-faint"
               />
               <div className="max-h-52 overflow-y-auto">
-                {shown.map((m) => (
-                  <button
-                    key={m.user_id}
-                    onClick={() => {
-                      onAssign(m);
-                      setOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13.5px] text-text hover:bg-surface-hover"
-                  >
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-gradient text-[10px] font-bold text-text-on-brand">
-                      {m.username.slice(0, 2).toUpperCase()}
-                    </span>
-                    {m.username}
-                  </button>
-                ))}
+                {shown.map((m) => {
+                  const isAssigned = m.user_id === assignedId;
+                  return (
+                    <button
+                      key={m.user_id}
+                      onClick={() => {
+                        onAssign(m);
+                        setOpen(false);
+                      }}
+                      aria-current={isAssigned ? "true" : undefined}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13.5px] hover:bg-surface-hover",
+                        isAssigned ? "bg-surface-hover font-semibold text-text" : "text-text",
+                      )}
+                    >
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-gradient text-[10px] font-bold text-text-on-brand">
+                        {m.username.slice(0, 2).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{m.username}</span>
+                      {/* Without this the menu gives no sign of who currently holds
+                          the scenario -- every row looks identical. */}
+                      {isAssigned && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+                    </button>
+                  );
+                })}
               </div>
               {assignedId && (
                 <button

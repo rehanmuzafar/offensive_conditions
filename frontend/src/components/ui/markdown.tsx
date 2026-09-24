@@ -12,11 +12,45 @@
 
 import { useMemo } from "react";
 
+// Quotes are escaped as well as tags, because escaped text is interpolated into
+// attribute values below. Without them a link target could close the `href` and
+// add an event handler — which is exactly what it used to do.
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Schemes a link may use. An allowlist rather than a blocklist: `javascript:`
+// is the one everybody remembers, but `data:`, `vbscript:` and `blob:` are all
+// script-bearing too, and the next one is not on anybody's list yet.
+// Relative paths and fragments are kept because writeups link within the site.
+const SAFE_URL = /^(?:https?:\/\/|mailto:|\/|#)/i;
+
+/**
+ * Return the URL if it is safe to put in an `href`, or null to render the link
+ * as plain text instead.
+ *
+ * The input has already been through escapeHtml, so entity tricks
+ * (`java&#115;cript:`) are inert — the `&` is now `&amp;` and the browser will
+ * not decode it back. What is left to defend against is characters the URL
+ * parser discards before reading the scheme: a tab or newline inside
+ * `java<TAB>script:` is stripped by the browser, so the test has to be made
+ * against the same string the browser will end up with.
+ */
+function safeUrl(raw: string): string | null {
+  const candidate = raw.trim();
+  // Characters at or below a space are dropped by the URL parser before
+  // the scheme is read, so the test has to run against the string the
+  // browser ends up with -- otherwise "java<TAB>script:" slips through.
+  const asBrowserSeesIt = candidate
+    .split("")
+    .filter((ch) => ch.charCodeAt(0) > 32)
+    .join("");
+  return SAFE_URL.test(asBrowserSeesIt) ? candidate : null;
 }
 
 function inline(s: string): string {
@@ -27,11 +61,13 @@ function inline(s: string): string {
   t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   // italic
   t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
-  // links [text](url)
-  t = t.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" class="text-accent hover:underline" target="_blank" rel="noopener noreferrer">$1</a>',
-  );
+  // links [text](url) — a rejected target keeps its text and loses the link,
+  // so a post stays readable instead of silently losing content.
+  t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text: string, href: string) => {
+    const url = safeUrl(href);
+    if (url === null) return text;
+    return `<a href="${url}" class="text-accent hover:underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  });
   // @mentions
   t = t.replace(/(^|\s)@(\w+)/g, '$1<span class="font-semibold text-accent">@$2</span>');
   return t;

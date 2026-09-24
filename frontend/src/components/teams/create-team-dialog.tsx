@@ -58,7 +58,7 @@ export function CreateTeamDialog({
       role="presentation"
     >
       <div
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-line bg-surface p-6"
+        className="max-h-[90vh] w-full max-w-xl overflow-y-auto glass p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-5 flex items-center justify-between">

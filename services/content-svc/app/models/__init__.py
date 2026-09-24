@@ -31,3 +31,4 @@ __all__ = [
     "PathModule",
     "Tag",
 ]
+from app.models.featured import Featured  # noqa: F401

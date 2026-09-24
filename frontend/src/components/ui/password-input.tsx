@@ -67,7 +67,7 @@ export function PasswordStrength({ value }: { value: string }) {
           <div
             key={i}
             className={cn(
-              "h-1.5 flex-1 rounded-full transition-colors",
+              "h-1.5 flex-1 transition-colors",
               i < score ? COLORS[score] : "bg-line-strong",
             )}
           />

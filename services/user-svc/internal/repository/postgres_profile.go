@@ -37,6 +37,8 @@ const profileSelectColumns = `
 	COALESCE(p.allow_friend_requests, TRUE),
 	COALESCE(p.allow_messages, 'anyone'),
 	COALESCE(p.onboarding_complete, FALSE),
+	COALESCE(p.account_type, ''),
+	COALESCE(p.company_name, ''), COALESCE(p.company_website, ''),
 	p.created_at, p.updated_at, u.last_seen_at`
 
 const profileSelectFrom = `users.profiles p
@@ -65,6 +67,7 @@ func scanProfile(row pgx.Row) (*Profile, error) {
 		&p.Privacy.AllowFriendRequests,
 		&p.Privacy.AllowMessages,
 		&p.OnboardingComplete,
+		&p.AccountType, &p.CompanyName, &p.CompanyWebsite,
 		&p.CreatedAt, &p.UpdatedAt, &lastSeen,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -131,6 +134,23 @@ func (r *pgProfileRepo) Create(ctx context.Context, p *Profile) error {
 		p.Privacy.AllowFriendRequests, p.Privacy.AllowMessages,
 		p.OnboardingComplete,
 	)
+	return err
+}
+
+// SetAccountType records the answer to the first-sign-in question and closes
+// onboarding in the same statement — they are one decision, and leaving
+// onboarding open after the answer would ask again on the next login.
+func (r *pgProfileRepo) SetAccountType(
+	ctx context.Context, userID uuid.UUID, kind, companyName, companyWebsite string,
+) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users.profiles
+		   SET account_type = $2,
+		       company_name = NULLIF($3, ''),
+		       company_website = NULLIF($4, ''),
+		       onboarding_complete = TRUE,
+		       updated_at = now()
+		 WHERE user_id = $1`, userID, kind, companyName, companyWebsite)
 	return err
 }
 

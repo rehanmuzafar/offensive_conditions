@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"net/netip"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/offensive-conditions/auth/internal/config"
 	autherrors "github.com/offensive-conditions/auth/internal/errors"
 	"github.com/offensive-conditions/auth/internal/middleware"
 	"github.com/offensive-conditions/auth/internal/service"
@@ -60,12 +62,14 @@ type LoginTFARequest struct {
 }
 
 type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 type RefreshResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken string `json:"access_token"`
+	// Never populated: the refresh token is delivered as an HttpOnly cookie.
+	// Kept so older clients deserialising this shape do not break.
+	RefreshToken string `json:"refresh_token,omitempty"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 }
@@ -90,6 +94,63 @@ type ResetPasswordRequest struct {
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"required,min=12,max=128"`
+}
+
+// =============================================================================
+// Refresh token cookie
+//
+// The refresh token used to be handed to the page in the response body, and the
+// frontend kept it in a cookie that JavaScript could read, on the parent domain
+// — so any XSS anywhere on the site, and any script running on a
+// lab-<port>.<domain> challenge host, could lift a seven-day credential.
+//
+// It now travels as an HttpOnly cookie. Page scripts cannot read it, and the
+// edge already strips Cookie on its way to a challenge container, so both routes
+// are closed.
+//
+// Path is "/" deliberately. The browser reaches the API through the Next
+// application's own /api/* rewrite, so a cookie scoped to /v1/auth would never
+// be attached to the request that needs it.
+// =============================================================================
+
+func setRefreshCookieCfg(c *gin.Context, cfg *config.Config, token string) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(
+		cfg.Security.RefreshCookieName,
+		token,
+		int(cfg.JWT.RefreshTTL.Seconds()),
+		"/",
+		cfg.Security.RefreshCookieDomain,
+		cfg.Security.RefreshCookieSecure,
+		true, // HttpOnly — the entire point
+	)
+}
+
+func clearRefreshCookieCfg(c *gin.Context, cfg *config.Config) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(cfg.Security.RefreshCookieName, "", -1, "/",
+		cfg.Security.RefreshCookieDomain, cfg.Security.RefreshCookieSecure, true)
+}
+
+func (h *AuthHandler) setRefreshCookie(c *gin.Context, token string) {
+	setRefreshCookieCfg(c, h.svc.Config(), token)
+}
+
+func (h *AuthHandler) clearRefreshCookie(c *gin.Context) {
+	clearRefreshCookieCfg(c, h.svc.Config())
+}
+
+// refreshTokenFrom prefers the cookie and falls back to the body.
+//
+// The fallback is kept on purpose: it lets the cookie be rolled out before the
+// clients that still post the token are updated, and it keeps non-browser
+// callers working. It is not a weakness — a caller that holds the token can
+// already refresh with it.
+func (h *AuthHandler) refreshTokenFrom(c *gin.Context, body string) string {
+	if ck, err := c.Cookie(h.svc.Config().Security.RefreshCookieName); err == nil && ck != "" {
+		return ck
+	}
+	return body
 }
 
 // ============================================================================
@@ -145,8 +206,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(202, resp) // 202 Accepted — needs another step
 		return
 	}
+	// The refresh token goes back only as an HttpOnly cookie. It is deliberately
+	// absent from the body: anything in the body is readable by page scripts,
+	// which is the whole thing this finding was about.
+	h.setRefreshCookie(c, out.RefreshToken)
 	resp.AccessToken = out.AccessToken
-	resp.RefreshToken = out.RefreshToken
 	resp.TokenType = "Bearer"
 	resp.ExpiresIn = out.ExpiresIn
 	c.JSON(200, resp)
@@ -166,12 +230,12 @@ func (h *AuthHandler) LoginTFA(c *gin.Context) {
 		return
 	}
 
+	h.setRefreshCookie(c, out.RefreshToken)
 	c.JSON(200, LoginResponse{
-		AccessToken:  out.AccessToken,
-		RefreshToken: out.RefreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    out.ExpiresIn,
-		UserID:       out.UserID.String(),
+		AccessToken: out.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   out.ExpiresIn,
+		UserID:      out.UserID.String(),
 	})
 }
 
@@ -183,17 +247,28 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	out, err := h.svc.Refresh(c.Request.Context(), req.RefreshToken, requestMeta(c))
+	token := h.refreshTokenFrom(c, req.RefreshToken)
+	if token == "" {
+		respondErr(c, autherrors.InvalidToken("no refresh token supplied"))
+		return
+	}
+
+	out, err := h.svc.Refresh(c.Request.Context(), token, requestMeta(c))
 	if err != nil {
+		// A refresh that fails is the end of this session: clear the cookie so
+		// the browser stops presenting a token that will never work again.
+		h.clearRefreshCookie(c)
 		respondErr(c, err)
 		return
 	}
 
+	// Rotation issues a new token every time, so the cookie is replaced too.
+	// The new token is not returned in the body, for the same reason as login.
+	h.setRefreshCookie(c, out.RefreshToken)
 	c.JSON(200, RefreshResponse{
-		AccessToken:  out.AccessToken,
-		RefreshToken: out.RefreshToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    out.ExpiresIn,
+		AccessToken: out.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   out.ExpiresIn,
 	})
 }
 
@@ -202,10 +277,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	var req LogoutRequest
 	_ = c.ShouldBindJSON(&req) // logout is idempotent — ignore body errors
 
-	if err := h.svc.Logout(c.Request.Context(), req.RefreshToken, requestMeta(c)); err != nil {
+	if err := h.svc.Logout(c.Request.Context(), h.refreshTokenFrom(c, req.RefreshToken), requestMeta(c)); err != nil {
 		respondErr(c, err)
 		return
 	}
+	h.clearRefreshCookie(c)
 	c.Status(204)
 }
 
@@ -220,6 +296,7 @@ func (h *AuthHandler) LogoutAll(c *gin.Context) {
 		respondErr(c, err)
 		return
 	}
+	h.clearRefreshCookie(c)
 	c.Status(204)
 }
 
@@ -287,6 +364,35 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"message": "Password changed. All other sessions have been revoked."})
+}
+
+type ChangeUsernameRequest struct {
+	Username string `json:"username" binding:"required,username"`
+}
+
+// PATCH /v1/auth/me/username
+//
+// Lives in auth rather than in user-svc because auth.users owns the column.
+// user-svc reads it through a join rather than keeping a copy, so nothing else
+// has to be told about the change.
+func (h *AuthHandler) ChangeUsername(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		respondErr(c, autherrors.New(autherrors.CodeUnauthorized, "no user in context"))
+		return
+	}
+
+	var req ChangeUsernameRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondValidation(c, err)
+		return
+	}
+
+	if err := h.svc.ChangeUsername(c.Request.Context(), userID, req.Username, requestMeta(c)); err != nil {
+		respondErr(c, err)
+		return
+	}
+	c.JSON(200, gin.H{"username": req.Username})
 }
 
 // GET /v1/auth/me

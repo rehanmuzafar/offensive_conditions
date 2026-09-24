@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from typing import IO, Iterator
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+import anyio.to_thread
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.models import Report, ReportAttachment
-from app.schemas import AttachmentUploadRequest
-from app.services.s3 import S3Client
+from app.services.s3 import AttachmentStore, AttachmentStoreError
 
 log = get_logger("attachments")
 
@@ -53,16 +53,26 @@ class AttachmentService:
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
         self.session = session
         self._settings = settings
-        self._s3 = S3Client(settings)
+        self._store = AttachmentStore(settings)
 
-    async def request_upload(
+    async def store_upload(
         self,
         report_id: UUID,
         *,
         uploader_id: UUID,
         is_program_member: bool,
-        data: AttachmentUploadRequest,
-    ) -> tuple[ReportAttachment, dict]:
+        filename: str,
+        content_type: str,
+        data: IO[bytes],
+        byte_size: int,
+    ) -> ReportAttachment:
+        """Take the uploaded bytes, store them, and record the attachment.
+
+        `byte_size` is measured from the body we actually received. The old
+        flow took the client's word for it and handed back an upload URL, so
+        the size limit was advisory — the browser talked to storage directly
+        and could write whatever it liked under whatever key it was given.
+        """
         # Validate report exists + caller is researcher or triager
         report_result = await self.session.execute(
             select(Report).where(Report.id == report_id)
@@ -77,51 +87,70 @@ class AttachmentService:
             raise AppError(ErrorCode.FORBIDDEN, "only the researcher or program staff can attach")
 
         # Validate content-type + size
-        if data.content_type not in _ALLOWED_CONTENT_TYPES:
+        if content_type not in _ALLOWED_CONTENT_TYPES:
             raise AppError(
                 ErrorCode.ATTACHMENT_TYPE_NOT_ALLOWED,
-                f"content type {data.content_type} is not allowed",
+                f"content type {content_type} is not allowed",
             )
+        if byte_size <= 0:
+            raise AppError(ErrorCode.VALIDATION, "attachment is empty")
         max_bytes = self._settings.limit_attachment_max_mb * 1024 * 1024
-        if data.byte_size > max_bytes:
+        if byte_size > max_bytes:
             raise AppError(
                 ErrorCode.ATTACHMENT_TOO_LARGE,
                 f"attachment exceeds {self._settings.limit_attachment_max_mb} MB limit",
             )
 
-        # Generate S3 key
         attachment_id = uuid4()
-        safe_name = _safe_filename(data.filename)
+        safe_name = _safe_filename(filename)
         s3_key = f"reports/{report.id}/{attachment_id}/{safe_name}"
 
-        # Create DB row in 'pending' (virus_scanned=false)
+        # Store first: a failed upload should leave no row pointing at an
+        # object that was never written. MinIO's client is blocking, so it goes
+        # to a worker thread rather than stalling the event loop for the
+        # duration of the transfer.
+        try:
+            await anyio.to_thread.run_sync(
+                lambda: self._store.put(
+                    key=s3_key,
+                    data=data,
+                    length=byte_size,
+                    content_type=content_type,
+                )
+            )
+        except AttachmentStoreError as exc:
+            log.error(
+                "attachment_upload_failed",
+                report_id=str(report.id),
+                uploader=str(uploader_id),
+                error=str(exc),
+            )
+            raise AppError(ErrorCode.INTERNAL, "could not store attachment") from exc
+
+        # virus_scanned stays false: no scanner runs yet, and download refuses
+        # anything a scanner has actively failed. See the download path.
         attachment = ReportAttachment(
             id=attachment_id,
             report_id=report.id,
             uploader_id=uploader_id,
             filename=safe_name,
-            content_type=data.content_type,
-            byte_size=data.byte_size,
+            content_type=content_type,
+            byte_size=byte_size,
             s3_key=s3_key,
             virus_scanned=False,
         )
         self.session.add(attachment)
         await self.session.flush()
 
-        presigned = self._s3.generate_presigned_post(
-            key=s3_key,
-            content_type=data.content_type,
-            byte_size=data.byte_size,
-        )
         log.info(
-            "attachment_upload_requested",
+            "attachment_uploaded",
             attachment_id=str(attachment_id),
             report_id=str(report.id),
             uploader=str(uploader_id),
             filename=safe_name,
-            byte_size=data.byte_size,
+            byte_size=byte_size,
         )
-        return attachment, presigned
+        return attachment
 
     async def list_for_report(self, report_id: UUID) -> list[ReportAttachment]:
         result = await self.session.execute(
@@ -134,9 +163,15 @@ class AttachmentService:
         )
         return list(result.scalars().all())
 
-    async def get_download_url(
+    async def open_for_download(
         self, attachment_id: UUID, *, viewer_id: UUID, is_program_member: bool
-    ) -> str:
+    ) -> tuple[ReportAttachment, Iterator[bytes]]:
+        """Authorize the viewer, then open the object for streaming.
+
+        The check and the bytes stay in the same request on purpose. Returning
+        a presigned URL instead would mean the link, once issued, keeps working
+        for whoever holds it after the viewer's access is gone.
+        """
         result = await self.session.execute(
             select(ReportAttachment, Report)
             .join(Report, Report.id == ReportAttachment.report_id)
@@ -155,7 +190,26 @@ class AttachmentService:
                 ErrorCode.FORBIDDEN,
                 "attachment failed virus scan and is quarantined",
             )
-        return self._s3.generate_presigned_get(key=attachment.s3_key)
+
+        try:
+            stream = await anyio.to_thread.run_sync(
+                lambda: self._store.stream(key=attachment.s3_key)
+            )
+        except AttachmentStoreError as exc:
+            log.error(
+                "attachment_download_failed",
+                attachment_id=str(attachment_id),
+                error=str(exc),
+            )
+            raise AppError(ErrorCode.ATTACHMENT_NOT_FOUND, "attachment is unavailable") from exc
+
+        log.info(
+            "attachment_downloaded",
+            attachment_id=str(attachment_id),
+            viewer=str(viewer_id),
+            staff=is_program_member,
+        )
+        return attachment, stream
 
     async def mark_virus_scan_result(
         self,

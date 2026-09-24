@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import media, challenges, health, machines, paths, search
+from app.api.v1 import featured, media, challenges, health, machines, paths, search
 
 api_router = APIRouter()
 api_router.include_router(health.router)  # /livez, /readyz (no prefix)
@@ -13,4 +13,5 @@ v1.include_router(challenges.router)
 v1.include_router(paths.router)
 v1.include_router(search.router)
 v1.include_router(media.router)
+v1.include_router(featured.router)
 api_router.include_router(v1)

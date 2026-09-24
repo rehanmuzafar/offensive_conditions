@@ -69,7 +69,7 @@ function TrackCard({ track }: { track: Track }) {
 
           <div className="mt-4 flex flex-wrap gap-1.5">
             {track.tags.map((t) => (
-              <span key={t} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-text-faint">
+              <span key={t} className="border border-line px-2 py-0.5 text-[11px] text-text-faint">
                 {t}
               </span>
             ))}
@@ -89,7 +89,7 @@ function TrackCard({ track }: { track: Track }) {
             <div className="mt-3">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
                 <div
-                  className="h-full rounded-full bg-accent transition-all"
+                  className="h-full bg-accent transition-all"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -117,7 +117,7 @@ export default function TracksPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2.5 font-display text-[28px] font-extrabold tracking-[-0.5px]">
-            <Route className="h-7 w-7 text-accent" /> Guided Tracks
+            <Route className="h-6 w-6 text-text-faint" strokeWidth={1.6} /> Guided Tracks
           </h1>
           <p className="mt-1 text-[15px] text-text-dim">
             Structured paths from your first scan to advanced exploitation.

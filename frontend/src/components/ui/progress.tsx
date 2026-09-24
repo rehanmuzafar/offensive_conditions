@@ -19,14 +19,16 @@ export function ProgressBar({
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
   return (
     <div
-      className={cn("w-full overflow-hidden rounded-full bg-line-strong", className)}
+      className={cn("w-full overflow-hidden bg-line", className)}
       style={{ height }}
       role="progressbar"
       aria-valuenow={value}
       aria-valuemax={max}
     >
       <div
-        className="h-full rounded-full bg-brand-gradient transition-[width] duration-500"
+        /* Full-contrast fill on a hairline track: a bar reads as a measurement
+           here, not as a brand moment. */
+        className="h-full bg-text transition-[width] duration-500"
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -45,17 +47,17 @@ export function Rating({ value, count, className }: { value: number; count?: num
           const half = !filled && value >= i + 0.25;
           return (
             <span key={i} className="relative">
-              <Star className="h-3.5 w-3.5 text-line-strong" fill="currentColor" />
+              <Star className="h-3 w-3 text-line-strong" fill="currentColor" />
               {(filled || half) && (
                 <span className="absolute inset-0 overflow-hidden" style={{ width: half ? "50%" : "100%" }}>
-                  <Star className="h-3.5 w-3.5 text-warning" fill="currentColor" />
+                  <Star className="h-3 w-3 text-warning" fill="currentColor" />
                 </span>
               )}
             </span>
           );
         })}
       </span>
-      <span className="text-[12.5px] font-medium text-text-dim">
+      <span className="text-[11px] tabular-nums text-text-dim">
         {value.toFixed(1)}
         {count != null && <span className="text-text-faint"> ({count.toLocaleString()})</span>}
       </span>

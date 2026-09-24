@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,10 @@ from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.db.session import get_session
 from app.services.payments import PaymentService
+from app.services.user_client import UserServiceClient
+from app.services.fx import FxService, currency_for_country, minor_units_for
+from app.models import Event
+from sqlalchemy import select
 
 router = APIRouter(prefix="/events/{event_id}/payment", tags=["payments"])
 
@@ -107,3 +112,303 @@ async def list_pending_payments(
         )
         for p in await svc.list_pending(event_id)
     ]
+
+
+# =============================================================================
+# Team entries
+#
+# A team pays once. These endpoints work on the team's entry rather than on a
+# participant row, which is what keeps the payment attached to the team while
+# its roster changes underneath.
+# =============================================================================
+
+
+class TeamIntentRequest(BaseModel):
+    team_id: UUID
+    # What the payer wants to use. The provider is a separate matter and comes
+    # from configuration — Safepay, for instance, offers all three itself.
+    method: str = Field(default="card", pattern="^card$")
+
+
+class TeamIntentResponse(BaseModel):
+    provider: str
+    method: str
+    reference: str
+    amount_cents: int
+    currency: str
+    status: str
+    methods_available: list[str]
+    instructions: dict[str, Any]
+
+
+class ConfirmTeamRequest(BaseModel):
+    team_id: UUID
+    provider_reference: str | None = Field(default=None, max_length=200)
+    amount_cents: int | None = Field(default=None, ge=0)
+
+
+class PendingTeamPayment(BaseModel):
+    team_id: UUID
+    #: Captured on the entry when the team started paying. An organiser matching
+    #: bank transfers is reading names off a statement, not uuids, and looking
+    #: each one up by hand is how the wrong team gets confirmed.
+    team_name: str | None = None
+    paid_by_user_id: UUID | None
+    payment_status: str
+    provider_reference: str | None
+    provider: str | None
+    amount_cents: int
+    currency: str | None
+    #: How long this has been sitting. A transfer from three days ago that is
+    #: still pending is a different thing from one made ten minutes ago.
+    created_at: datetime | None = None
+
+
+@router.post("/team/intent", response_model=TeamIntentResponse)
+async def create_team_payment_intent(
+    event_id: UUID,
+    body: TeamIntentRequest,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> TeamIntentResponse:
+    """Start paying a team's entry fee. Captains only.
+
+    Captaincy is checked against user-svc rather than assumed from anything in
+    this service: the roster lives there, it changes without us, and a stale
+    idea of who leads a team is the one mistake that would let the wrong person
+    spend the team's money.
+    """
+    team_name, _ = await UserServiceClient(get_settings()).get_team_for_registration(
+        body.team_id, bearer=authorization or "", actor_id=claims.user_id
+    )
+    data = await svc.create_team_intent(
+        event_id,
+        team_id=body.team_id,
+        captain_id=claims.user_id,
+        # Carried through so settling the payment can enter the captain. A
+        # webhook has no bearer token and cannot ask user-svc for this.
+        team_name=team_name,
+        method=body.method,
+    )
+    return TeamIntentResponse(**data)
+
+
+@router.post("/team/confirm")
+async def confirm_team_payment(
+    event_id: UUID,
+    body: ConfirmTeamRequest,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+) -> dict[str, Any]:
+    """Settle a team's entry. Organiser-only, and idempotent.
+
+    A gateway webhook will call the same service method, so there is one
+    implementation of "this team is in" no matter how the money arrived.
+    """
+    if not claims.is_ctf_organizer:
+        raise AppError(ErrorCode.NOT_ORGANIZER, "ctf_organizer role required")
+    entry = await svc.confirm_team(
+        event_id,
+        team_id=body.team_id,
+        provider_reference=body.provider_reference,
+        amount_cents=body.amount_cents,
+    )
+    return {
+        "team_id": str(entry.team_id),
+        "payment_status": entry.payment_status,
+        "amount_cents": entry.amount_cents,
+        "currency": entry.currency,
+    }
+
+
+class CompTeamRequest(BaseModel):
+    team_id: UUID
+    #: Who leads the team into the event. They are registered immediately, the
+    #: same as the payer would be, so the entry is never one nobody occupies.
+    captain_id: UUID
+    team_name: str | None = None
+    #: Free text kept on the entry — "CNIC verified, 1st semester", a receipt
+    #: number for money taken in cash. Reconciliation later has no other record.
+    note: str | None = None
+
+
+@router.post("/team/comp")
+async def comp_team_entry(
+    event_id: UUID,
+    body: CompTeamRequest,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+) -> dict[str, Any]:
+    """Add a team to a paid event without charging it. Organiser-only.
+
+    The event stays priced: everyone else still pays, and the paywall still
+    reads as a paywall. This is the door an organiser opens by hand for the
+    entrants a gateway cannot serve — students admitted free on a verified
+    card, invited guests, money that arrived in cash.
+    """
+    if not claims.is_ctf_organizer:
+        raise AppError(ErrorCode.NOT_ORGANIZER, "ctf_organizer role required")
+    entry = await svc.comp_team(
+        event_id,
+        team_id=body.team_id,
+        captain_id=body.captain_id,
+        team_name=body.team_name,
+        note=body.note,
+    )
+    return {
+        "team_id": str(entry.team_id),
+        "payment_status": entry.payment_status,
+        "provider": entry.provider,
+        "amount_cents": entry.amount_cents,
+        "currency": entry.currency,
+    }
+
+
+@router.get("/team/pending", response_model=list[PendingTeamPayment])
+async def list_pending_team_payments(
+    event_id: UUID,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+) -> list[PendingTeamPayment]:
+    """Teams awaiting payment — the organiser's confirmation queue."""
+    if not claims.is_ctf_organizer:
+        raise AppError(ErrorCode.NOT_ORGANIZER, "ctf_organizer role required")
+    return [
+        PendingTeamPayment(
+            team_id=e.team_id,
+            team_name=e.team_name,
+            paid_by_user_id=e.paid_by_user_id,
+            payment_status=e.payment_status,
+            provider_reference=e.provider_reference,
+            provider=e.provider,
+            amount_cents=e.amount_cents,
+            currency=e.currency,
+            created_at=e.created_at,
+        )
+        for e in await svc.list_pending_teams(event_id)
+    ]
+
+
+class TeamEntryStatus(BaseModel):
+    team_id: UUID
+    payment_status: str
+    settled: bool
+    amount_cents: int
+    currency: str | None
+    paid_by_user_id: UUID | None
+
+
+@router.get("/team/{team_id}/status", response_model=TeamEntryStatus)
+async def team_entry_status(
+    event_id: UUID,
+    team_id: UUID,
+    claims: Claims = Depends(get_claims),
+    svc: PaymentService = Depends(get_payment_service),
+) -> TeamEntryStatus:
+    """Whether a team's entry is settled.
+
+    Readable by any signed-in user, deliberately. Teammates need it to know
+    whether they are waiting on their captain, and it reveals nothing beyond
+    what the scoreboard already will — that this team is in the event.
+    """
+    entry = await svc.team_entry(event_id, team_id)
+    return TeamEntryStatus(
+        team_id=entry.team_id,
+        payment_status=entry.payment_status,
+        settled=entry.settled,
+        amount_cents=entry.amount_cents,
+        currency=entry.currency,
+        paid_by_user_id=entry.paid_by_user_id,
+    )
+
+
+class EventPrice(BaseModel):
+    """What an event costs, and what that looks like to this viewer.
+
+    Two prices, deliberately. `base_*` is what will actually be charged, in the
+    currency the gateway settles. `display_*` is the same money expressed in
+    whatever the viewer thinks in, so the number means something before they
+    decide. When the two differ, `converted` is true and the UI is expected to
+    say "about" — the conversion is an approximation from a daily rate, and
+    presenting it as the bill would be a lie.
+    """
+
+    base_cents: int
+    base_currency: str
+    display_cents: int
+    display_currency: str
+    converted: bool
+    # How many minor units make one of display_currency: 100 for most, 1 for
+    # JPY, 1000 for KWD. Sent rather than derived on the client because the two
+    # would disagree — the browser's currency data follows display convention
+    # (it treats PKR as having no decimals) while amounts here are stored in
+    # ISO 4217 minor units, which for PKR is paisa. One authority, and it is
+    # whichever one the money is actually counted in.
+    display_minor_units: int
+    base_minor_units: int
+
+
+@router.get("/price", response_model=EventPrice)
+async def event_price(
+    event_id: UUID,
+    request: Request,
+    region: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> EventPrice:
+    """The entry fee, shown in the viewer's currency where one is known.
+
+    Unauthenticated on purpose: the price belongs on the event page, which
+    anyone can read, and asking someone to sign in to find out what something
+    costs is a poor way to sell it.
+    """
+    event = (
+        await session.execute(select(Event).where(Event.id == event_id))
+    ).scalar_one_or_none()
+    if event is None:
+        raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
+
+    base_cents = event.entry_fee_cents or 0
+    base_currency = (event.currency or "USD").upper()
+
+    # A free event has nothing to convert, and no country means USD, which is
+    # also the fallback for any country not in the table.
+    # An event that has not opted in shows its own currency to everyone, which
+    # is also what a free event and a matching currency do.
+    target = currency_for_country(region) if event.show_local_price else base_currency
+    if base_cents <= 0 or target == base_currency:
+        return EventPrice(
+            base_cents=base_cents,
+            base_currency=base_currency,
+            display_cents=base_cents,
+            display_currency=base_currency,
+            converted=False,
+            display_minor_units=minor_units_for(base_currency),
+            base_minor_units=minor_units_for(base_currency),
+        )
+
+    fx = FxService(getattr(request.app.state, "redis", None))
+    converted = await fx.convert(base_cents, base_currency, target)
+
+    # Rates unavailable: show the real price rather than nothing. A currency
+    # service being down is not a reason to hide what an event costs.
+    if converted is None:
+        return EventPrice(
+            base_cents=base_cents,
+            base_currency=base_currency,
+            display_cents=base_cents,
+            display_currency=base_currency,
+            converted=False,
+            display_minor_units=minor_units_for(base_currency),
+            base_minor_units=minor_units_for(base_currency),
+        )
+
+    return EventPrice(
+        base_cents=base_cents,
+        base_currency=base_currency,
+        display_cents=converted,
+        display_currency=target,
+        converted=True,
+        display_minor_units=minor_units_for(target),
+        base_minor_units=minor_units_for(base_currency),
+    )

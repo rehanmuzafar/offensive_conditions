@@ -119,8 +119,8 @@ func TestSubmitFlow_EndToEnd(t *testing.T) {
 	})
 
 	// --- Test 1: Generate a valid flag and submit it ---
-	hmacHex := hmacpkg.ComputeHMAC([]byte(masterSecret), machineID, userID, instanceID, 16)
-	flagStr := hmacpkg.BuildFlag("OFFCON{", "}", "test_machine", userID, hmacHex)
+	hmacHex := hmacpkg.ComputeHMAC([]byte(masterSecret), machineID, userID, instanceID, hmacpkg.FlagTypeUser, 16)
+	flagStr := hmacpkg.BuildFlag("OFFCON{", "}", "test_machine", hmacpkg.FlagTypeUser, userID, hmacHex)
 
 	res, sErr := svc.SubmitFlag(ctx, service.SubmitInput{
 		UserID:      userID,
@@ -140,7 +140,7 @@ func TestSubmitFlow_EndToEnd(t *testing.T) {
 	assert.Empty(t, publisher.incorrect)
 
 	// --- Test 2: Wrong flag ---
-	wrongFlag := hmacpkg.BuildFlag("OFFCON{", "}", "test_machine", userID, "00000000000000000000000000000000")
+	wrongFlag := hmacpkg.BuildFlag("OFFCON{", "}", "test_machine", hmacpkg.FlagTypeUser, userID, "00000000000000000000000000000000")
 	res2, sErr := svc.SubmitFlag(ctx, service.SubmitInput{
 		UserID:      userID,
 		ContentType: "machine",

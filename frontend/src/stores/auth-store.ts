@@ -13,13 +13,14 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
+import { sharedSessionStorage } from "@/lib/session-storage";
+
 import type { AuthUser, AuthTokens } from "@/types/auth";
 
 interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
   /** rotated on every refresh; persisted so a reload can re-authenticate */
-  refreshToken: string | null;
   /** epoch ms when the access token expires */
   expiresAt: number | null;
   /** true until the initial silent-refresh attempt resolves */
@@ -28,7 +29,6 @@ interface AuthState {
   setSession: (tokens: AuthTokens, user: AuthUser) => void;
   setUser: (user: AuthUser) => void;
   setAccessToken: (token: string, expiresIn: number) => void;
-  setRefreshToken: (token: string) => void;
   clear: () => void;
   setInitializing: (v: boolean) => void;
 
@@ -41,7 +41,6 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       accessToken: null,
-      refreshToken: null,
       expiresAt: null,
       initializing: true,
 
@@ -49,7 +48,6 @@ export const useAuthStore = create<AuthState>()(
         set({
           user,
           accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
           expiresAt: Date.now() + tokens.expiresIn * 1000,
           initializing: false,
         }),
@@ -59,13 +57,11 @@ export const useAuthStore = create<AuthState>()(
       setAccessToken: (token, expiresIn) =>
         set({ accessToken: token, expiresAt: Date.now() + expiresIn * 1000 }),
 
-      setRefreshToken: (token) => set({ refreshToken: token }),
 
       clear: () =>
         set({
           user: null,
           accessToken: null,
-          refreshToken: null,
           expiresAt: null,
           initializing: false,
         }),
@@ -85,16 +81,17 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "offcon-auth",
-      storage: createJSONStorage(() => localStorage),
-      // The auth service returns the refresh token in the login body and does
-      // not set an httpOnly cookie, so the silent-refresh-on-boot flow only
-      // works if we persist it ourselves.
-      //
-      // SECURITY: a refresh token in localStorage is readable by any XSS on
-      // this origin. The stronger design is for auth to set an httpOnly,
-      // SameSite=Strict cookie and read it server-side on /v1/auth/refresh —
-      // switch to that and drop this persistence before public launch.
-      partialize: (s) => ({ user: s.user, refreshToken: s.refreshToken }),
+      // A cookie on the parent domain, not localStorage: localStorage is scoped
+      // to one origin, and the surfaces are four of them. See session-storage.
+      storage: createJSONStorage(() => sharedSessionStorage),
+      // auth-svc sets the refresh token as an HttpOnly cookie on the parent
+      // domain and reads it on /v1/auth/refresh, so silent refresh works
+      // without this store ever holding the token.
+      // Only the user profile is persisted. The refresh token is NOT here and
+      // must never come back: it is delivered as an HttpOnly cookie that the
+      // browser attaches to /v1/auth/refresh by itself, so page scripts cannot
+      // read it. Putting it back in this cookie would undo OFFCON-2026-002.
+      partialize: (s) => ({ user: s.user }),
     },
   ),
 );

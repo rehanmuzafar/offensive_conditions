@@ -27,7 +27,15 @@ const STATE_LABEL: Record<InstanceState, string> = {
   expired: "Expired",
 };
 
-export function LabLauncher({ machineId }: { machineId: string }) {
+export function LabLauncher({
+  machineId,
+  machineSlug,
+}: {
+  /** Matches running instances, which the orchestrator keys by machine id. */
+  machineId: string;
+  /** Spawns: `POST /instances` looks the machine up by slug. */
+  machineSlug: string;
+}) {
   const { data: instances } = useInstances();
   const spawn = useSpawnInstance();
   const stop = useStopInstance();
@@ -55,7 +63,7 @@ export function LabLauncher({ machineId }: { machineId: string }) {
             <p className="mb-4 text-[14px] text-text-dim">
               Spawn a dedicated, sandboxed instance of this machine to attack.
             </p>
-            <Button fullWidth size="lg" loading={spawn.isPending} onClick={() => spawn.mutate(machineId)}>
+            <Button fullWidth size="lg" loading={spawn.isPending} onClick={() => spawn.mutate(machineSlug)}>
               <Play className="h-[18px] w-[18px]" /> Spawn machine
             </Button>
           </div>
@@ -121,7 +129,7 @@ export function LabLauncher({ machineId }: { machineId: string }) {
           <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-center">
             <AlertTriangle className="mx-auto h-6 w-6 text-danger" />
             <p className="mt-2 text-[14px] text-text-dim">Something went wrong spawning this machine.</p>
-            <Button variant="ghost" size="sm" className="mt-3" onClick={() => spawn.mutate(machineId)}>
+            <Button variant="ghost" size="sm" className="mt-3" onClick={() => spawn.mutate(machineSlug)}>
               Try again
             </Button>
           </div>
@@ -139,11 +147,7 @@ function StatePill({ state }: { state: InstanceState }) {
     stopping: "text-warning bg-warning/12",
     stopped: "text-text-faint bg-surface-hover",
     expired: "text-text-faint bg-surface-hover",
-    error: "text-danger bg-danger/12",
-  };
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold ${map[state]}`}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+    error: "text-danger bg-danger/12", }; return ( <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-semibold ${map[state]}`}> <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {STATE_LABEL[state]}
     </span>
   );

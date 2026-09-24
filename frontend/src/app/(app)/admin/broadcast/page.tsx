@@ -69,7 +69,7 @@ export default function AdminBroadcastPage() {
             <FormField label="Audience">
               <div className="flex flex-wrap gap-2">
                 {AUDIENCES.map((a) => (
-                  <button key={a} onClick={() => setAudience(a)} className={cn("rounded-full border px-3.5 py-1.5 text-[13px] font-medium capitalize transition-colors", audience === a ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover")}>
+                  <button key={a} onClick={() => setAudience(a)} className={cn("border px-3.5 py-1.5 text-[13px] font-medium capitalize transition-colors", audience === a ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover")}>
                     {a === "all" ? "All users" : a}
                   </button>
                 ))}
@@ -79,7 +79,7 @@ export default function AdminBroadcastPage() {
             <FormField label="Channels">
               <div className="flex flex-wrap gap-2">
                 {CHANNELS.map((c) => (
-                  <button key={c.value} onClick={() => toggleChannel(c.value)} className={cn("flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors", channels.has(c.value) ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover")}>
+                  <button key={c.value} onClick={() => toggleChannel(c.value)} className={cn("flex items-center gap-1.5 border px-3.5 py-1.5 text-[13px] font-medium transition-colors", channels.has(c.value) ? "border-accent bg-brand-gradient-soft text-accent" : "border-line-strong text-text-dim hover:bg-surface-hover")}>
                     {c.icon} {c.label}
                   </button>
                 ))}
@@ -140,7 +140,7 @@ function StatusPill({ status }: { status: Broadcast["status"] }) {
   } as const;
   const s = map[status];
   return (
-    <span className={cn("flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", s.cls)}>
+    <span className={cn("flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold", s.cls)}>
       {s.icon} {s.label}
     </span>
   );

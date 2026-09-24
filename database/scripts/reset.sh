@@ -10,7 +10,7 @@ set -euo pipefail
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_ADMIN_USER="${DB_ADMIN_USER:-offcon_admin}"
-DB_ADMIN_PASS="${DB_ADMIN_PASS:-dev_only_change_in_prod}"
+DB_ADMIN_PASS="${DB_ADMIN_PASS:-dev-only-local-password-change-me}"
 DB_NAME="${DB_NAME:-offcon}"
 
 # Safety: refuse to run if DB host is anything other than localhost

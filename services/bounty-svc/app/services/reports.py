@@ -5,9 +5,10 @@ from __future__ import annotations
 import secrets
 import string
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
@@ -127,6 +128,236 @@ class ReportService:
         total = (await self.session.execute(count_stmt)).scalar_one()
         result = await self.session.execute(stmt.limit(limit).offset(offset))
         return list(result.scalars().all()), int(total)
+
+    async def list_queue(
+        self,
+        *,
+        state: str | None = None,
+        severity: str | None = None,
+        program_slug: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """The triager's inbox: every program's reports in one list.
+
+        `list_for_program` answers a different question — "how is this program
+        doing" — and a triager who has to walk programs one at a time to find
+        what is waiting will miss things. Whether a report has breached its SLA
+        also only means something against the program it belongs to, which is
+        why the join is here rather than left to the caller.
+
+        Returns rows, not ORM objects: the useful columns come from three
+        tables and one of them (auth.users) is another service's.
+        """
+        where = ["1=1"]
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if state:
+            where.append("r.state = :state")
+            params["state"] = state
+        if severity:
+            where.append("r.severity = :severity")
+            params["severity"] = severity
+        if program_slug:
+            where.append("p.slug = :program_slug")
+            params["program_slug"] = program_slug
+        clause = " AND ".join(where)
+
+        # Names, not ids. The researcher lives in auth.users — same database,
+        # another service's schema — and a per-row lookup over HTTP to render a
+        # list is not worth it.
+        rows = (
+            await self.session.execute(
+                text(
+                    f"""
+                    SELECT r.id, r.short_id, r.title, r.state, r.severity,
+                           r.bounty_cents, r.bounty_currency, r.created_at,
+                           r.triaged_at, r.researcher_id, r.triager_id,
+                           p.name AS program_name, p.slug AS program_slug,
+                           ru.username AS researcher_name,
+                           tu.username AS triager_name,
+                           EXTRACT(EPOCH FROM (now() - r.created_at)) / 3600 AS age_hours,
+                           CASE
+                             WHEN r.state = 'submitted'
+                               THEN now() > r.created_at + (p.response_sla_hours * interval '1 hour')
+                             WHEN r.state = 'triaging'
+                               THEN now() > r.created_at + (p.triage_sla_hours * interval '1 hour')
+                             ELSE false
+                           END AS sla_breached
+                      FROM bounty.reports r
+                      JOIN bounty.programs p ON p.id = r.program_id
+                      LEFT JOIN auth.users ru ON ru.id = r.researcher_id
+                      LEFT JOIN auth.users tu ON tu.id = r.triager_id
+                     WHERE {clause}
+                     ORDER BY sla_breached DESC, r.created_at ASC
+                     LIMIT :limit OFFSET :offset
+                    """
+                ),
+                params,
+            )
+        ).mappings().all()
+
+        total = (
+            await self.session.execute(
+                text(
+                    f"""
+                    SELECT count(*)
+                      FROM bounty.reports r
+                      JOIN bounty.programs p ON p.id = r.program_id
+                     WHERE {clause}
+                    """
+                ),
+                {k: v for k, v in params.items() if k not in ("limit", "offset")},
+            )
+        ).scalar_one()
+
+        return [dict(r) for r in rows], int(total)
+
+    async def hacktivity(
+        self,
+        *,
+        program_slug: str | None = None,
+        severity: str | None = None,
+        search: str | None = None,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Publicly disclosed reports, newest disclosure first.
+
+        Only `published` rows, and deliberately only a summary of each: title,
+        severity, outcome and who found it. The write-up itself stays behind the
+        report page, because disclosure is a decision the program and the
+        researcher make together and this list is the index, not the archive.
+        """
+        where = ["r.published", "r.published_at IS NOT NULL"]
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if program_slug:
+            where.append("p.slug = :slug")
+            params["slug"] = program_slug
+        if severity:
+            where.append("r.severity = :severity")
+            params["severity"] = severity
+        if search:
+            where.append("lower(r.title) LIKE :q")
+            params["q"] = f"%{search.lower()}%"
+        clause = " AND ".join(where)
+
+        rows = (
+            await self.session.execute(
+                text(
+                    f"""
+                    SELECT r.id, r.short_id, r.title, r.severity, r.state,
+                           r.vrt_category, r.bounty_cents, r.bounty_currency,
+                           r.published_at,
+                           p.name AS program_name, p.slug AS program_slug,
+                           u.username AS researcher_name
+                      FROM bounty.reports r
+                      JOIN bounty.programs p ON p.id = r.program_id
+                      LEFT JOIN auth.users u ON u.id = r.researcher_id
+                     WHERE {clause}
+                     ORDER BY r.published_at DESC
+                     LIMIT :limit OFFSET :offset
+                    """
+                ),
+                params,
+            )
+        ).mappings().all()
+
+        total = (
+            await self.session.execute(
+                text(
+                    f"""
+                    SELECT count(*)
+                      FROM bounty.reports r
+                      JOIN bounty.programs p ON p.id = r.program_id
+                     WHERE {clause}
+                    """
+                ),
+                {k: v for k, v in params.items() if k not in ("limit", "offset")},
+            )
+        ).scalar_one()
+        return [dict(r) for r in rows], int(total)
+
+    async def weakness_index(self, limit: int = 60) -> list[dict[str, Any]]:
+        """How often each weakness class shows up across the platform.
+
+        Built from `vrt_category` on real reports rather than from a static CWE
+        list, so it describes what is actually being found here — which is the
+        only version of this table worth reading.
+        """
+        rows = (
+            await self.session.execute(
+                text(
+                    """
+                    SELECT vrt_category AS name,
+                           count(*) AS reports,
+                           count(*) FILTER (
+                             WHERE severity IN ('high', 'critical')
+                           ) AS severe,
+                           count(*) FILTER (
+                             WHERE state IN ('accepted', 'resolved', 'paid')
+                           ) AS accepted
+                      FROM bounty.reports
+                     WHERE vrt_category IS NOT NULL AND vrt_category <> ''
+                     GROUP BY vrt_category
+                     ORDER BY reports DESC
+                     LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
+
+    async def get_context(self, report_id: UUID) -> dict[str, Any]:
+        """The names that belong with a report but live in other tables.
+
+        Kept out of `get` so the ORM object stays a plain row. Every screen
+        that shows a report needs the program it was filed against and who
+        filed it, and neither is worth a second round trip.
+        """
+        row = (
+            await self.session.execute(
+                text(
+                    """
+                    SELECT p.name AS program_name, p.slug AS program_slug,
+                           ru.username AS researcher_name,
+                           tu.username AS triager_name
+                      FROM bounty.reports r
+                      JOIN bounty.programs p ON p.id = r.program_id
+                      LEFT JOIN auth.users ru ON ru.id = r.researcher_id
+                      LEFT JOIN auth.users tu ON tu.id = r.triager_id
+                     WHERE r.id = :rid
+                    """
+                ),
+                {"rid": report_id},
+            )
+        ).mappings().first()
+        return dict(row) if row else {}
+
+    async def list_timeline(self, report_id: UUID) -> list[dict[str, Any]]:
+        """Every state change on a report, oldest first, with actor names.
+
+        The transitions were being recorded all along and never read back: the
+        triage screen rendered a history from a field the API does not return,
+        so it was always empty.
+        """
+        rows = (
+            await self.session.execute(
+                text(
+                    """
+                    SELECT t.id, t.from_state, t.to_state, t.reason,
+                           t.actor_id, t.created_at,
+                           u.username AS actor_name
+                      FROM bounty.report_state_transitions t
+                      LEFT JOIN auth.users u ON u.id = t.actor_id
+                     WHERE t.report_id = :rid
+                     ORDER BY t.created_at ASC
+                    """
+                ),
+                {"rid": report_id},
+            )
+        ).mappings().all()
+        return [dict(r) for r in rows]
 
     # =========================================================================
     # Submit

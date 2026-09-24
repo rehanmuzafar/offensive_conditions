@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+
+import { absolute } from "@/lib/seo/config";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Stat } from "@/components/ui/stat";
 import { SectionHeading } from "@/components/layout/section-heading";
+import { HomeStats } from "@/app/(marketing)/_components/live-sections";
 
 export const metadata: Metadata = {
   title: "About",
   description:
     "OFFCON exists to make world-class offensive security training hands-on, accessible, and relentless. Meet the mission behind the arena.",
+  alternates: { canonical: absolute("/about") },
 };
 
 const VALUES = [
@@ -17,13 +20,6 @@ const VALUES = [
   { title: "Merit over hype", body: "The leaderboard doesn't care where you're from or what's on your CV. It cares whether you rooted the box." },
   { title: "Defense through offense", body: "We train attackers so the world builds better defenses. Every operator we forge makes systems safer." },
   { title: "Open to everyone", body: "From a student in Lahore to a red-teamer in Berlin — a free tier, a global community, and no gatekeeping." },
-];
-
-const STATS = [
-  { value: "128K", label: "Hackers trained" },
-  { value: "540+", label: "Machines shipped" },
-  { value: "2.4M", label: "Flags captured" },
-  { value: "195", label: "Countries" },
 ];
 
 export default function AboutPage() {
@@ -40,11 +36,9 @@ export default function AboutPage() {
         </p>
       </div>
 
-      {/* stats */}
-      <div className="mt-16 grid grid-cols-2 gap-5 lg:grid-cols-4">
-        {STATS.map((s) => (
-          <Stat key={s.label} value={s.value} label={s.label} />
-        ))}
+      {/* stats — real counts from the API, not invented figures */}
+      <div className="mt-16">
+        <HomeStats />
       </div>
 
       {/* mission */}
@@ -61,27 +55,29 @@ export default function AboutPage() {
               compete in live CTFs, and prove themselves on a global leaderboard. No CV required. Just skill.
             </p>
             <p>
-              Today, operators from 195 countries train here every day. Tomorrow, they&apos;re the people
+              Operators train here every day, wherever they are. Tomorrow, they&apos;re the people
               keeping the world&apos;s systems secure.
             </p>
           </div>
         </div>
-        <Card variant="glass" className="overflow-hidden p-0">
+        <Card tilt variant="glass" className="overflow-hidden p-0">
           <div className="relative bg-brand-gradient p-10">
             <div
               className="absolute inset-0"
               style={{
                 backgroundImage:
-                  "linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px)",
+                  "linear-gradient(rgb(var(--grid-ink) / 0.07) 1px,transparent 1px),linear-gradient(90deg,rgb(var(--grid-ink) / 0.07) 1px,transparent 1px)",
                 backgroundSize: "40px 40px",
                 maskImage: "radial-gradient(ellipse at 70% 30%,#000,transparent 80%)",
                 WebkitMaskImage: "radial-gradient(ellipse at 70% 30%,#000,transparent 80%)",
               }}
             />
-            <blockquote className="relative font-display text-[24px] font-semibold leading-snug text-white">
+            <blockquote className="relative font-display text-[clamp(20px,2.4vw,30px)] font-bold leading-[1.25] tracking-mega">
               “The gap between knowing about security and doing security is enormous. OFFCON is a bridge across it.”
             </blockquote>
-            <p className="relative mt-5 text-[14px] text-white/80">— The founding team</p>
+            <p className="relative mt-6 text-[10.5px] uppercase tracking-wide text-text-faint">
+              — The founding team
+            </p>
           </div>
         </Card>
       </div>
@@ -91,7 +87,7 @@ export default function AboutPage() {
         <SectionHeading eyebrow="What we believe" title="The principles behind the platform" />
         <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2">
           {VALUES.map((v) => (
-            <Card key={v.title} className="p-7">
+            <Card tilt key={v.title} className="p-7">
               <h3 className="font-display text-[19px] font-semibold">{v.title}</h3>
               <p className="mt-2.5 text-[15px] text-text-dim">{v.body}</p>
             </Card>

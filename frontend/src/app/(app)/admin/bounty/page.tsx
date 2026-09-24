@@ -18,16 +18,20 @@ const FILTERS = [
 
 export default function AdminBountyPage() {
   const [filter, setFilter] = useState("all");
-  const { data, isLoading } = useReportQueue();
+  // The state filter goes to the server, so a queue longer than one page still
+  // filters correctly. "breached" has no server-side equivalent — it is derived
+  // per program — so that one stays client-side over the fetched page.
+  const { data, isLoading, error } = useReportQueue(
+    filter === "all" || filter === "breached" ? {} : { state: filter },
+  );
 
-  const reports = useMemo(() => {
-    const all = data?.items ?? [];
-    if (filter === "all") return all;
-    if (filter === "breached") return all.filter((r) => r.slaBreached);
-    return all.filter((r) => r.state === filter);
-  }, [data, filter]);
+  const all = useMemo(() => data ?? [], [data]);
+  const reports = useMemo(
+    () => (filter === "breached" ? all.filter((r) => r.slaBreached) : all),
+    [all, filter],
+  );
 
-  const breachedCount = (data?.items ?? []).filter((r) => r.slaBreached).length;
+  const breachedCount = all.filter((r) => r.slaBreached).length;
 
   return (
     <div className="space-y-5">
@@ -50,6 +54,19 @@ export default function AdminBountyPage() {
 
       {isLoading ? (
         <Skeleton className="h-96 w-full rounded-2xl" />
+      ) : error ? (
+        <Card className="p-8 text-center text-[13.5px] text-text-dim">
+          Couldn&apos;t load the queue. You need the triager role to see it.
+        </Card>
+      ) : reports.length === 0 ? (
+        <Card className="p-8 text-center">
+          <p className="text-[14px] font-semibold text-text">Nothing waiting</p>
+          <p className="mt-1 text-[13px] text-text-dim">
+            {filter === "all"
+              ? "No reports have been submitted yet."
+              : "No reports match this filter."}
+          </p>
+        </Card>
       ) : (
         <Card className="overflow-hidden p-0">
           {reports.map((r) => (
@@ -60,7 +77,7 @@ export default function AdminBountyPage() {
                     <code className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-[11.5px] text-text-dim">{r.shortId}</code>
                     <SeverityBadge severity={r.severity} />
                     {r.slaBreached && (
-                      <span className="flex items-center gap-1 rounded-full bg-danger/12 px-2 py-0.5 text-[11px] font-semibold text-danger">
+                      <span className="flex items-center gap-1 bg-danger/12 px-2 py-0.5 text-[11px] font-semibold text-danger">
                         <AlertTriangle className="h-3 w-3" /> SLA breached
                       </span>
                     )}
@@ -68,7 +85,7 @@ export default function AdminBountyPage() {
                   <h3 className="mt-1.5 font-display text-[15px] font-semibold leading-snug">{r.title}</h3>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[12.5px] text-text-faint">
                     <span>{r.programName}</span>
-                    <span>by {r.reporter}</span>
+                    <span>by {r.reporter ?? "deleted account"}</span>
                     {r.assignedTo && <span>· assigned to {r.assignedTo}</span>}
                   </div>
                 </div>

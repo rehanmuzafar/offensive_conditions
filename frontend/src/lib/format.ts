@@ -79,3 +79,15 @@ export function initials(name: string): string {
 export function flagCode(country: string): string {
   return country.trim().toLowerCase().slice(0, 2);
 }
+
+/** A machine/challenge tag as text. The catalogue returns tags as objects
+ *  ({id, slug, name, color}); older code and some callers pass plain strings.
+ *  Either way this yields a string safe to render and to search on. */
+export function tagLabel(t: unknown): string {
+  if (typeof t === "string") return t;
+  if (t && typeof t === "object") {
+    const o = t as { name?: unknown; slug?: unknown };
+    return String(o.name ?? o.slug ?? "");
+  }
+  return "";
+}

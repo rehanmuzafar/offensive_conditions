@@ -4,13 +4,18 @@ import { cn } from "@/lib/cn";
 
 type BadgeTone = "neutral" | "brand" | "success" | "warning" | "danger" | "info";
 
+/**
+ * Tones carry their colour in the text and the border only. A filled pill puts
+ * a block of hue on a page whose whole argument is that colour is scarce; a
+ * hairline box with coloured type says the same thing and stays out of the way.
+ */
 const tones: Record<BadgeTone, string> = {
-  neutral: "bg-surface-hover text-text-dim border-line",
-  brand: "bg-brand-gradient-soft text-accent border-accent/30",
-  success: "bg-success/12 text-success border-success/25",
-  warning: "bg-warning/12 text-warning border-warning/25",
-  danger: "bg-danger/12 text-danger border-danger/25",
-  info: "bg-info/12 text-info border-info/25",
+  neutral: "border-line text-text-faint",
+  brand: "border-accent/40 text-accent",
+  success: "border-success/40 text-success",
+  warning: "border-warning/40 text-warning",
+  danger: "border-danger/40 text-danger",
+  info: "border-info/40 text-info",
 };
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -22,13 +27,14 @@ export function Badge({ tone = "neutral", dot, className, children, ...props }: 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12.5px] font-semibold",
+        "inline-flex items-center gap-1.5 border px-2 py-0.5",
+        "text-[10px] uppercase tracking-wide",
         tones[tone],
         className,
       )}
       {...props}
     >
-      {dot && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse-dot" />}
+      {dot && <span className="h-1 w-1 rounded-full bg-current animate-pulse-dot" />}
       {children}
     </span>
   );

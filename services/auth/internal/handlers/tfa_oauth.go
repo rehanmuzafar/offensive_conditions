@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/offensive-conditions/auth/internal/config"
 	autherrors "github.com/offensive-conditions/auth/internal/errors"
 	"github.com/offensive-conditions/auth/internal/middleware"
 	"github.com/offensive-conditions/auth/internal/service"
@@ -26,9 +27,9 @@ func NewTFAHandler(svc *service.AuthService, log zerolog.Logger) *TFAHandler {
 }
 
 type TFAEnrollResponse struct {
-	Secret      string   `json:"secret"`        // base32, for manual entry
-	OtpAuthURL  string   `json:"otpauth_url"`   // for QR code generation
-	BackupCodes []string `json:"backup_codes"`  // shown once
+	Secret      string   `json:"secret"`       // base32, for manual entry
+	OtpAuthURL  string   `json:"otpauth_url"`  // for QR code generation
+	BackupCodes []string `json:"backup_codes"` // shown once
 }
 
 type TFAConfirmRequest struct {
@@ -183,11 +184,17 @@ func (h *SessionHandler) Revoke(c *gin.Context) {
 type OAuthHandler struct {
 	svc                  *service.AuthService
 	postLoginRedirectURL string // Frontend URL to redirect to after OAuth login
+	cfg                  *config.Config
 	log                  zerolog.Logger
 }
 
 func NewOAuthHandler(svc *service.AuthService, postLoginRedirectURL string, log zerolog.Logger) *OAuthHandler {
-	return &OAuthHandler{svc: svc, postLoginRedirectURL: postLoginRedirectURL, log: log}
+	return &OAuthHandler{
+		svc:                  svc,
+		postLoginRedirectURL: postLoginRedirectURL,
+		cfg:                  svc.Config(),
+		log:                  log,
+	}
 }
 
 // GET /v1/auth/providers
@@ -259,11 +266,18 @@ func (h *OAuthHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	// Redirect to frontend with tokens in fragment (so they aren't sent to server)
+	// The refresh token rides back as an HttpOnly cookie, not in the URL.
+	//
+	// A fragment is not sent to servers, which is why it was chosen — but it is
+	// still readable by any script on the landing page, lands in browser
+	// history, and survives in whatever the user pastes when they share a link.
+	// For a seven-day credential that is the wrong place. The short-lived access
+	// token stays in the fragment so the page can start authenticated.
+	setRefreshCookieCfg(c, h.cfg, out.RefreshToken)
+
 	u, _ := url.Parse(h.postLoginRedirectURL)
 	q := url.Values{}
 	q.Set("access_token", out.AccessToken)
-	q.Set("refresh_token", out.RefreshToken)
 	q.Set("expires_in", itoa(out.ExpiresIn))
 	q.Set("user_id", out.UserID.String())
 	u.Fragment = q.Encode()

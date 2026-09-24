@@ -102,7 +102,7 @@ export default function TrackDetailPage({ params }: { params: Promise<{ slug: st
                 <span>Progress</span><span>{pct}%</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-line">
-                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+                <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
               </div>
             </div>
           )}
@@ -110,7 +110,7 @@ export default function TrackDetailPage({ params }: { params: Promise<{ slug: st
           {track.skills.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-1.5">
               {track.skills.map((s) => (
-                <span key={s} className="rounded-full border border-line px-2.5 py-0.5 text-[11px] text-text-faint">{s}</span>
+                <span key={s} className="border border-line px-2.5 py-0.5 text-[11px] text-text-faint">{s}</span>
               ))}
             </div>
           )}

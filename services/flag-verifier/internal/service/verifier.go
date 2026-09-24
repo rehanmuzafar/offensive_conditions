@@ -224,8 +224,11 @@ func (v *Verifier) SubmitFlag(ctx context.Context, in SubmitInput) (*SubmitResul
 			"Incorrect flag.")
 	}
 
-	// 8. Determine flag_type — for user/root we infer from which HMAC matches
-	flagType := inferFlagType(parsed.Slug, machine)
+	// 8. Which flag was this? The type is part of the signed message, so
+	// step 7 passing is already proof: a user flag cannot be relabelled as a
+	// root flag without the secret. Read it off the flag rather than guessing
+	// from machine metadata, which could not tell the two apart.
+	flagType := res.FlagType
 
 	// 9. Idempotency check: already owned?
 	if alreadyOwned, _ := v.owns.HasOwned(ctx, in.UserID, in.ContentType, in.ContentID, flagType); alreadyOwned {
@@ -400,19 +403,6 @@ func (v *Verifier) ListHistory(ctx context.Context, userID uuid.UUID, limit, off
 // =============================================================================
 // Helpers
 // =============================================================================
-
-// inferFlagType picks user|root|challenge based on machine metadata.
-// For v1, we default to "root" for machines with root flags, "challenge" for
-// single-flag content. A more sophisticated version would inspect the slug.
-func inferFlagType(_ string, m *repository.MachineSummary) string {
-	if m == nil {
-		return "root"
-	}
-	if m.HasRootFlag {
-		return m.UserFlagType
-	}
-	return "challenge"
-}
 
 // hashFlag returns a SHA-256 hex of the flag. We never store the raw flag.
 func hashFlag(flag string) string {

@@ -32,11 +32,21 @@ class Claims:
 
     @property
     def is_moderator(self) -> bool:
+        """Community moderation: forum threads, posts, reports."""
         return any(r in self.roles for r in ("admin", "moderator"))
 
     @property
     def is_ctf_organizer(self) -> bool:
-        return any(r in self.roles for r in ("admin", "ctf_organizer", "moderator"))
+        """May run CTF events: create them, publish, start, end, adjust scores,
+        comp paid entries, disqualify.
+
+        `moderator` is deliberately NOT here. A forum moderator is someone
+        trusted to keep discussion civil; this role decides who gets into a paid
+        event for free and what the scoreboard says. Granting the second with
+        the first meant the first moderator hired was implicitly trusted with
+        the competition's integrity and its takings.
+        """
+        return any(r in self.roles for r in ("admin", "ctf_organizer"))
 
     @property
     def is_staff(self) -> bool:

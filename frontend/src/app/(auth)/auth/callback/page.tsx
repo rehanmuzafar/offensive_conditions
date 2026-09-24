@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { surfaceLinks } from "@/lib/surfaces";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldX } from "lucide-react";
 import Link from "next/link";
@@ -8,12 +9,16 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth-store";
 import { authApi } from "@/lib/auth-api";
+import { playSignInTransition } from "@/components/landing/lib/transition";
+import { SignInTransition } from "@/components/auth/sign-in-transition";
 
 /**
  * Landing page for the backend's OAuth redirect.
  * The auth service completes the token exchange server-side, then redirects
  * here with tokens in the URL hash fragment:
- *   /auth/callback#access_token=...&refresh_token=...&expires_in=...&user_id=...
+ *   /auth/callback#access_token=...&expires_in=...&user_id=...
+ *
+ * The refresh token is NOT in the fragment: it arrives as an HttpOnly cookie.
  *
  * Hash fragments are never sent to the server, so tokens stay client-only.
  */
@@ -38,10 +43,13 @@ function CallbackInner() {
     }
 
     const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
     const expiresIn = Number(params.get("expires_in") ?? "3600");
 
-    if (!accessToken || !refreshToken) {
+    // No refresh token here any more. auth-svc sets it as an HttpOnly cookie on
+    // the redirect instead of putting it in the fragment — a credential in a URL
+    // ends up in history and in whatever reads the address bar, and it was
+    // readable by any script on the page.
+    if (!accessToken) {
       setError("missing_tokens");
       return;
     }
@@ -49,9 +57,15 @@ function CallbackInner() {
     // Store the token first so the API client is authenticated, then fetch the
     // real profile (username/tier/roles) before landing on the dashboard —
     // otherwise the topbar falls back to "operator".
-    setSession({ accessToken, refreshToken, expiresIn }, null as never);
+    setSession({ accessToken, expiresIn }, null as never);
 
     (async () => {
+      // The same sign-in cinematic the email/password path plays. It lived only
+      // in `useLogin`, so signing in with Google skipped it entirely and dropped
+      // straight onto the dashboard — the two routes end in the same place and
+      // should feel the same getting there.
+      const cinematic = playSignInTransition();
+
       try {
         const user = await authApi.me();
         setUser(user);
@@ -60,7 +74,12 @@ function CallbackInner() {
       } finally {
         // Clear sensitive data from the URL before pushing to history.
         window.history.replaceState(null, "", "/auth/callback");
-        router.replace("/dashboard");
+        await cinematic;
+        // The OAuth provider always returns to the origin registered with it,
+        // so the callback lands wherever that is — not necessarily where the
+        // sign-in started. A full navigation puts the player on the dashboard
+        // surface regardless.
+        window.location.replace(surfaceLinks.dashboard());
       }
     })();
   }, [router, setSession, setUser]);
@@ -83,10 +102,13 @@ function CallbackInner() {
   }
 
   return (
-    <div className="text-center">
-      <Loader2 className="mx-auto h-10 w-10 animate-spin text-accent" />
-      <p className="mt-4 text-[15px] text-text-dim">Completing sign-in…</p>
-    </div>
+    <>
+      <SignInTransition />
+      <div className="text-center">
+        <Loader2 className="mx-auto h-10 w-10 animate-spin text-text-faint" />
+        <p className="mt-4 text-[13px] text-text-dim">Completing sign-in…</p>
+      </div>
+    </>
   );
 }
 

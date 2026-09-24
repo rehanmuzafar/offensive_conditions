@@ -96,7 +96,7 @@ export function ScenarioBoard({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search scenarios by name or category…"
-          className="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] text-text outline-none placeholder:text-text-faint focus:border-line-strong"
+          className="edge-iridescent w-full rounded-xl glass px-3.5 py-2.5 text-[14px] text-text outline-none placeholder:text-text-faint focus:border-line-strong"
         />
 
         <Section
@@ -200,9 +200,9 @@ function RailItem({
           {solved}/{total}
         </span>
       </span>
-      <span className="mt-1.5 block h-1 rounded-full bg-bg-elevated">
+      <span className="mt-1.5 block h-1 bg-bg-elevated">
         <span
-          className="block h-1 rounded-full bg-accent transition-all"
+          className="block h-1 bg-accent transition-all"
           style={{ width: total ? `${(solved / total) * 100}%` : "0%" }}
         />
       </span>
@@ -232,7 +232,7 @@ function Section({
   return (
     // No overflow-hidden: the status and assignee menus open out of the rows and
     // would be clipped by it.
-    <div className="rounded-2xl border border-line bg-surface">
+    <div className="edge-iridescent glass">
       <div
         className="grid items-center gap-x-4 border-b border-line px-4 py-2.5"
         style={{ gridTemplateColumns: cols }}
@@ -271,7 +271,7 @@ function Section({
 function Row({ cols, children }: { cols: string; children: React.ReactNode }) {
   return (
     <div
-      className="grid items-center gap-x-4 px-4 py-2.5 transition-colors hover:bg-surface-hover"
+      className="group relative grid items-center gap-x-4 px-4 py-2.5 transition-colors hover:bg-surface-hover"
       style={{ gridTemplateColumns: cols }}
     >
       {children}
@@ -291,6 +291,18 @@ function Name({
       <span className="text-[14.5px] font-semibold text-text hover:text-accent">
         {challenge.title}
       </span>
+      {/* Only worth showing on an event that runs in waves, and only once the
+          wave matters: a live wave is the unremarkable case. */}
+      {challenge.waveName && challenge.waveState === "closed" && (
+        <span className="ml-2 rounded-full border border-line-strong px-2 py-0.5 text-[11px] uppercase tracking-wide text-text-faint">
+          {challenge.waveName} closed
+        </span>
+      )}
+      {challenge.waveName && challenge.waveState !== "closed" && (
+        <span className="ml-2 text-[11px] uppercase tracking-wide text-text-faint">
+          {challenge.waveName}
+        </span>
+      )}
       <span className="ml-2 text-[12px] text-text-faint">{challenge.solveCount} solves</span>
     </button>
   );

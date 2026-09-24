@@ -140,10 +140,12 @@ func (o *Orchestrator) Spawn(ctx context.Context, in SpawnInput, m RequestMeta) 
 	expiresAt := time.Now().Add(ttl)
 
 	// 5. Generate flag(s)
-	flagUserRaw, flagUserHash := o.flagGen.Generate(m.UserID, machine.ID, instanceID, "user")
+	flagUserRaw, flagUserHash := o.flagGen.Generate(
+		machine.ID, m.UserID, instanceID, machine.Slug, flag.FlagTypeUser)
 	flagRootRaw, flagRootHash := "", ""
 	if machine.HasRootFlag {
-		flagRootRaw, flagRootHash = o.flagGen.Generate(m.UserID, machine.ID, instanceID, "root")
+		flagRootRaw, flagRootHash = o.flagGen.Generate(
+			machine.ID, m.UserID, instanceID, machine.Slug, flag.FlagTypeRoot)
 	}
 
 	inst := &repository.LabInstance{

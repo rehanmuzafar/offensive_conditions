@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from celery import shared_task
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -352,3 +353,75 @@ def process_solve_followups(self, event_id: str, participant_id: str) -> dict:
         session.commit()
     engine.dispose()
     return {"event_id": event_id, "participant_id": participant_id}
+
+# =============================================================================
+# Challenge instances: take expired containers down
+# =============================================================================
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def expire_challenge_instances(self) -> dict:
+    """Remove containers whose TTL has run out, and retry ones that failed.
+
+    Nothing else does this. The orchestrator's reaper only knows the machine
+    backends, and the row's own expiry is lazy -- the next reader retires it.
+    A team that simply walked away was read by nobody, so its box kept running
+    and kept serving its flag long after the instance was supposedly gone. With
+    a thirty-port range that is also how an event runs out of ports mid-CTF.
+
+    Two things are swept:
+      * live rows past expires_at   -- the ordinary case
+      * retired rows that still carry a container_ref -- a delete that failed
+        earlier, which is exactly what the ref is left behind to record.
+    """
+    settings = get_settings()
+    engine = _sync_engine()
+    removed, failed = 0, 0
+    with Session(engine) as session:
+        rows = session.execute(
+            text(
+                """
+                select id, container_ref
+                  from ctf.challenge_instances
+                 where container_ref is not null
+                   and (
+                         (status in ('queued', 'running') and expires_at <= now())
+                      or status = 'stopped'
+                   )
+                 limit 200
+                """
+            )
+        ).all()
+        for inst_id, ref in rows:
+            ok = False
+            try:
+                res = httpx.delete(
+                    f"{settings.orchestrator_url}/internal/containers/{ref}",
+                    headers={"X-Internal-Token": settings.orchestrator_internal_token},
+                    timeout=20.0,
+                )
+                # A container the orchestrator no longer has is already gone;
+                # treat that as done rather than retrying it forever.
+                ok = res.status_code < 400 or res.status_code == 404
+            except httpx.HTTPError as exc:
+                log.warning("instance_sweep_unreachable", ref=str(ref), error=str(exc))
+            if ok:
+                session.execute(
+                    text(
+                        """
+                        update ctf.challenge_instances
+                           set status = 'stopped',
+                               stopped_at = coalesce(stopped_at, now()),
+                               container_ref = null
+                         where id = :id
+                        """
+                    ),
+                    {"id": inst_id},
+                )
+                removed += 1
+            else:
+                failed += 1
+        session.commit()
+    if removed or failed:
+        log.info("challenge_instances_swept", removed=removed, failed=failed)
+    return {"removed": removed, "failed": failed}

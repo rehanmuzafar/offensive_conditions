@@ -69,7 +69,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     },
     async (request: FastifyRequest, reply) => {
       const body = request.body as z.infer<typeof WebhookCreateSchema>;
-      validateWebhookUrl(body.url);
+      await validateWebhookUrl(body.url);
 
       const countResult = await query<{ count: string }>(
         `SELECT COUNT(*)::TEXT AS count FROM notification.webhooks WHERE user_id = $1`,
@@ -110,7 +110,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     async (request: FastifyRequest) => {
       const { id } = request.params as { id: string };
       const body = request.body as z.infer<typeof WebhookUpdateSchema>;
-      if (body.url) validateWebhookUrl(body.url);
+      if (body.url) await validateWebhookUrl(body.url);
 
       const owned = await query<WebhookRow>(
         `SELECT * FROM notification.webhooks WHERE id = $1 AND user_id = $2`,

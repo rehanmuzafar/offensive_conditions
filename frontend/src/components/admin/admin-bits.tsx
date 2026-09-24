@@ -53,7 +53,7 @@ export function MetricTile({
   spark?: number[];
 }) {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+    <div className="glass p-5 shadow-card">
       <div className="flex items-center justify-between">
         <span className="text-[13px] font-medium text-text-dim">{label}</span>
         {icon && <span className="text-text-faint">{icon}</span>}

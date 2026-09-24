@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { Github, Twitter, MessageCircle, Linkedin } from "lucide-react";
 
-import { Logo } from "@/components/brand/logo";
+import { OffconMark } from "@/components/brand/offcon-mark";
 import { BRAND } from "@/config/brand";
 import { FOOTER_LINKS } from "@/config/nav";
 
@@ -17,7 +17,10 @@ export function SiteFooter() {
         <div className="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
           {/* about */}
           <div>
-            <Logo size={30} showSub={false} />
+            {/* The skull silhouette, not the circular disc: at footer size the
+                disc's field of digits turns to noise, and the skull is the part
+                that reads as the mark. */}
+            <OffconMark height={34} lockup />
             <p className="mt-4 max-w-[280px] text-[14px] text-text-dim">
               The arena where ethical hackers are forged. Hands-on offensive
               security training for everyone, from first box to black-badge.
@@ -91,7 +94,7 @@ function SocialLink({
       aria-label={label}
       target="_blank"
       rel="noopener noreferrer"
-      className="grid h-[38px] w-[38px] place-items-center rounded-[10px] border border-line-strong text-text-dim transition-all hover:border-transparent hover:bg-brand-gradient hover:text-white"
+      className="grid h-[38px] w-[38px] place-items-center border border-line-strong text-text-dim transition-all hover:border-transparent hover:bg-brand-gradient hover:text-white"
     >
       {children}
     </a>

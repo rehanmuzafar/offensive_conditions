@@ -10,9 +10,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { playSignInTransition } from "@/components/landing/lib/transition";
+
 import { authApi } from "@/lib/auth-api";
 import { ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
+import { surfaceLinks } from "@/lib/surfaces";
 import type { AuthTokens, AuthUser, OAuthProvider, RegisterPayload, Role } from "@/types/auth";
 
 /** Decode the (unverified) claims from a JWT access token's payload. */
@@ -44,13 +47,12 @@ export function useLogin() {
         router.push(`/two-factor?challenge=${res.tfa_challenge}`);
         return;
       }
-      if (!res.access_token || !res.refresh_token) {
+      if (!res.access_token) {
         toast.error("Could not sign you in. Please try again.");
         return;
       }
       const tokens: AuthTokens = {
         accessToken: res.access_token,
-        refreshToken: res.refresh_token,
         expiresIn: res.expires_in ?? 900,
       };
       // Pull the real roles (and id) out of the JWT so staff/admin gating works.
@@ -68,15 +70,26 @@ export function useLogin() {
         createdAt: new Date().toISOString(),
       };
       setSession(tokens, user);
+
+      // Start the cinematic the moment the session is real, and fetch the full
+      // profile underneath it — the transition runs for ~3.8s, which is far more
+      // than /me needs, so the wait costs nothing and the dashboard is warm by
+      // the time the router moves.
+      const cinematic = playSignInTransition();
+
       // Replace the email-derived shell with the real profile (correct username/tier).
       try {
-        const full = await authApi.me();
+        const full = await authApi.meWithProfile();
         setUser(full);
-        toast.success(`Welcome back, ${full.username}`);
       } catch {
-        toast.success(`Welcome back, ${user.username}`);
+        // Non-fatal: the topbar falls back to the email-derived username.
       }
-      router.push("/dashboard");
+
+      await cinematic;
+      // A full navigation, not router.push: the dashboard is a different
+      // origin. Pushing "/dashboard" from ctf.<domain> resolves to
+      // /ctf/dashboard, which does not exist.
+      window.location.href = surfaceLinks.dashboard();
     },
     onError: (err) => {
       const code = err instanceof ApiError ? err.code : undefined;
@@ -95,7 +108,6 @@ export function useLogin() {
 
 export function useVerifyTwoFactor() {
   const setSession = useAuthStore((s) => s.setSession);
-  const router = useRouter();
 
   return useMutation({
     mutationFn: ({ challengeId, code }: { challengeId: string; code: string }) =>
@@ -103,7 +115,8 @@ export function useVerifyTwoFactor() {
     onSuccess: ({ tokens, user }) => {
       setSession(tokens, user);
       toast.success("Verified — welcome back");
-      router.push("/dashboard");
+      // Cross-surface, same reason as the password path above.
+      window.location.href = surfaceLinks.dashboard();
     },
     onError: () => toast.error("Invalid or expired code."),
   });
@@ -195,5 +208,58 @@ export function useOAuthStart() {
       window.location.href = auth_url;
     },
     onError: () => toast.error("Could not start that sign-in. Please try again."),
+  });
+}
+
+
+/* ---- account type -------------------------------------------------------
+   The hacker/company answer. Kept in its own query so the shell can gate on it
+   without waiting for anything else, and so answering it refreshes every
+   surface that branches on it.
+   ------------------------------------------------------------------------ */
+
+export function useAccountIdentity() {
+  const token = useAuthStore((s) => s.accessToken);
+  return useQuery({
+    queryKey: ["account-identity"],
+    queryFn: () => authApi.identity(),
+    enabled: Boolean(token),
+    retry: false,
+    // Answered once and then effectively immutable, so there is no reason to
+    // refetch it on every window focus for the rest of the session.
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useChangeUsername() {
+  const setUser = useAuthStore.getState().setUser;
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (username: string) => authApi.changeUsername(username),
+    onSuccess: (res) => {
+      const user = useAuthStore.getState().user;
+      if (user) setUser({ ...user, username: res.username });
+      // The handle appears on the profile, the leaderboard and every roster.
+      qc.invalidateQueries();
+      toast.success("Username updated");
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Couldn't change your username."),
+  });
+}
+
+export function useSetAccountType() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      accountType: "hacker" | "company";
+      companyName?: string;
+      companyWebsite?: string;
+    }) => authApi.setAccountType(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["account-identity"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof Error ? err.message : "Couldn't save that. Try again."),
   });
 }

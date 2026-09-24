@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import (
     get_attachment_service,
@@ -24,7 +26,6 @@ from app.core.errors import AppError, ErrorCode
 from app.schemas import (
     AcceptAction,
     AttachmentRead,
-    AttachmentUploadRequest,
     AttachmentUploadResponse,
     AwardAction,
     CommentCreate,
@@ -37,6 +38,14 @@ from app.schemas import (
     ReportCreate,
     ReportDetailRead,
     ReportList,
+    TimelineEntry,
+    TimelineList,
+    ReportQueueItem,
+    HacktivityItem,
+    HacktivityList,
+    WeaknessRow,
+    ReportQueueList,
+    AwardRead,
     ReportRead,
     ReportTriagerRead,
     ResolveAction,
@@ -56,7 +65,19 @@ admin_router = APIRouter(prefix="/admin", tags=["reports"])
 
 
 def _is_triager(claims: Claims) -> bool:
-    return claims.is_moderator or "triager" in (claims.roles or [])
+    """May read and act on ANY report on the platform.
+
+    `moderator` is deliberately not accepted. A report holds an unpatched
+    vulnerability in somebody else's product, sent in confidence — that is not
+    the same trust as moderating a forum, and conflating them meant every
+    community moderator could read every customer's undisclosed findings and
+    the internal triage notes on them.
+
+    Still platform-wide rather than per-programme, which is the next thing to
+    fix: a triager should see the programmes they are assigned to, not all of
+    them.
+    """
+    return "admin" in (claims.roles or []) or "triager" in (claims.roles or [])
 
 
 # =============================================================================
@@ -116,6 +137,35 @@ async def list_my_reports(
     )
 
 
+@reports_router.get("/hacktivity", response_model=HacktivityList)
+async def hacktivity(
+    page: tuple[int, int] = Depends(pagination),
+    program: str | None = Query(None, description="Program slug"),
+    severity: str | None = Query(None),
+    q: str | None = Query(None, min_length=2, max_length=200),
+    reports: ReportService = Depends(get_report_service),
+) -> HacktivityList:
+    """Disclosed reports. Public — that is what disclosure means."""
+    limit, offset = page
+    rows, total = await reports.hacktivity(
+        program_slug=program, severity=severity, search=q, limit=limit, offset=offset
+    )
+    return HacktivityList(
+        items=[HacktivityItem.model_validate(r) for r in rows],
+        meta=PageMeta(
+            total=total, limit=limit, offset=offset, has_more=(offset + limit) < total
+        ),
+    )
+
+
+@reports_router.get("/hacktivity/weaknesses", response_model=list[WeaknessRow])
+async def weakness_index(
+    reports: ReportService = Depends(get_report_service),
+) -> list[WeaknessRow]:
+    """Which weakness classes are actually being found on this platform."""
+    return [WeaknessRow(**r) for r in await reports.weakness_index()]
+
+
 @reports_router.get("/reports/{report_id}", response_model=ReportDetailRead)
 async def get_report(
     report_id: UUID,
@@ -127,9 +177,33 @@ async def get_report(
     is_triager = _is_triager(claims)
     if not (is_author or is_triager):
         raise AppError(ErrorCode.REPORT_NOT_FOUND, "report not found")
-    if is_triager:
-        return ReportTriagerRead.model_validate(report)
-    return ReportDetailRead.model_validate(report)
+    ctx = await reports.get_context(report_id)
+    model = ReportTriagerRead if is_triager else ReportDetailRead
+    view = model.model_validate(report)
+    view.program_name = ctx.get("program_name")
+    view.program_slug = ctx.get("program_slug")
+    view.researcher_name = ctx.get("researcher_name")
+    view.triager_name = ctx.get("triager_name")
+    return view
+
+
+@reports_router.get("/reports/{report_id}/timeline", response_model=TimelineList)
+async def get_report_timeline(
+    report_id: UUID,
+    claims: Claims = Depends(get_claims),
+    reports: ReportService = Depends(get_report_service),
+) -> TimelineList:
+    """Every state change on the report, oldest first.
+
+    Same visibility rule as the report itself: the researcher who filed it and
+    triagers, nobody else.
+    """
+    report = await reports.get(report_id)
+    if not (report.researcher_id == claims.user_id or _is_triager(claims)):
+        raise AppError(ErrorCode.REPORT_NOT_FOUND, "report not found")
+    return TimelineList(
+        items=[TimelineEntry.model_validate(r) for r in await reports.list_timeline(report_id)]
+    )
 
 
 # =============================================================================
@@ -159,8 +233,14 @@ async def list_report_comments(
         limit=limit,
         offset=offset,
     )
+    names = await comments.author_names(items)
+    views = []
+    for c in items:
+        view = CommentRead.model_validate(c)
+        view.author_name = names.get(c.author_id)
+        views.append(view)
     return {
-        "items": [CommentRead.model_validate(c) for c in items],
+        "items": views,
         "meta": PageMeta(
             total=total, limit=limit, offset=offset, has_more=(offset + limit) < total
         ),
@@ -210,33 +290,45 @@ async def add_report_comment(
     response_model=AttachmentUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def request_attachment_upload(
+async def upload_attachment(
     report_id: UUID,
-    body: AttachmentUploadRequest,
+    file: UploadFile = File(...),
     claims: Claims = Depends(get_claims),
     reports: ReportService = Depends(get_report_service),
     attachments: AttachmentService = Depends(get_attachment_service),
 ) -> AttachmentUploadResponse:
+    """Upload a proof-of-concept file to a report.
+
+    The body comes through this service rather than going straight to object
+    storage, so the size and the content type are the ones we actually
+    received instead of the ones the client promised.
+    """
     report = await reports.get(report_id)
     is_author = report.researcher_id == claims.user_id
     is_triager = _is_triager(claims)
     if not (is_author or is_triager):
         raise AppError(ErrorCode.REPORT_NOT_FOUND, "report not found")
 
-    attachment, presigned = await attachments.request_upload(
+    # Measure the spooled body rather than trusting a declared length.
+    file.file.seek(0, os.SEEK_END)
+    byte_size = file.file.tell()
+    file.file.seek(0)
+
+    attachment = await attachments.store_upload(
         report_id,
         uploader_id=claims.user_id,
         is_program_member=is_triager,
-        data=body,
+        filename=file.filename or "attachment",
+        content_type=file.content_type or "application/octet-stream",
+        data=file.file,
+        byte_size=byte_size,
     )
-    from datetime import datetime, timezone
-
     return AttachmentUploadResponse(
         attachment_id=attachment.id,
         s3_key=attachment.s3_key,
-        presigned_url=presigned["url"],
-        presigned_fields=presigned["fields"],
-        expires_at=datetime.fromtimestamp(presigned["expires_at"], tz=timezone.utc),
+        filename=attachment.filename,
+        content_type=attachment.content_type,
+        byte_size=attachment.byte_size,
     )
 
 
@@ -264,17 +356,64 @@ async def download_attachment(
     attachment_id: UUID,
     claims: Claims = Depends(get_claims),
     attachments: AttachmentService = Depends(get_attachment_service),
-) -> dict:
+) -> StreamingResponse:
+    """Stream an attachment to a viewer who is allowed to have it.
+
+    Served through the service rather than from a presigned URL so the viewer's
+    access is checked on every request — a presigned link outlives the check
+    and can be forwarded to anyone, and these files are strangers' exploit
+    code. `attachment` disposition plus `nosniff` because the uploader chose
+    the filename and the content type, and neither should be able to talk a
+    browser into rendering the file as something live.
+    """
     is_triager = _is_triager(claims)
-    url = await attachments.get_download_url(
+    attachment, stream = await attachments.open_for_download(
         attachment_id, viewer_id=claims.user_id, is_program_member=is_triager
     )
-    return {"url": url}
+    return StreamingResponse(
+        stream,
+        media_type=attachment.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{attachment.filename}"',
+            "Content-Length": str(attachment.byte_size),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 # =============================================================================
 # Triage actions (admin/triager only)
 # =============================================================================
+
+
+@admin_router.get("/reports", response_model=ReportQueueList)
+async def list_report_queue(
+    page: tuple[int, int] = Depends(pagination),
+    state: str | None = Query(None),
+    severity: str | None = Query(None),
+    program: str | None = Query(None, description="Program slug"),
+    claims: Claims = Depends(get_claims),
+    reports: ReportService = Depends(get_report_service),
+) -> ReportQueueList:
+    """Every program's reports in one queue, oldest and SLA-breached first.
+
+    The per-program list already existed, but a triager works an inbox, not a
+    program at a time — with only the per-program route the admin screen had
+    nothing to call and showed nothing.
+    """
+    if not _is_triager(claims):
+        raise AppError(ErrorCode.REPORT_NOT_TRIAGER, "triager role required")
+    limit, offset = page
+    rows, total = await reports.list_queue(
+        state=state, severity=severity, program_slug=program, limit=limit, offset=offset
+    )
+    return ReportQueueList(
+        items=[ReportQueueItem.model_validate(r) for r in rows],
+        meta=PageMeta(
+            total=total, limit=limit, offset=offset, has_more=(offset + limit) < total
+        ),
+    )
 
 
 @admin_router.get("/programs/{slug}/reports", response_model=ReportList)
@@ -420,7 +559,7 @@ async def resolve_report(
     return ReportTriagerRead.model_validate(report)
 
 
-@admin_router.post("/reports/{report_id}/award", response_model=PayoutRead)
+@admin_router.post("/reports/{report_id}/award", response_model=AwardRead)
 async def award_bounty(
     report_id: UUID,
     body: AwardAction,
@@ -429,7 +568,7 @@ async def award_bounty(
     payouts: PayoutService = Depends(get_payout_service),
     publisher: BountyEventPublisher = Depends(get_publisher),
     request_id: Annotated[str, Depends(get_request_id)] = "",
-) -> PayoutRead:
+) -> AwardRead:
     if not _is_triager(claims):
         raise AppError(ErrorCode.REPORT_NOT_TRIAGER, "triager role required")
 
@@ -448,26 +587,36 @@ async def award_bounty(
         request_id=request_id,
     )
 
-    if body.initiate_payout:
-        payout = await payouts.request_payout(report=report, actor_id=claims.user_id)
-        await publisher.publish(
-            event_type=EventType.PAYOUT_REQUESTED,
-            subject_id=payout.id,
-            actor_id=claims.user_id,
-            payload={
-                "report_id": str(report.id),
-                "researcher_id": str(report.researcher_id),
-                "amount_cents": payout.amount_cents,
-                "currency": payout.currency,
-            },
-            request_id=request_id,
+    if not body.initiate_payout:
+        # The award itself is already done and published above. Raising here —
+        # which is what this used to do — told the caller it had failed while
+        # the amount was on the report and the event was on the bus, so the UI
+        # showed an error for a state change that had actually happened.
+        return AwardRead(
+            report_id=report.id,
+            amount_cents=report.bounty_cents,
+            currency=report.bounty_currency or body.currency,
+            payout=None,
         )
-        return PayoutRead.model_validate(payout)
 
-    # No payout requested; return a synthetic placeholder
-    raise AppError(
-        ErrorCode.BAD_REQUEST,
-        "bounty amount set but initiate_payout=false — call /payouts to fire it",
+    payout = await payouts.request_payout(report=report, actor_id=claims.user_id)
+    await publisher.publish(
+        event_type=EventType.PAYOUT_REQUESTED,
+        subject_id=payout.id,
+        actor_id=claims.user_id,
+        payload={
+            "report_id": str(report.id),
+            "researcher_id": str(report.researcher_id),
+            "amount_cents": payout.amount_cents,
+            "currency": payout.currency,
+        },
+        request_id=request_id,
+    )
+    return AwardRead(
+        report_id=report.id,
+        amount_cents=report.bounty_cents,
+        currency=report.bounty_currency or body.currency,
+        payout=PayoutRead.model_validate(payout),
     )
 
 
@@ -486,8 +635,16 @@ async def list_my_payouts(
     items, total = await payouts.list_for_researcher(
         claims.user_id, limit=limit, offset=offset
     )
+    labels = await payouts.report_labels(items)
+    views = []
+    for p in items:
+        view = PayoutRead.model_validate(p)
+        short_id, program_name = labels.get(p.report_id, (None, None))
+        view.report_short_id = short_id
+        view.program_name = program_name
+        views.append(view)
     return PayoutList(
-        items=[PayoutRead.model_validate(p) for p in items],
+        items=views,
         meta=PageMeta(
             total=total, limit=limit, offset=offset, has_more=(offset + limit) < total
         ),

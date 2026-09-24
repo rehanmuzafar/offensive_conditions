@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+
+import { absolute } from "@/lib/seo/config";
 import Link from "next/link";
 import {
   Server,
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
   title: "Features",
   description:
     "Everything OFFCON gives you: vulnerable machines, live CTF, guided tracks, forum, writeups, bug bounties, and the infrastructure behind it all.",
+  alternates: { canonical: absolute("/features") },
 };
 
 const PILLARS = [
@@ -38,9 +41,9 @@ const INFRA = [
   { icon: ShieldCheck, title: "Isolated by default", body: "Every lab runs sandboxed and network-segmented. Your exploits never touch another user." },
   { icon: Network, title: "Private VPN", body: "Connect over WireGuard to dedicated regional servers with low latency anywhere." },
   { icon: Zap, title: "Instant spawns", body: "No waiting in queues. Machines provision in seconds and tear down cleanly." },
-  { icon: Trophy, title: "Fair scoring", body: "Dynamic points, anti-cheat flag rotation, and per-user flags keep the leaderboard honest." },
+  { icon: Trophy, title: "Cheat-resistant flags", body: "Every team instance gets its own randomly-minted flag (only its hash is stored), and machine flags are HMAC-bound to your user and instance — so a shared or leaked flag is worthless to anyone else." },
   { icon: Lock, title: "Account security", body: "2FA, WebAuthn, session management, and per-device controls baked in." },
-  { icon: Globe, title: "195 countries", body: "A truly global arena. Compete and climb against the best, wherever you are." },
+  { icon: Globe, title: "Global by design", body: "A worldwide arena — compete and climb against the best, wherever you are." },
 ];
 
 export default function FeaturesPage() {
@@ -57,8 +60,8 @@ export default function FeaturesPage() {
         {PILLARS.map((f) => {
           const Icon = f.icon;
           return (
-            <Card key={f.title} interactive className="p-7">
-              <div className="mb-5 grid h-[52px] w-[52px] place-items-center rounded-[13px] bg-brand-gradient shadow-glow">
+            <Card tilt key={f.title} interactive className="p-7">
+              <div className="mb-5 grid h-[52px] w-[52px] place-items-center border border-line bg-brand-gradient shadow-glow">
                 <Icon className="h-[26px] w-[26px] text-white" strokeWidth={1.9} />
               </div>
               <h3 className="mb-2.5 font-display text-[20px] font-semibold">{f.title}</h3>
@@ -93,20 +96,18 @@ export default function FeaturesPage() {
         </div>
       </div>
 
-      {/* cta */}
-      <Card variant="glass" className="mt-24 overflow-hidden p-0">
-        <div className="relative bg-brand-gradient px-10 py-14 text-center">
-          <h2 className="font-display text-[clamp(28px,3.6vw,40px)] font-extrabold tracking-[-1px] text-white">
-            See it for yourself.
-          </h2>
-          <p className="mx-auto mt-3 max-w-[480px] text-[17px] text-white/85">
-            Create a free account and root your first machine today.
-          </p>
-          <Link href="/register" className="mt-7 inline-block">
-            <Button variant="white" size="lg">Start hacking — free</Button>
-          </Link>
-        </div>
-      </Card>
+      {/* cta — framed like a plate on a drawing rather than a filled block */}
+      <div className="bracket-frame mt-24 px-6 py-16 text-center md:px-16">
+        <h2 className="font-display text-[clamp(28px,4.4vw,56px)] font-extrabold uppercase leading-[0.95] tracking-mega">
+          See it for <span className="text-gradient">yourself</span>.
+        </h2>
+        <p className="mx-auto mt-6 max-w-[420px] text-[13px] leading-[1.8] text-text-dim">
+          Create a free account and root your first machine today.
+        </p>
+        <Link href="/register" className="mt-9 inline-block">
+          <Button size="lg">Start hacking — free</Button>
+        </Link>
+      </div>
     </div>
   );
 }

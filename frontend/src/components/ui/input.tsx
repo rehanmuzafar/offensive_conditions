@@ -19,7 +19,7 @@ export function Label({
   return (
     <label
       htmlFor={htmlFor}
-      className={cn("mb-1.5 block text-[13.5px] font-semibold text-text", className)}
+      className={cn("mb-2 block text-[10.5px] uppercase tracking-wide text-text-faint", className)}
     >
       {children}
       {required && <span className="ml-0.5 text-danger">*</span>}
@@ -50,12 +50,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           className={cn(
-            "h-11 w-full rounded-xl border bg-bg-elevated px-3.5 text-[15px] text-text",
-            "placeholder:text-text-faint transition-colors",
-            "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30",
+            "h-10 w-full border bg-transparent px-3 text-[13px] text-text",
+            "placeholder:text-text-ghost transition-colors",
+            /* The focus state is the border going to full contrast — no glow
+               ring, which would be the only soft-edged thing on the page. */
+            "focus:border-text focus:outline-none",
             leftIcon && "pl-10",
             rightSlot && "pr-11",
-            invalid ? "border-danger focus:border-danger focus:ring-danger/30" : "border-line-strong",
+            invalid ? "border-danger focus:border-danger" : "border-line-strong",
             className,
           )}
           {...props}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Lab container egress block (172.31.0.0/16)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/offcon-lab-firewall.sh
+
+[Install]
+WantedBy=multi-user.target

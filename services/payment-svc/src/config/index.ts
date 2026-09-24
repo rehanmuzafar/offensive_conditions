@@ -25,10 +25,19 @@ const EnvSchema = z.object({
   // HTTP
   HTTP_PORT: z.coerce.number().int().positive().default(8007),
   HTTP_HOST: z.string().default('0.0.0.0'),
+  /*
+   * Accepts either separator.
+   *
+   * Splitting on commas alone was wrong for this deployment: HTTP_CORS_ORIGINS
+   * is space-separated — the Go auth service requires that form and rejects
+   * anything else — so the whole string arrived as one element and matched no
+   * origin at all. Every preflight to this service came back without an
+   * allow-origin header.
+   */
   HTTP_CORS_ORIGINS: z
     .string()
     .default('http://localhost:3000')
-    .transform((v) => v.split(',').map((s) => s.trim())),
+    .transform((v) => v.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)),
 
   // gRPC
   GRPC_PORT: z.coerce.number().int().positive().default(9007),

@@ -4,7 +4,9 @@
  */
 
 import { api } from "@/lib/api";
+import { settingsApi } from "@/lib/account-api";
 import type {
+  AccountIdentity,
   AuthTokens,
   AuthUser,
   OAuthProvider,
@@ -52,6 +54,29 @@ export const authApi = {
     ),
 
   /** Current user profile. The auth-svc returns snake_case fields — map them to AuthUser. */
+  /**
+   * The signed-in user, with their country filled in.
+   *
+   * auth-svc's /me returns `country: null` unconditionally — it does not hold
+   * the field. The country lives on the user-svc profile, and without it the
+   * price endpoint has no region to work from and quotes everyone in dollars.
+   * That is what made a PKR-priced event read "$9" to someone who had set
+   * their country to Pakistan.
+   *
+   * Merged here rather than at each call site so nothing else has to know that
+   * one user is assembled from two services. A profile that fails to load
+   * costs the country and nothing else — the session is still valid.
+   */
+  meWithProfile: async (): Promise<AuthUser> => {
+    const user = await authApi.me();
+    try {
+      const profile = await settingsApi.getProfile();
+      return { ...user, country: profile.country || null };
+    } catch {
+      return user;
+    }
+  },
+
   me: async (): Promise<AuthUser> => {
     const r = await api.get<{
       user_id: string;
@@ -83,21 +108,71 @@ export const authApi = {
   },
 
   /**
-   * Exchange a refresh token for a new access token.
+   * The hacker/company answer, from user-svc.
    *
-   * auth returns snake_case and rotates the refresh token on every call, so the
-   * caller must persist the returned refresh_token — the old one is revoked and
-   * replaying it trips the service's token-reuse detection.
+   * Not on /v1/auth/me: auth-svc owns credentials and roles, user-svc owns the
+   * profile, and the account type is profile data. Two calls rather than
+   * teaching auth-svc about a column it does not own.
    */
-  refresh: (refreshToken: string) =>
+  identity: async (): Promise<AccountIdentity> => {
+    const r = await api.get<{
+      account_type?: string;
+      onboarding_complete?: boolean;
+      company_name?: string | null;
+      company_website?: string | null;
+    }>("/v1/me");
+    return {
+      accountType: (r.account_type ?? "") as AccountIdentity["accountType"],
+      onboardingComplete: Boolean(r.onboarding_complete),
+      companyName: r.company_name ?? null,
+      companyWebsite: r.company_website ?? null,
+    };
+  },
+
+  /**
+   * Rename the account.
+   *
+   * auth-svc rather than user-svc: auth.users owns the column, and user-svc
+   * reads it through a join rather than keeping a copy, so nothing else has to
+   * be told about the change.
+   */
+  changeUsername: (username: string) =>
+    api.patch<{ username: string }>("/v1/auth/me/username", { body: { username } }),
+
+  setAccountType: (body: {
+    accountType: "hacker" | "company";
+    companyName?: string;
+    companyWebsite?: string;
+  }) =>
+    api.post<{ account_type: string }>("/v1/me/account-type", {
+      body: {
+        account_type: body.accountType,
+        company_name: body.companyName || null,
+        company_website: body.companyWebsite || null,
+      },
+    }),
+
+  /**
+   * Exchange the refresh token for a new access token.
+   *
+   * Nothing is passed in: the token lives in an HttpOnly cookie that the browser
+   * attaches itself, and this code could not read it even if it wanted to.
+   * That is the point — it used to sit in a cookie readable by page scripts, on
+   * the parent domain, which made any XSS anywhere on the site (or on a
+   * lab-<port> challenge host) worth a seven-day credential.
+   *
+   * auth still rotates on every call; the rotated token comes back as a fresh
+   * cookie rather than in the body.
+   */
+  refresh: () =>
     api.post<{
       access_token: string;
-      refresh_token: string;
+      refresh_token?: string;
       token_type: string;
       expires_in: number;
     }>("/v1/auth/refresh", {
       anonymous: true,
-      body: { refresh_token: refreshToken },
+      body: {},
     }),
 
   logout: () => api.post<void>("/v1/auth/logout"),

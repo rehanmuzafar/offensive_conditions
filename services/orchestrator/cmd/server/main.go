@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -107,6 +108,14 @@ func run() error {
 	logger.Info().Msg("jwt validator ready")
 
 	// --- Flag generator ---
+	// Refuse to run without a key. The flag is an HMAC over user, machine and
+	// instance ids — all three of which the player already knows — so an empty
+	// key does not weaken it, it removes it: anyone could compute the flag for
+	// their own box without touching it. Failing to start is the only safe
+	// reading of a missing secret, because the alternative looks like it works.
+	if strings.TrimSpace(cfg.Flag.HMACSecret) == "" {
+		logger.Fatal().Msg("FLAG_HMAC_SECRET is empty — instance flags would be forgeable; refusing to start")
+	}
 	flagGen := flag.NewGenerator([]byte(cfg.Flag.HMACSecret), cfg.Flag.Prefix)
 
 	// --- Network ---
@@ -169,6 +178,9 @@ func run() error {
 		dockerBe, err := dockerbackend.New(dockerbackend.Options{
 			Host:        os.Getenv("DOCKER_HOST_ADDR"),
 			PublicHost:  os.Getenv("DOCKER_PUBLIC_HOST"),
+			PortRange:   os.Getenv("DOCKER_PORT_RANGE"),
+			LabDomain:   os.Getenv("DOCKER_LAB_DOMAIN"),
+			Runtime:     os.Getenv("DOCKER_RUNTIME"),
 			Network:     os.Getenv("DOCKER_NETWORK"),
 			AllowEgress: os.Getenv("DOCKER_ALLOW_EGRESS") == "true",
 		})
@@ -178,6 +190,9 @@ func run() error {
 			k8sBe = dockerBe
 			logger.Info().
 				Str("public_host", os.Getenv("DOCKER_PUBLIC_HOST")).
+				Str("port_range", os.Getenv("DOCKER_PORT_RANGE")).
+				Str("lab_domain", os.Getenv("DOCKER_LAB_DOMAIN")).
+				Str("runtime", os.Getenv("DOCKER_RUNTIME")).
 				Msg("using Docker backend for container instances")
 		}
 	}
@@ -278,6 +293,14 @@ func run() error {
 
 	instH := handlers.NewInstanceHandler(orch, logger)
 	instH.Register(v1)
+
+	// Service-to-service: start a container from an image, with no machine
+	// behind it. Mounted outside /v1 and not proxied by the edge, so it is
+	// reachable only from inside the compose network — it takes an arbitrary
+	// image reference, which is not something to expose to end users.
+	internal := r.Group("/internal")
+	containerH := handlers.NewContainerHandler(k8sBe, os.Getenv("ORCHESTRATOR_INTERNAL_TOKEN"), logger)
+	containerH.Register(internal)
 
 	admin := r.Group("/v1")
 	admin.Use(middleware.RequireAuth(validator, logger), middleware.RequireRole("admin"))

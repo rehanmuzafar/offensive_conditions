@@ -47,13 +47,18 @@ export interface AdminReportQueue {
   id: string;
   shortId: string;
   programName: string;
+  programSlug: string;
   title: string;
   severity: Severity;
   state: ReportState;
-  reporter: string;
+  /** Researcher's username. Null only if the account was deleted. */
+  reporter: string | null;
+  /** Triager's username, once someone has picked it up. */
   assignedTo: string | null;
   ageHours: number;
   slaBreached: boolean;
+  bountyCents: number;
+  bountyCurrency: string | null;
 }
 
 export interface AdminUser {

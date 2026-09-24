@@ -52,6 +52,11 @@ class EventCreate(BaseModel):
     max_team_size: int | None = Field(default=4, ge=1, le=20)
     registration_starts_at: datetime
     registration_ends_at: datetime
+    # When true the field above is ignored and the event's own end is used,
+    # so players can still enter while it is running.
+    registration_until_end: bool = True
+    #: Release challenges in waves rather than all at once.
+    has_waves: bool = False
     starts_at: datetime
     ends_at: datetime
     scoreboard_freeze_at: datetime | None = None
@@ -67,8 +72,15 @@ class EventCreate(BaseModel):
     # regardless of this setting.
     challenge_runtime: Literal["cloud", "onsite", "static_only"] = "static_only"
     scoreboard_visibility: Literal["public", "participants", "hidden"] = "public"
+    #: How far down the board the writeup requirement reaches, and when it is
+    #: due. Teams that owe one and miss the deadline are eliminated.
+    writeup_required_top_n: int | None = Field(default=None, gt=0)
+    writeup_deadline: datetime | None = None
     invitation_only: bool = False
     invitation_code: str | None = None
+    # False: registration is entirely organiser-managed (see the model field
+    # docstring). True everywhere existing behaviour must not change.
+    self_serve_registration: bool = True
     max_participants: int | None = Field(default=None, ge=1)
     prize_pool: list[PrizeTier] = Field(default_factory=list)
     cover_image_url: str | None = None
@@ -86,6 +98,11 @@ class EventCreate(BaseModel):
     @field_validator("starts_at")
     @classmethod
     def _starts_after_reg_ends(cls, v: datetime, info: Any) -> datetime:
+        # With registration_until_end the whole point is that people can still
+        # join after the event has started, so registration_ends_at is unused
+        # and ordering it against starts_at would reject every such event.
+        if info.data.get("registration_until_end"):
+            return v
         reg_ends = info.data.get("registration_ends_at")
         if reg_ends and v < reg_ends:
             raise ValueError("starts_at must be at or after registration_ends_at")
@@ -115,16 +132,21 @@ class EventUpdate(BaseModel):
     rules_markdown: str | None = None
     sponsor_info: dict[str, Any] | None = None
     invitation_code: str | None = None
+    self_serve_registration: bool | None = None
     entry_fee_cents: int | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=8)
     refund_policy: str | None = None
     challenge_runtime: Literal["cloud", "onsite", "static_only"] | None = None
     scoreboard_visibility: Literal["public", "participants", "hidden"] | None = None
+    writeup_required_top_n: int | None = Field(default=None, gt=0)
+    writeup_deadline: datetime | None = None
     # Editable after creation so an organiser can push the schedule out.
     starts_at: datetime | None = None
     registration_starts_at: datetime | None = None
     # Schedule extension only allowed before start
     registration_ends_at: datetime | None = None
+    registration_until_end: bool | None = None
+    has_waves: bool | None = None
     ends_at: datetime | None = None
 
 
@@ -142,6 +164,8 @@ class EventRead(BaseModel):
     max_team_size: int | None = None
     registration_starts_at: datetime
     registration_ends_at: datetime
+    registration_until_end: bool = True
+    has_waves: bool = False
     starts_at: datetime
     ends_at: datetime
     scoreboard_freeze_at: datetime | None = None
@@ -154,7 +178,17 @@ class EventRead(BaseModel):
     refund_policy: str | None = None
     challenge_runtime: str = "static_only"
     scoreboard_visibility: str = "public"
+    writeup_required_top_n: int | None = None
+    writeup_deadline: datetime | None = None
+    # Pause is exposed as the answer, not the ingredients: the front end needs
+    # to know whether play is stopped right now, and a scheduled window becomes
+    # true on its own without anything switching it.
+    is_paused: bool = False
+    pause_starts_at: datetime | None = None
+    pause_ends_at: datetime | None = None
+    pause_reason: str | None = None
     invitation_only: bool
+    self_serve_registration: bool = True
     max_participants: int | None = None
     prize_pool: list[dict[str, Any]] = Field(default_factory=list)
     status: str
@@ -192,6 +226,50 @@ class ChallengeHint(BaseModel):
     point_deduction: int = Field(ge=0, le=10_000)
 
 
+class EventWaveCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    starts_at: datetime
+    #: Omit for "runs until the event ends". Stored as NULL rather than the
+    #: event's end so that pushing the event out later carries the wave along.
+    ends_at: datetime | None = None
+
+    @field_validator("ends_at")
+    @classmethod
+    def _window(cls, v: datetime | None, info: Any) -> datetime | None:
+        starts = info.data.get("starts_at")
+        if v is not None and starts and v <= starts:
+            raise ValueError("ends_at must be after starts_at")
+        return v
+
+
+class EventWaveUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    #: Explicit, because None on ends_at is a real value ("until the event
+    #: ends") and cannot be told apart from "field omitted" otherwise.
+    clear_ends_at: bool = False
+    position: int | None = Field(default=None, ge=1)
+
+
+class EventWaveRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    event_id: UUID
+    name: str
+    position: int
+    starts_at: datetime
+    ends_at: datetime | None = None
+    #: upcoming | live | closed, resolved against the event's end.
+    state: str = "upcoming"
+    #: How many challenges sit in this wave.
+    challenge_count: int = 0
+
+
+class EventWaveList(BaseModel):
+    items: list[EventWaveRead] = Field(default_factory=list)
+
+
 class EventChallengeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=64)
@@ -200,8 +278,16 @@ class EventChallengeCreate(BaseModel):
     base_points: int = Field(ge=10, le=100_000)
     # static      — file/offline challenge, no service
     # shared_host — one instance everyone attacks (connection_url required)
-    # per_player  — spawned on demand (image_ref required)
-    delivery_type: Literal["static", "shared_host", "per_player"] = "static"
+    #: Mint a fresh flag per spawned instance instead of sharing one. Needs
+    #: per_team delivery, and an image that reads CTF_FLAG.
+    dynamic_flag: bool = False
+    #: Which release wave this challenge belongs to. None = open from the
+    #: event's start, even on an event that runs in waves.
+    wave_id: UUID | None = None
+    # per_team    — one container spawned for the whole team on demand
+    #               (image_ref required). Never one per player: a CTF team
+    #               works a single box together.
+    delivery_type: Literal["static", "shared_host", "per_team"] = "static"
     connection_url: str | None = Field(default=None, max_length=500)
     requires_instance: bool = False
     image_ref: str | None = None
@@ -221,7 +307,11 @@ class EventChallengeUpdate(BaseModel):
     difficulty: ChallengeDifficulty | None = None
     description: str | None = None
     base_points: int | None = Field(default=None, ge=10, le=100_000)
-    delivery_type: Literal["static", "shared_host", "per_player"] | None = None
+    delivery_type: Literal["static", "shared_host", "per_team"] | None = None
+    dynamic_flag: bool | None = None
+    wave_id: UUID | None = None
+    #: None on wave_id means "leave it alone"; this takes it out of its wave.
+    clear_wave: bool = False
     connection_url: str | None = Field(default=None, max_length=500)
     requires_instance: bool | None = None
     image_ref: str | None = None
@@ -251,7 +341,10 @@ class EventChallengeRead(BaseModel):
     # Present for shared-host challenges — the address players attack.
     connection_url: str | None = None
     requires_instance: bool
-    image_ref: str | None = None
+    # NOTE: image_ref is deliberately absent. It used to be here, which handed
+    # every player the registry path of the container behind a challenge —
+    # enough to pull it and read the flag, or find the bug offline, without
+    # touching the platform at all. It lives on the organizer view now.
     files: list[dict[str, Any]] = Field(default_factory=list)
     unlocks_at: datetime | None = None
     requires_solving_ids: list[UUID] = Field(default_factory=list)
@@ -262,11 +355,23 @@ class EventChallengeRead(BaseModel):
     first_blood_team_id: UUID | None = None
     first_blood_at: datetime | None = None
     sort_order: int
+    #: Players need to know a flag is theirs alone — it changes what sharing one
+    #: is worth, and explains why a respawn invalidates the old one.
+    dynamic_flag: bool = False
+    wave_id: UUID | None = None
+    #: Denormalised so the challenge list can group and label without a second
+    #: request per row.
+    wave_name: str | None = None
+    wave_position: int | None = None
+    #: Closed waves stay visible so players can see what they solved, but the
+    #: submit path refuses them.
+    wave_state: str | None = None
     is_solved: bool = False  # populated per-viewer
 
 
 class EventChallengeOrganizerRead(EventChallengeRead):
     """Organizer view — includes secret fields."""
+    image_ref: str | None = None
     static_flag_hash: str | None = None
     flag_pattern: str | None = None
     hints: list[dict[str, Any]] = Field(default_factory=list)
@@ -275,6 +380,18 @@ class EventChallengeOrganizerRead(EventChallengeRead):
 
 class EventChallengeList(BaseModel):
     items: list[EventChallengeRead]
+
+
+class EventChallengeOrganizerList(BaseModel):
+    """Same list, organizer view.
+
+    A separate model rather than a union: declaring the item type as
+    `Organizer | Read` lets pydantic serialise an organizer row through the
+    narrower member and silently drop the very fields the organizer screen
+    needs, which is a hard bug to see.
+    """
+
+    items: list[EventChallengeOrganizerRead]
 
 
 # =============================================================================
@@ -309,6 +426,10 @@ class ParticipantRead(BaseModel):
     rank: int | None = None
     is_disqualified: bool
     registered_at: datetime
+    #: 'not_required' | 'pending' | 'paid'. Exposed so the UI can tell a
+    #: registered-but-unpaid entry from a playable one and send the player to
+    #: checkout: every access path refuses the former with ENTRY_FEE_UNPAID.
+    payment_status: str = "not_required"
 
 
 class LeaderboardEntry(BaseModel):
@@ -324,6 +445,13 @@ class LeaderboardEntry(BaseModel):
     # ISO alpha-2, joined from the team record; null for solo entries.
     country_code: str | None = None
     first_bloods: int = 0
+    #: Organiser bonuses the board is allowed to explain. Quiet adjustments are
+    #: already inside `points` and are not listed here.
+    bonuses: list[dict[str, Any]] = Field(default_factory=list)
+    #: This position was set by hand, not earned by points. Always surfaced —
+    #: a board that overrides an order silently is worse than one that says so.
+    pinned: bool = False
+    pinned_reason: str | None = None
 
 
 class LeaderboardResponse(BaseModel):
@@ -331,6 +459,10 @@ class LeaderboardResponse(BaseModel):
     frozen: bool
     generated_at: datetime
     entries: list[LeaderboardEntry]
+    #: Entries out for not turning in a writeup by the deadline. Kept beside the
+    #: board rather than dropped: a result that quietly loses teams is harder to
+    #: trust than one that shows who went and why.
+    eliminated: list[LeaderboardEntry] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -364,6 +496,33 @@ class HintUnlockResponse(BaseModel):
     hint_id: str
     text: str
     point_deduction: int
+
+
+# =============================================================================
+# Challenge instances
+# =============================================================================
+
+
+class ChallengeInstanceRead(BaseModel):
+    """The team's container for one challenge.
+
+    `connection` is the only field a player actually needs; the rest is for the
+    panel around it (countdown, who started it, error text on a failed spawn).
+    """
+
+    id: UUID
+    challenge_id: UUID
+    status: str
+    host: str | None = None
+    port: int | None = None
+    connection: str | None = None
+    error: str | None = None
+    expires_at: datetime
+    created_at: datetime
+    #: Username of whoever pressed Spawn — the team sees who did.
+    spawned_by_name: str | None = None
+    #: True when this call started it, False when it already existed.
+    created: bool = False
 
 
 # =============================================================================

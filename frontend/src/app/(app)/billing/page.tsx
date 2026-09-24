@@ -22,7 +22,7 @@ export default function BillingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2.5 font-display text-[28px] font-extrabold tracking-[-0.5px]">
-          <CreditCard className="h-7 w-7 text-accent" /> Billing
+          <CreditCard className="h-6 w-6 text-text-faint" strokeWidth={1.6} /> Billing
         </h1>
         <p className="mt-1 text-[15px] text-text-dim">Manage your subscription, payment methods, and invoices.</p>
       </div>

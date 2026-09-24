@@ -54,6 +54,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.snapshot_frozen_scoreboards",
         "schedule": 30.0,
     },
+    # Instances: stop containers past their TTL, and retry failed removals
+    "expire-challenge-instances": {
+        "task": "app.workers.tasks.expire_challenge_instances",
+        "schedule": 60.0,
+    },
     # Cleanup: archive ended events after 30 days
     "archive-old-events": {
         "task": "app.workers.tasks.archive_old_events",

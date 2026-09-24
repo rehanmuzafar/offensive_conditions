@@ -1,0 +1,221 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   OFFCON THEME ENGINE
+   --------------------------------------------------------------------------
+   Two complete palettes. The <html> element carries data-theme="dark" or
+   data-theme="light" (set by next-themes before paint, so no flash). Every
+   semantic token below flips automatically; components never hardcode color.
+
+   Token values are space-separated RGB channels so Tailwind's
+   `rgb(var(--x) / <alpha-value>)` can apply opacity.
+   ========================================================================== */
+
+:root,
+[data-theme="dark"] {
+  /* surfaces */
+  --bg: 13 10 30;               /* #0D0A1E deep violet ground */
+  --bg-elevated: 20 16 44;      /* #14102C */
+  --surface: 26 20 56;          /* #1A1438 panels */
+  --surface-hover: 36 28 74;    /* hover state */
+  --line: 52 42 96;             /* borders stay dark and recede */
+  --line-strong: 74 60 130;     /* only for edges that must be seen */
+
+  /* text */
+  --text: 237 235 250;          /* #EDEBFA */
+  --text-dim: 163 159 196;      /* #A39FC4 */
+  --text-faint: 110 106 143;    /* #6E6A8F */
+  --text-on-brand: 255 255 255;
+
+  /* accent (purple-leaning in dark) */
+  --accent: 167 139 250;        /* #A78BFA */
+  --accent-soft: 124 58 237;    /* #7C3AED */
+
+  /* status */
+  --success: 52 211 153;        /* #34D399 */
+  --warning: 251 191 36;        /* #FBBF24 */
+  --danger: 248 113 113;        /* #F87171 */
+  --info: 96 165 250;           /* #60A5FA */
+
+  /* shadows */
+  --shadow-card: 0 4px 24px -10px rgba(0, 0, 0, 0.6);
+  --shadow-card-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+
+  /* atmosphere opacity (glow blobs brighter in dark) */
+  --atmos-opacity: 0.5;
+  --grid-opacity: 0.5;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  /* surfaces */
+  --bg: 251 250 255;            /* #FBFAFF */
+  --bg-elevated: 255 255 255;
+  --surface: 255 255 255;       /* white cards */
+  --surface-hover: 244 241 254; /* #F4F1FE */
+  --line: 234 230 245;          /* #EAE6F5 */
+  --line-strong: 222 216 238;   /* #DED8EE */
+
+  /* text */
+  --text: 22 19 31;             /* #16131F */
+  --text-dim: 67 61 85;         /* #433D55 */
+  --text-faint: 122 115 144;    /* #7A7390 */
+  --text-on-brand: 255 255 255;
+
+  /* accent (deeper purple for contrast on light) */
+  --accent: 109 40 217;         /* #6D28D9 */
+  --accent-soft: 237 233 254;   /* #EDE9FE */
+
+  /* status (slightly deeper for light-bg contrast) */
+  --success: 22 163 74;         /* #16A34A */
+  --warning: 180 83 9;          /* #B45309 */
+  --danger: 220 38 38;          /* #DC2626 */
+  --info: 37 99 235;            /* #2563EB */
+
+  /* shadows */
+  --shadow-card: 0 4px 24px -8px rgba(76, 29, 149, 0.16);
+  --shadow-card-lg: 0 24px 60px -20px rgba(76, 29, 149, 0.28);
+
+  --atmos-opacity: 0.6;
+  --grid-opacity: 0.4;
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+* {
+  border-color: rgb(var(--line));
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text));
+  font-family: var(--font-body), sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+::selection {
+  background: rgba(124, 58, 237, 0.3);
+  color: rgb(var(--text));
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--bg));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border-radius: 6px;
+  border: 3px solid rgb(var(--bg));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent));
+}
+
+/* Focus ring — accessible, brand-colored */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Reusable utility classes
+   -------------------------------------------------------------------------- */
+@layer components {
+  .text-gradient {
+    @apply bg-brand-gradient bg-clip-text text-transparent;
+  }
+
+  .glass {
+    background: rgb(var(--surface) / 0.72);
+    backdrop-filter: blur(20px) saturate(130%);
+    -webkit-backdrop-filter: blur(20px) saturate(130%);
+    border: 1px solid rgb(var(--line) / 0.55);
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.03),
+      0 20px 50px -24px rgb(0 0 0 / 0.7);
+  }
+
+  /* The ground the panels float on: a violet aurora bleeding from the
+     top-left and the right edge, with a faint grid over it. Fixed, so it
+     does not travel with the content. */
+  .app-aurora::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(55rem 42rem at 2% -6%, rgb(139 92 246 / 0.55), transparent 58%),
+      radial-gradient(45rem 40rem at 104% 30%, rgb(59 130 246 / 0.32), transparent 60%),
+      radial-gradient(40rem 32rem at 60% 112%, rgb(168 85 247 / 0.22), transparent 62%);
+  }
+
+  .app-aurora::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.22;
+    background-image:
+      linear-gradient(rgb(var(--line) / 0.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--line) / 0.10) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(70rem 50rem at 20% 0%, #000 30%, transparent 78%);
+    -webkit-mask-image: radial-gradient(70rem 50rem at 20% 0%, #000 30%, transparent 78%);
+  }
+
+  /* Atmospheric background grid (used on marketing/dashboard shells) */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgb(var(--line) / 0.6) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--line) / 0.6) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  /* Loading shimmer for skeletons */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--surface-hover) / 0.6),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

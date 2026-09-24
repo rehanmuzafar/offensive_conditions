@@ -55,6 +55,9 @@ OS = Literal["linux", "windows", "other", "bsd", "macos"]
 MachineStatus = Literal["draft", "review", "active", "retired", "archived"]
 Tier = Literal["free", "vip", "vip_plus"]
 Backend = Literal["container", "vm"]
+#: How a player reaches the box. `backend` answers a different question — which
+#: provisioner brings it up — and only means anything for `spawn`.
+Delivery = Literal["spawn", "static_host", "download"]
 
 
 class MachineCreate(BaseModel):
@@ -65,8 +68,18 @@ class MachineCreate(BaseModel):
     difficulty: Difficulty
     category_id: UUID | None = None
     backend: Backend = "container"
-    image_ref: str = Field(min_length=1, max_length=400)
-    image_version: str = Field(min_length=1, max_length=64)
+    delivery: Delivery = "spawn"
+    #: Required for `spawn`, meaningless otherwise — two of the three kinds
+    #: have no image at all.
+    image_ref: str | None = Field(default=None, max_length=400)
+    image_version: str | None = Field(default=None, max_length=64)
+    #: `static_host`: the always-on host players attack.
+    static_host: str | None = Field(default=None, max_length=255)
+    #: `download`: the boot2root artefact and enough to verify it.
+    download_url: str | None = Field(default=None, max_length=600)
+    download_sha256: str | None = Field(default=None, max_length=64)
+    download_size_bytes: int | None = Field(default=None, ge=0)
+    download_format: str | None = Field(default=None, max_length=32)
     cpu_request: str = "500m"
     memory_request: str = "512Mi"
     cpu_limit: str = "1000m"
@@ -98,8 +111,14 @@ class MachineUpdate(BaseModel):
     os: OS | None = None
     difficulty: Difficulty | None = None
     category_id: UUID | None = None
+    delivery: Delivery | None = None
     image_ref: str | None = None
     image_version: str | None = None
+    static_host: str | None = Field(default=None, max_length=255)
+    download_url: str | None = Field(default=None, max_length=600)
+    download_sha256: str | None = Field(default=None, max_length=64)
+    download_size_bytes: int | None = Field(default=None, ge=0)
+    download_format: str | None = Field(default=None, max_length=32)
     cpu_request: str | None = None
     memory_request: str | None = None
     cpu_limit: str | None = None
@@ -131,8 +150,14 @@ class MachineRead(BaseModel):
     category_id: UUID | None = None
 
     backend: str
-    image_ref: str
-    image_version: str
+    delivery: str = "spawn"
+    image_ref: str | None = None
+    image_version: str | None = None
+    static_host: str | None = None
+    download_url: str | None = None
+    download_sha256: str | None = None
+    download_size_bytes: int | None = None
+    download_format: str | None = None
     expected_ports: list[int] = Field(default_factory=list)
     disk_gb: int
 

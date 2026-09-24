@@ -1,94 +1,107 @@
-"""S3 / MinIO client for attachment uploads via presigned URLs."""
+"""Private object storage for report attachments.
+
+Attachments are bug-bounty proof-of-concept material: someone else's exploit
+code, screenshots of a live vulnerability, packet captures. They belong to the
+reporter and the triage team and to nobody else, which drives two decisions
+here.
+
+The bucket carries no anonymous policy. A new MinIO bucket is private and that
+is the correct end state — granting `s3:GetObject` to Principal `*` the way the
+public media bucket does would put every proof-of-concept exploit on the
+platform one guessed key away from the internet.
+
+The bytes move through this service rather than through a presigned URL handed
+to the browser. A presigned link outlives the authorization check that produced
+it and can be forwarded to anyone; for this content that is the whole risk. It
+is the same reason CTF writeups are streamed from `ctf-svc` instead of linked.
+"""
 
 from __future__ import annotations
 
-import hmac
-import hashlib
-from datetime import datetime, timezone
-from typing import Any
-from urllib.parse import quote
+from typing import IO, Iterator
+from urllib.parse import urlsplit
+
+from minio import Minio
+from minio.error import S3Error
 
 from app.core.config import Settings
 from app.core.logging import get_logger
 
 log = get_logger("s3")
 
+_CHUNK = 64 * 1024
 
-class S3Client:
-    """Minimal S3 client — just generates presigned POSTs without a SDK dep.
 
-    Production deployments should swap this for the official boto3 / aioboto3
-    client for full retry + multipart support. This implementation is
-    intentionally lean so the service works in environments where boto3 isn't
-    installable (sandbox, restricted CI).
-    """
+class AttachmentStoreError(Exception):
+    """Storage failed in a way the caller should surface rather than retry."""
 
+
+def _host_port(endpoint: str) -> str:
+    """MinIO wants `host:port`; the setting carries a full URL."""
+    parts = urlsplit(endpoint if "//" in endpoint else f"//{endpoint}")
+    return parts.netloc or parts.path
+
+
+class AttachmentStore:
     def __init__(self, settings: Settings) -> None:
         self._s = settings
-
-    def generate_presigned_post(
-        self,
-        *,
-        key: str,
-        content_type: str,
-        byte_size: int,
-        expires_in_seconds: int | None = None,
-    ) -> dict[str, Any]:
-        """Generate POST policy + form fields for a direct browser upload.
-
-        Returns a dict with `url` and `fields`. The browser POSTs a multipart
-        form to `url` with `fields` plus the file as `file`.
-
-        Production: use boto3 `generate_presigned_post` for full POST policy.
-        Here we emit a placeholder shape with the right structure so callers
-        can be wired up; the actual signing is replaced when boto3 is added.
-        """
-        ttl = expires_in_seconds or self._s.s3_presigned_ttl_seconds
-        expires_at = datetime.now(timezone.utc).timestamp() + ttl
-        url = f"{self._s.s3_endpoint}/{self._s.s3_bucket_attachments}"
-
-        # Fields a real S3 POST policy would set
-        fields = {
-            "key": key,
-            "Content-Type": content_type,
-            "x-amz-meta-byte-size": str(byte_size),
-            "x-amz-meta-expires": str(int(expires_at)),
-            # Placeholder signature — replace with real boto3 output in prod
-            "policy": _b64_policy(key, byte_size, content_type, ttl),
-            "x-amz-signature": _placeholder_signature(self._s.s3_secret_key, key),
-            "x-amz-credential": f"{self._s.s3_access_key}/dev",
-            "x-amz-algorithm": "AWS4-HMAC-SHA256",
-            "x-amz-date": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
-        }
-        return {"url": url, "fields": fields, "expires_at": expires_at}
-
-    def generate_presigned_get(self, *, key: str, expires_in_seconds: int | None = None) -> str:
-        ttl = expires_in_seconds or self._s.s3_presigned_ttl_seconds
-        # Placeholder: real implementation uses SigV4
-        return (
-            f"{self._s.s3_endpoint}/{self._s.s3_bucket_attachments}/{quote(key)}"
-            f"?X-Amz-Expires={ttl}"
+        self._bucket = settings.s3_bucket_attachments
+        self._client = Minio(
+            _host_port(settings.s3_endpoint),
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            secure=settings.s3_use_ssl,
+            region=settings.s3_region,
         )
 
+    def _ensure_bucket(self) -> None:
+        if self._client.bucket_exists(self._bucket):
+            return
+        self._client.make_bucket(self._bucket, location=self._s.s3_region)
+        # No set_bucket_policy call, deliberately. See the module docstring:
+        # this bucket must stay private, and the way it stays private is that
+        # nothing here ever makes it public.
+        log.info("attachment_bucket_created", bucket=self._bucket, public=False)
 
-def _b64_policy(key: str, byte_size: int, content_type: str, ttl: int) -> str:
-    """Return a placeholder base64-encoded policy. Real impl uses SigV4."""
-    import base64
-    import json
+    def put(self, *, key: str, data: IO[bytes], length: int, content_type: str) -> None:
+        """Store an object. `data` is streamed, not buffered, so a large
+        attachment does not have to fit in memory."""
+        try:
+            self._ensure_bucket()
+            self._client.put_object(
+                self._bucket,
+                key,
+                data,
+                length=length,
+                content_type=content_type,
+            )
+        except S3Error as exc:  # auth, connectivity, bucket state
+            log.error("attachment_put_failed", key=key, error=str(exc))
+            raise AttachmentStoreError(f"upload failed: {exc.code}") from exc
+        log.info("attachment_stored", key=key, bytes=length)
 
-    expiry = datetime.now(timezone.utc).timestamp() + ttl
-    policy = {
-        "expiration": datetime.utcfromtimestamp(expiry).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "conditions": [
-            {"key": key},
-            {"Content-Type": content_type},
-            ["content-length-range", 1, byte_size],
-        ],
-    }
-    return base64.b64encode(json.dumps(policy).encode("utf-8")).decode("ascii")
+    def stream(self, *, key: str) -> Iterator[bytes]:
+        """Yield an object's bytes.
 
+        The object is opened eagerly so a missing key or an auth failure raises
+        here, while the caller can still turn it into an error response — not
+        halfway through a 200 that has already sent its headers.
+        """
+        try:
+            response = self._client.get_object(self._bucket, key)
+        except S3Error as exc:
+            log.error("attachment_get_failed", key=key, error=str(exc))
+            raise AttachmentStoreError(f"download failed: {exc.code}") from exc
 
-def _placeholder_signature(secret: str, key: str) -> str:
-    return hmac.new(
-        secret.encode("utf-8"), key.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
+        def chunks() -> Iterator[bytes]:
+            try:
+                while True:
+                    chunk = response.read(_CHUNK)
+                    if not chunk:
+                        return
+                    yield chunk
+            finally:
+                response.close()
+                response.release_conn()
+
+        return chunks()

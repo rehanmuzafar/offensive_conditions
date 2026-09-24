@@ -8,7 +8,7 @@ import { Card, CardBody, Skeleton } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DifficultyBadge, OsIcon, Avatar } from "@/components/ui/identity";
 import { Rating } from "@/components/ui/progress";
-import { LabLauncher } from "@/components/machines/lab-launcher";
+import { MachineAccess } from "@/components/machines/machine-access";
 import { FlagSubmit } from "@/components/machines/flag-submit";
 import { useMachine } from "@/hooks/use-content";
 import { formatNumber, formatDate } from "@/lib/format";
@@ -39,8 +39,8 @@ export default function MachineDetailPage({ params }: { params: Promise<{ slug: 
       {/* hero */}
       <Card className="overflow-hidden">
         <div
-          className="relative h-36"
-          style={{ background: `linear-gradient(120deg, ${machine.thumbnailColor}, #2563EB)` }}
+          className="bg-grid border-b border-line relative h-36"
+          style={{ borderLeft: `1px solid ${machine.thumbnailColor}` }}
         >
           <div
             className="absolute inset-0 opacity-25"
@@ -58,7 +58,7 @@ export default function MachineDetailPage({ params }: { params: Promise<{ slug: 
                 <OsIcon os={machine.os} className="h-6 w-6 text-text-dim" />
                 <h1 className="font-display text-[30px] font-extrabold tracking-[-0.5px]">{machine.name}</h1>
                 {!machine.isActive && (
-                  <span className="rounded-full bg-surface-hover px-2.5 py-0.5 text-[12px] font-semibold text-text-faint">
+                  <span className="bg-surface-hover px-2.5 py-0.5 text-[12px] font-semibold text-text-faint">
                     Retired
                   </span>
                 )}
@@ -133,7 +133,8 @@ export default function MachineDetailPage({ params }: { params: Promise<{ slug: 
 
         {/* right column: launcher */}
         <div className="space-y-6">
-          <LabLauncher machineId={machine.id} />
+          {/* Spawn, a fixed address, or a file — see MachineAccess. */}
+          <MachineAccess machine={machine} />
         </div>
       </div>
     </div>

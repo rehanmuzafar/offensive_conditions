@@ -3,10 +3,12 @@
 /**
  * Full CTF event creation form.
  *
- * Encodes the two scheduling rules ctf-svc enforces, because hitting them as a
- * 400 after filling in a long form is miserable:
- *   registration_starts_at < registration_ends_at <= starts_at < ends_at
- * and `starts_at` cannot be changed after creation, so it is validated here.
+ * Encodes the scheduling rules ctf-svc enforces, because hitting them as a 400
+ * after filling in a long form is miserable:
+ *   registration_starts_at < registration_ends_at <= ends_at
+ *   starts_at < ends_at
+ * Registration closing *after* the start is allowed — that is the whole point of
+ * "when the event ends", which lets a late entrant join a running event.
  */
 
 import { useState } from "react";
@@ -51,10 +53,16 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
   const [maxTeamSize, setMaxTeamSize] = useState(4);
   const [regStart, setRegStart] = useState(plusHours(0));
   const [regEnd, setRegEnd] = useState(plusHours(24));
+  // On by default. Closing entries before an event finishes turns away players
+  // who could still have played; organisers who need a fixed roster turn it off.
+  const [regUntilEnd, setRegUntilEnd] = useState(true);
+  /** Waves release the challenge set in rounds instead of all at once. */
+  const [hasWaves, setHasWaves] = useState(false);
   const [start, setStart] = useState(plusHours(24));
   const [end, setEnd] = useState(plusHours(72));
   const [tier, setTier] = useState<CtfRequiredTier>("free");
-  const [isPaid, setIsPaid] = useState(false);
+  const [entryMode, setEntryMode] = useState<"free" | "paid" | "manual">("free");
+  const isPaid = entryMode !== "free";
   const [fee, setFee] = useState("10.00");
   const [currency, setCurrency] = useState("USD");
   const [refundPolicy, setRefundPolicy] = useState("");
@@ -90,9 +98,13 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
     const re = new Date(regEnd).getTime();
     const st = new Date(start).getTime();
     const en = new Date(end).getTime();
-    if ([rs, re, st, en].some(Number.isNaN)) return "All four dates are required";
-    if (!(rs < re)) return "Registration must open before it closes";
-    if (!(re <= st)) return "Registration must close at or before the event starts";
+    // The closing date is only a date when the event uses one.
+    if ([rs, st, en].some(Number.isNaN)) return "Every date is required";
+    if (!regUntilEnd) {
+      if (Number.isNaN(re)) return "Every date is required";
+      if (!(rs < re)) return "Registration must open before it closes";
+      if (!(re <= st)) return "Registration must close at or before the event starts";
+    }
     if (!(st < en)) return "The event must start before it ends";
     if (isPaid && !(Number(fee) > 0)) return "A paid event needs an entry fee above 0";
     return null;
@@ -117,7 +129,12 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         solo_play: !teamPlay,
         max_team_size: teamPlay ? maxTeamSize : null,
         registration_starts_at: toIso(regStart),
-        registration_ends_at: toIso(regEnd),
+        // Still sent when registration runs to the end, so switching back to a
+        // fixed cut-off restores the date rather than starting from blank.
+        registration_ends_at: toIso(regUntilEnd ? end : regEnd),
+        registration_until_end: regUntilEnd,
+        self_serve_registration: entryMode !== "manual",
+        has_waves: hasWaves,
         starts_at: toIso(start),
         ends_at: toIso(end),
         dynamic_scoring: dynamicScoring,
@@ -192,6 +209,24 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
           </div>
         </div>
 
+        <label className="flex items-start gap-2 text-[14px]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={hasWaves}
+            onChange={(e) => setHasWaves(e.target.checked)}
+          />
+          <span>
+            <span className="font-semibold">Release challenges in waves</span>
+            <span className="block text-[12px] text-text-faint">
+              Off: every challenge is playable the moment the event starts. On: you set up
+              rounds after creating the event, each with its own opening and closing time,
+              and file challenges under them. Either way you can add, edit and remove
+              challenges while the event is running.
+            </span>
+          </span>
+        </label>
+
         {/* schedule */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
@@ -200,7 +235,29 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
           </div>
           <div>
             <label className={label}>Registration closes</label>
-            <input type="datetime-local" className={field} value={regEnd} onChange={(e) => { setRegEnd(e.target.value); if (new Date(e.target.value) > new Date(start)) setStart(e.target.value); }} />
+            <label className="mb-2 flex items-center gap-2 text-[12.5px] text-text-dim">
+              <input
+                type="checkbox"
+                checked={regUntilEnd}
+                onChange={(e) => setRegUntilEnd(e.target.checked)}
+              />
+              When the event ends
+            </label>
+            <input
+              type="datetime-local"
+              className={field}
+              value={regUntilEnd ? end : regEnd}
+              disabled={regUntilEnd}
+              onChange={(e) => {
+                setRegEnd(e.target.value);
+                if (new Date(e.target.value) > new Date(start)) setStart(e.target.value);
+              }}
+            />
+            <p className="mt-1 text-[11.5px] text-text-ghost">
+              {regUntilEnd
+                ? "Players can enter while the event is running — a late entrant just has less time on the clock."
+                : "Entries shut at this moment, whatever the event is still doing."}
+            </p>
           </div>
           <div>
             <label className={label}>Event starts</label>
@@ -212,7 +269,9 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
           </div>
         </div>
         <p className="-mt-2 text-[12px] text-text-faint">
-          Registration must close at or before the start time, and the start time cannot be changed once the event is created.
+          Registration must open before it closes and close no later than the event ends. The start
+          time can still be moved while the event is a draft or upcoming — only once it is running
+          does it freeze, so that its history cannot be rewritten underneath the players.
         </p>
 
         {/* format + access */}
@@ -268,7 +327,7 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
               <span>
                 <span className="font-semibold">Cloud — public IPs</span>
                 <span className="block text-[12px] text-text-faint">
-                  Per-player instances get a public address. For online events.
+                  Per-team instances get a public address. For online events.
                 </span>
               </span>
             </label>
@@ -277,13 +336,13 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
               <span>
                 <span className="font-semibold">On-site — LAN</span>
                 <span className="block text-[12px] text-text-faint">
-                  Per-player instances get a private address on the venue network.
+                  Per-team instances get a private address on the venue network.
                 </span>
               </span>
             </label>
           </div>
           <p className="mt-3 text-[12px] text-text-faint">
-            This only affects per-player spawns. Static and shared-host challenges work either way, and
+            This only affects per-team spawns. Static and shared-host challenges work either way, and
             every challenge can carry downloadable files.
           </p>
         </div>
@@ -292,10 +351,13 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         <div className="rounded-xl border border-line bg-bg-elevated/50 p-4">
           <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-[14px]">
-              <input type="radio" checked={!isPaid} onChange={() => setIsPaid(false)} /> Free entry
+              <input type="radio" checked={entryMode === "free"} onChange={() => setEntryMode("free")} /> Free entry
             </label>
             <label className="flex items-center gap-2 text-[14px]">
-              <input type="radio" checked={isPaid} onChange={() => setIsPaid(true)} /> Paid entry
+              <input type="radio" checked={entryMode === "paid"} onChange={() => setEntryMode("paid")} /> Paid entry
+            </label>
+            <label className="flex items-center gap-2 text-[14px]">
+              <input type="radio" checked={entryMode === "manual"} onChange={() => setEntryMode("manual")} /> Manual entry
             </label>
           </div>
           {isPaid && (
@@ -319,9 +381,16 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
               </div>
             </div>
           )}
-          {isPaid && (
+          {entryMode === "paid" && (
             <p className="mt-3 text-[12px] text-warning">
               Registrations stay pending until payment settles, and only count toward the participant total once paid.
+            </p>
+          )}
+          {entryMode === "manual" && (
+            <p className="mt-3 text-[12px] text-text-dim">
+              No self-serve register button is shown to players. Add every team yourself from the event&apos;s
+              management page once it exists -- useful while a payment gateway is not yet live but the event should
+              still carry a price.
             </p>
           )}
         </div>
@@ -345,8 +414,16 @@ export function CtfEventForm({ onCreated, onCancel }: { onCreated: () => void; o
         </div>
 
         <div>
-          <label className={label}>Rules (markdown)</label>
-          <textarea className={`${field} h-24 py-2`} value={rules} onChange={(e) => setRules(e.target.value)} placeholder={"1. No attacking the platform.\n2. No flag sharing."} />
+          {/* Stored as `rules_markdown` — the column predates this use and
+              renaming it needs a migration. Every human-facing label says
+              "About", which is what it actually holds. */}
+          <label className={label}>About this event (markdown)</label>
+          <textarea
+            className={`${field} h-40 py-2`}
+            value={rules}
+            onChange={(e) => setRules(e.target.value)}
+            placeholder={"What the event is, who it is for, how scoring works, any rules players need to know."}
+          />
         </div>
 
         <div className="flex justify-end gap-2">

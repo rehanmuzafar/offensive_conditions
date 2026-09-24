@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     DateTime,
     ForeignKey,
     Integer,
@@ -81,8 +82,22 @@ class Machine(Base, TimestampMixin):
 
     # Lab specs
     backend: Mapped[str] = mapped_column(String(16), nullable=False)
-    image_ref: Mapped[str] = mapped_column(Text, nullable=False)
-    image_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: How a player reaches the box: spawn | static_host | download.
+    #: Separate from `backend`, which is only about how `spawn` provisions.
+    #: See migration 0003.
+    delivery: Mapped[str] = mapped_column(
+        Text, nullable=False, default="spawn", server_default="spawn"
+    )
+    #: Only `spawn` has an image; the check constraint enforces the rest.
+    image_ref: Mapped[str | None] = mapped_column(Text)
+    image_version: Mapped[str | None] = mapped_column(String(64))
+    #: `static_host` — the always-on host players attack.
+    static_host: Mapped[str | None] = mapped_column(Text)
+    #: `download` — a boot2root image the player runs themselves.
+    download_url: Mapped[str | None] = mapped_column(Text)
+    download_sha256: Mapped[str | None] = mapped_column(Text)
+    download_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    download_format: Mapped[str | None] = mapped_column(Text)
     cpu_request: Mapped[str] = mapped_column(String(16), nullable=False, default="500m")
     memory_request: Mapped[str] = mapped_column(String(16), nullable=False, default="512Mi")
     cpu_limit: Mapped[str] = mapped_column(String(16), nullable=False, default="1000m")

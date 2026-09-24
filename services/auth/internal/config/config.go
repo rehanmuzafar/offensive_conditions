@@ -31,7 +31,7 @@ type AppConfig struct {
 	Version string
 }
 
-func (a AppConfig) IsProduction() bool { return a.Env == "production" }
+func (a AppConfig) IsProduction() bool  { return a.Env == "production" }
 func (a AppConfig) IsDevelopment() bool { return a.Env == "development" }
 
 type HTTPConfig struct {
@@ -45,11 +45,11 @@ type HTTPConfig struct {
 }
 
 type GRPCConfig struct {
-	Port            int
-	TLSCertPath     string
-	TLSKeyPath      string
-	ClientCAPath    string // For mTLS — verify caller certs
-	EnableReflection bool  // Disable in production
+	Port             int
+	TLSCertPath      string
+	TLSKeyPath       string
+	ClientCAPath     string // For mTLS — verify caller certs
+	EnableReflection bool   // Disable in production
 }
 
 type DBConfig struct {
@@ -80,13 +80,13 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-	PrivateKeyPath  string
-	PublicKeyPath   string
-	Issuer          string
-	Audience        string
-	AccessTTL       time.Duration
-	RefreshTTL      time.Duration
-	ClockSkew       time.Duration
+	PrivateKeyPath string
+	PublicKeyPath  string
+	Issuer         string
+	Audience       string
+	AccessTTL      time.Duration
+	RefreshTTL     time.Duration
+	ClockSkew      time.Duration
 }
 
 type Argon2Config struct {
@@ -98,10 +98,10 @@ type Argon2Config struct {
 }
 
 type OAuthConfig struct {
-	Providers     map[string]OAuthProviderConfig
-	CallbackBase  string // e.g. https://auth.offensiveconditions.org/v1/auth/oauth
-	StateSecret   string // For signing state param
-	StateTTL      time.Duration
+	Providers    map[string]OAuthProviderConfig
+	CallbackBase string // e.g. https://auth.offensiveconditions.org/v1/auth/oauth
+	StateSecret  string // For signing state param
+	StateTTL     time.Duration
 }
 
 type OAuthProviderConfig struct {
@@ -136,14 +136,29 @@ type LogConfig struct {
 }
 
 type SecurityConfig struct {
-	FailedLoginsBeforeLock  int
-	AccountLockDuration     time.Duration
+	// Account-wide lock. A backstop for a distributed attack, not the primary
+	// control — it is deliberately high because anyone who knows an address can
+	// drive it, and a low threshold made locking somebody out trivial. The
+	// per-source budget below is what actually stops guessing.
+	FailedLoginsBeforeLock int
+	// Failed attempts allowed from one address against one account, within
+	// AccountLockDuration. Charged to the attacker, so it cannot be used to
+	// deny the real owner access.
+	FailedLoginsPerSource     int
+	AccountLockDuration       time.Duration
 	EmailVerificationRequired bool
-	EmailVerifyTokenTTL     time.Duration
-	PasswordResetTokenTTL   time.Duration
-	SessionTTL              time.Duration
-	BackupCodesCount        int
-	MinPasswordLength       int
+	EmailVerifyTokenTTL       time.Duration
+	PasswordResetTokenTTL     time.Duration
+	SessionTTL                time.Duration
+	BackupCodesCount          int
+	MinPasswordLength         int
+	// The refresh token is delivered as an HttpOnly cookie so page scripts
+	// cannot read it. Domain must be the registrable domain when the platform
+	// spans subdomains, otherwise the cookie is host-only and a surface on
+	// another subdomain cannot refresh.
+	RefreshCookieName   string
+	RefreshCookieDomain string
+	RefreshCookieSecure bool
 }
 
 // Load reads configuration from environment variables.
@@ -260,6 +275,7 @@ func Load() (*Config, error) {
 		},
 		Security: SecurityConfig{
 			FailedLoginsBeforeLock:    v.GetInt("SEC_FAILED_LOGINS_BEFORE_LOCK"),
+			FailedLoginsPerSource:     v.GetInt("SEC_FAILED_LOGINS_PER_SOURCE"),
 			AccountLockDuration:       v.GetDuration("SEC_ACCOUNT_LOCK_DURATION"),
 			EmailVerificationRequired: v.GetBool("SEC_EMAIL_VERIFICATION_REQUIRED"),
 			EmailVerifyTokenTTL:       v.GetDuration("SEC_EMAIL_VERIFY_TOKEN_TTL"),
@@ -267,6 +283,9 @@ func Load() (*Config, error) {
 			SessionTTL:                v.GetDuration("SEC_SESSION_TTL"),
 			BackupCodesCount:          v.GetInt("SEC_BACKUP_CODES_COUNT"),
 			MinPasswordLength:         v.GetInt("SEC_MIN_PASSWORD_LENGTH"),
+			RefreshCookieName:         v.GetString("SEC_REFRESH_COOKIE_NAME"),
+			RefreshCookieDomain:       v.GetString("SEC_REFRESH_COOKIE_DOMAIN"),
+			RefreshCookieSecure:       v.GetBool("SEC_REFRESH_COOKIE_SECURE"),
 		},
 	}
 
@@ -336,7 +355,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "json")
 
-	v.SetDefault("SEC_FAILED_LOGINS_BEFORE_LOCK", 5)
+	// Raised from 5. At 5 a stranger could lock any account they knew the
+	// address of, indefinitely, at one request every lock period. The account
+	// lock now only answers a genuinely distributed attack — reaching it takes
+	// at least ten addresses, because each is cut off after
+	// SEC_FAILED_LOGINS_PER_SOURCE.
+	v.SetDefault("SEC_FAILED_LOGINS_BEFORE_LOCK", 50)
+	v.SetDefault("SEC_FAILED_LOGINS_PER_SOURCE", 5)
 	v.SetDefault("SEC_ACCOUNT_LOCK_DURATION", "15m")
 	v.SetDefault("SEC_EMAIL_VERIFICATION_REQUIRED", true)
 	v.SetDefault("SEC_EMAIL_VERIFY_TOKEN_TTL", "24h")
@@ -344,6 +369,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("SEC_SESSION_TTL", "168h") // 7 days
 	v.SetDefault("SEC_BACKUP_CODES_COUNT", 10)
 	v.SetDefault("SEC_MIN_PASSWORD_LENGTH", 12)
+	v.SetDefault("SEC_REFRESH_COOKIE_NAME", "offcon_rt")
+	// Empty means host-only, which is the safe default. Production sets the
+	// registrable domain so dashboard./ctf./bugbounty. can all refresh.
+	v.SetDefault("SEC_REFRESH_COOKIE_DOMAIN", "")
+	v.SetDefault("SEC_REFRESH_COOKIE_SECURE", true)
 }
 
 func (c *Config) Validate() error {

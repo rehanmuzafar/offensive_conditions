@@ -25,13 +25,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
-from app.models.event import Event, EventParticipant
+from app.models.event import Event, EventParticipant, EventTeamEntry
+from app.services.safepay import SafepayClient
 
 log = get_logger("payments")
 
 # Providers that can be selected via CTF_PAYMENT_PROVIDER.
 PROVIDER_MANUAL = "manual"
-SUPPORTED_PROVIDERS = {PROVIDER_MANUAL, "jazzcash", "easypaisa", "stripe"}
+#: An entry an organiser granted rather than one that was bought. Kept distinct
+#: from "manual" — that means money changed hands somewhere we did not see, this
+#: means no money was due at all, and reconciliation needs to tell them apart.
+PROVIDER_ADMIN_COMP = "admin_comp"
+
+SUPPORTED_PROVIDERS = {
+    PROVIDER_MANUAL,
+    PROVIDER_ADMIN_COMP,
+    "jazzcash",
+    "easypaisa",
+    "stripe",
+    "safepay",
+}
+
+# What a payer can choose at checkout, as opposed to who processes it. Safepay
+# presents all three behind one integration, so the provider and the method are
+# separate questions and the UI asks only this one.
+#: Card only, deliberately. The wallets were offered because they are how most
+#: of Pakistan pays, but each one is a separate rail with its own failures, and
+#: a checkout that offers three ways to pay is three ways for an entrant to get
+#: stuck ten minutes before an event. The gateway carries the wallets itself for
+#: anyone who wants them; this is about what the platform promises.
+SUPPORTED_METHODS = {"card"}
 
 
 class PaymentService:
@@ -43,6 +66,17 @@ class PaymentService:
     def provider(self) -> str:
         raw = (getattr(self._s, "ctf_payment_provider", "") or PROVIDER_MANUAL).lower()
         return raw if raw in SUPPORTED_PROVIDERS else PROVIDER_MANUAL
+
+    def _require_payout_details(self) -> None:
+        """Refuse manual collection when there is nowhere for the money to go."""
+        iban = (getattr(self._s, "payout_iban", "") or "").strip()
+        acct = (getattr(self._s, "payout_account_number", "") or "").strip()
+        if not iban and not acct:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                "bank transfer is not set up: an organiser needs to fill in the "
+                "payout account details before teams can be asked to pay",
+            )
 
     async def _load(self, event_id: UUID, user_id: UUID) -> tuple[Event, EventParticipant]:
         event = (
@@ -71,6 +105,13 @@ class PaymentService:
 
         if (event.entry_fee_cents or 0) <= 0:
             raise AppError(ErrorCode.VALIDATION, "this event is free")
+
+        # Checked before any row exists. Refusing after the entry is written
+        # leaves a team sitting in the organiser's confirmation queue that was
+        # never given an account to pay into — a row that can only be cleared by
+        # hand, and only once someone works out why it is there.
+        if self.provider == PROVIDER_MANUAL:
+            self._require_payout_details()
         if participant.payment_status == "paid":
             raise AppError(ErrorCode.VALIDATION, "already paid")
 
@@ -95,6 +136,7 @@ class PaymentService:
         if self.provider == PROVIDER_MANUAL:
             # No gateway configured yet: hand back bank details and let an admin
             # confirm once the transfer lands.
+            #
             payload["instructions"] = {
                 "method": "bank_transfer",
                 "account_name": getattr(self._s, "payout_account_name", "") or "",
@@ -196,3 +238,356 @@ class PaymentService:
             .order_by(EventParticipant.registered_at)
         )
         return list(rows.scalars().all())
+
+    # =========================================================================
+    # Team entries
+    #
+    # A team's entry fee is paid once, by the captain, and belongs to the team.
+    # Everything below works on ctf.event_team_entries rather than on
+    # participant rows, which is what lets a captain change the roster after
+    # paying without anybody being asked for money a second time.
+    # =========================================================================
+
+    async def _load_team(self, event_id: UUID, team_id: UUID) -> tuple[Event, "EventTeamEntry"]:
+        event = (
+            await self.session.execute(select(Event).where(Event.id == event_id))
+        ).scalar_one_or_none()
+        if event is None:
+            raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
+
+        entry = (
+            await self.session.execute(
+                select(EventTeamEntry).where(
+                    and_(
+                        EventTeamEntry.event_id == event_id,
+                        EventTeamEntry.team_id == team_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+        if entry is None:
+            raise AppError(ErrorCode.NOT_REGISTERED, "register the team for this event first")
+        return event, entry
+
+    async def create_team_intent(
+        self,
+        event_id: UUID,
+        *,
+        team_id: UUID,
+        captain_id: UUID,
+        team_name: str | None = None,
+        method: str = "card",
+    ) -> dict[str, Any]:
+        """Start payment for a team's entry.
+
+        The caller must already have been established as a captain of the team —
+        the API layer does that through user-svc, which owns the roster and is
+        the only thing that can answer it. This method does not re-derive it,
+        but it does record who paid.
+        """
+        event = (
+            await self.session.execute(select(Event).where(Event.id == event_id))
+        ).scalar_one_or_none()
+        if event is None:
+            raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
+
+        if (event.entry_fee_cents or 0) <= 0:
+            raise AppError(ErrorCode.VALIDATION, "this event is free")
+
+        # Checked before any row exists. Refusing after the entry is written
+        # leaves a team sitting in the organiser's confirmation queue that was
+        # never given an account to pay into — a row that can only be cleared by
+        # hand, and only once someone works out why it is there.
+        if self.provider == PROVIDER_MANUAL:
+            self._require_payout_details()
+
+        # Created here rather than at registration, because for a paid event
+        # paying is what brings a team in: players cannot register under a team
+        # whose entry is unsettled, so the entry has to exist before anyone —
+        # including the captain — has a seat. The captain has already been
+        # verified by the API layer against user-svc.
+        entry = (
+            await self.session.execute(
+                select(EventTeamEntry).where(
+                    and_(
+                        EventTeamEntry.event_id == event_id,
+                        EventTeamEntry.team_id == team_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+        if entry is None:
+            entry = EventTeamEntry(event_id=event_id, team_id=team_id)
+            self.session.add(entry)
+            await self.session.flush()
+        if entry.payment_status == "paid":
+            raise AppError(ErrorCode.VALIDATION, "this team has already paid")
+        if method not in SUPPORTED_METHODS:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                f"unsupported payment method '{method}'",
+            )
+
+        # Keyed on the team, not on a person or an attempt, so a captain who
+        # abandons a half-finished payment and starts again lands on the same
+        # entry instead of creating a second one.
+        reference = f"OFFCON-{str(event.id)[:8]}-{str(team_id)[:8]}".upper()
+
+        entry.payment_status = "pending"
+        entry.paid_by_user_id = captain_id
+        if team_name:
+            entry.team_name = team_name
+        entry.provider = self.provider
+        entry.provider_reference = reference
+        entry.amount_cents = event.entry_fee_cents
+        entry.currency = event.currency
+        entry.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+
+        payload: dict[str, Any] = {
+            "provider": self.provider,
+            "method": method,
+            "reference": reference,
+            "amount_cents": event.entry_fee_cents,
+            "currency": event.currency,
+            "status": "pending",
+            "methods_available": sorted(SUPPORTED_METHODS),
+        }
+
+        if self.provider == PROVIDER_MANUAL:
+            payload["instructions"] = {
+                "method": "bank_transfer",
+                "account_name": getattr(self._s, "payout_account_name", "") or "",
+                "account_number": getattr(self._s, "payout_account_number", "") or "",
+                "bank_name": getattr(self._s, "payout_bank_name", "") or "",
+                "iban": getattr(self._s, "payout_iban", "") or "",
+                "note": (
+                    "Transfer the exact amount and put the reference in the "
+                    "payment description, then wait for an organiser to confirm."
+                ),
+            }
+        elif self.provider == "safepay":
+            client = SafepayClient(self._s)
+            if not client.configured:
+                # No keys means no session to send anyone to. Saying so beats a
+                # plausible-looking URL that leads nowhere.
+                payload["instructions"] = {
+                    "method": "redirect",
+                    "redirect_url": None,
+                    "note": "safepay keys are not configured yet",
+                }
+            else:
+                tracker, checkout_url = await client.create_checkout(
+                    amount_minor=event.entry_fee_cents,
+                    currency=event.currency,
+                    reference=reference,
+                )
+                # Stored now rather than on the webhook: if the payer completes
+                # the payment and the webhook is delayed or lost, this is what
+                # lets the entry be matched to the transaction by hand.
+                entry.provider_reference = tracker
+                await self.session.flush()
+
+                payload["reference"] = tracker
+                payload["instructions"] = {
+                    "method": "redirect",
+                    "redirect_url": checkout_url,
+                    "note": "",
+                }
+        else:
+            payload["instructions"] = {
+                "method": "redirect",
+                "redirect_url": None,
+                "note": f"{self.provider} credentials are not configured yet",
+            }
+
+        log.info(
+            "team_payment_intent_created",
+            event_id=str(event_id),
+            team_id=str(team_id),
+            captain_id=str(captain_id),
+            provider=self.provider,
+            method=method,
+            reference=reference,
+            amount_cents=event.entry_fee_cents,
+        )
+        return payload
+
+    async def confirm_team(
+        self,
+        event_id: UUID,
+        *,
+        team_id: UUID,
+        provider_reference: str | None = None,
+        amount_cents: int | None = None,
+    ) -> "EventTeamEntry":
+        """Settle a team's entry. Idempotent.
+
+        Idempotence is not a nicety here: every gateway retries its webhook, and
+        this increments the event's participant count. Confirming twice would
+        inflate it permanently.
+        """
+        event, entry = await self._load_team(event_id, team_id)
+
+        if entry.payment_status == "paid":
+            return entry
+
+        entry.payment_status = "paid"
+        # `or` would be wrong here: a comped entry passes 0 deliberately, and
+        # `0 or fee` is the fee — so a team that paid nothing was recorded as
+        # having paid in full, which is the one number reconciliation depends on.
+        entry.amount_cents = event.entry_fee_cents if amount_cents is None else amount_cents
+        entry.currency = event.currency
+        entry.provider = entry.provider or self.provider
+        if provider_reference:
+            entry.provider_reference = provider_reference
+        entry.paid_at = datetime.now(timezone.utc)
+        entry.updated_at = entry.paid_at
+
+        # Registration holds the seat without counting it; this is where it
+        # becomes real. Mirrors the solo path in PaymentService.confirm.
+        await self.session.execute(
+            Event.__table__.update()
+            .where(Event.id == event_id)
+            .values(total_registered=Event.total_registered + 1)
+        )
+        await self.session.flush()
+
+        # Put the captain in the event.
+        #
+        # Without this, paying gets a team an entry and puts nobody in it: the
+        # captain is returned to the gateway's own page, and unless they find
+        # their way back and register, they have paid for a place they do not
+        # occupy. Registering here closes that gap at the only moment we know
+        # for certain both that the money arrived and who sent it.
+        #
+        # Deliberately only the captain. The rest of the roster still enters
+        # itself — the entry is what the team bought, and who plays under it is
+        # the captain's decision to make later.
+        if entry.paid_by_user_id:
+            already = (
+                await self.session.execute(
+                    select(EventParticipant.id).where(
+                        and_(
+                            EventParticipant.event_id == event_id,
+                            EventParticipant.user_id == entry.paid_by_user_id,
+                        )
+                    )
+                )
+            ).scalar_one_or_none()
+            if already is None:
+                self.session.add(
+                    EventParticipant(
+                        event_id=event_id,
+                        participant_type="team",
+                        user_id=entry.paid_by_user_id,
+                        team_id=team_id,
+                        team_name_at_event=entry.team_name,
+                        payment_status="not_required",
+                    )
+                )
+                await self.session.flush()
+                log.info(
+                    "captain_auto_registered",
+                    event_id=str(event_id),
+                    team_id=str(team_id),
+                    user_id=str(entry.paid_by_user_id),
+                )
+
+        log.info(
+            "team_payment_confirmed",
+            event_id=str(event_id),
+            team_id=str(team_id),
+            provider=entry.provider,
+            reference=entry.provider_reference,
+            amount_cents=entry.amount_cents,
+        )
+        return entry
+
+    async def comp_team(
+        self,
+        event_id: UUID,
+        *,
+        team_id: UUID,
+        captain_id: UUID,
+        team_name: str | None = None,
+        note: str | None = None,
+    ) -> "EventTeamEntry":
+        """Put a team in a paid event without it paying. Idempotent.
+
+        There are entrants a gateway cannot serve: a first-semester student let
+        in free on a checked university card, an invited guest team, an organiser
+        fixing a payment that arrived out of band. Refusing them would mean
+        either running the event as free — which prices it wrong for everyone
+        else — or handling them outside the platform, where nothing is recorded.
+
+        It deliberately lands on the same row and the same confirm path a real
+        payment does, so the team is registered in exactly one sense: everything
+        downstream — the roster, member joins, the scoreboard — reads the entry
+        and cannot tell the difference. What it can tell is *how* the entry was
+        settled, which is why the provider is its own value and the note is kept.
+        """
+        event = (
+            await self.session.execute(select(Event).where(Event.id == event_id))
+        ).scalar_one_or_none()
+        if event is None:
+            raise AppError(ErrorCode.EVENT_NOT_FOUND, "event not found")
+
+        entry = (
+            await self.session.execute(
+                select(EventTeamEntry).where(
+                    and_(
+                        EventTeamEntry.event_id == event_id,
+                        EventTeamEntry.team_id == team_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+
+        if entry is not None and entry.payment_status == "paid":
+            # Already in, however it got there. Saying so beats a second
+            # confirm, which would count the team twice.
+            return entry
+
+        if entry is None:
+            entry = EventTeamEntry(event_id=event_id, team_id=team_id)
+            self.session.add(entry)
+            await self.session.flush()
+
+        entry.team_name = team_name or entry.team_name
+        # Recorded before confirming so the provider survives: confirm_team only
+        # fills provider when it is empty, which is what lets this stay visible
+        # as a comp rather than being relabelled as whatever gateway is
+        # configured.
+        entry.provider = PROVIDER_ADMIN_COMP
+        entry.provider_reference = (note or "").strip()[:200] or None
+        entry.paid_by_user_id = captain_id
+
+        confirmed = await self.confirm_team(event_id, team_id=team_id, amount_cents=0)
+        log.info(
+            "team_comped_by_admin",
+            event_id=str(event_id),
+            team_id=str(team_id),
+            captain_id=str(captain_id),
+        )
+        return confirmed
+
+    async def team_entry(self, event_id: UUID, team_id: UUID) -> "EventTeamEntry":
+        """A team's entry, for callers that only want to read its state."""
+        _, entry = await self._load_team(event_id, team_id)
+        return entry
+
+    async def list_pending_teams(self, event_id: UUID) -> list["EventTeamEntry"]:
+        """Teams waiting on a payment — what an organiser confirming bank
+        transfers needs to see."""
+        result = await self.session.execute(
+            select(EventTeamEntry)
+            .where(
+                and_(
+                    EventTeamEntry.event_id == event_id,
+                    EventTeamEntry.payment_status == "pending",
+                )
+            )
+            .order_by(EventTeamEntry.created_at)
+        )
+        return list(result.scalars().all())

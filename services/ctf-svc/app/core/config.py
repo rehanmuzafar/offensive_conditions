@@ -1,9 +1,11 @@
 """Application settings."""
 
+import json
+import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, computed_field
+from pydantic import Field, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +26,36 @@ class Settings(BaseSettings):
     http_port: int = 8004
     http_host: str = "0.0.0.0"
     http_workers: int = 2
-    http_cors_origins: list[str] = ["http://localhost:3000"]
+    # Read as a plain string, not list[str]: pydantic-settings decodes complex
+    # types as JSON at the source level, before any validator runs, so a
+    # list[str] annotation forces the value to be a JSON array. The Go auth
+    # service reads this same variable and rejects JSON outright, so the
+    # space/comma-separated form is the only one both runtimes accept.
+    http_cors_origins_raw: str = Field(
+        default="http://localhost:3000", alias="HTTP_CORS_ORIGINS"
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def http_cors_origins(self) -> list[str]:
+        raw = self.http_cors_origins_raw.strip()
+        # Tolerate the JSON form too. It is not what this reads natively, and a
+        # bare re.split would turn it into one junk origin that silently matches
+        # nothing — a CORS failure is far harder to trace than a parse error.
+        if raw.startswith("["):
+            return [str(o) for o in json.loads(raw)]
+        return [o for o in re.split(r"[,\s]+", raw) if o]
+
+    # --- Object storage (writeups) -----------------------------------------
+    # Writeups are private: the bucket has no public policy and nothing is ever
+    # served straight from it. ctf-svc streams the bytes so the reader's role is
+    # checked on every request.
+    storage_endpoint: str = "minio:9000"
+    storage_access_key: SecretStr = SecretStr("minioadmin")
+    storage_secret_key: SecretStr = SecretStr("minioadmin")
+    storage_use_ssl: bool = False
+    storage_region: str = "us-east-1"
+    storage_writeups_bucket: str = "offcon-ctf-writeups"
 
     # --- gRPC ---
     grpc_port: int = 9004
@@ -81,6 +112,24 @@ class Settings(BaseSettings):
     payout_bank_name: str = ""
     payout_iban: str = ""
 
+    # Safepay. The "public" key is not secret — it identifies the merchant on
+    # the checkout button — but the other two are, hence SecretStr, which keeps
+    # them out of logs and repr() by default.
+    safepay_environment: str = "sandbox"
+    safepay_merchant_key: str = ""
+    safepay_merchant_secret: SecretStr = SecretStr("")
+    safepay_webhook_secret: SecretStr = SecretStr("")
+
+    @computed_field
+    @property
+    def safepay_base_url(self) -> str:
+        """Sandbox and production are different hosts, not a flag on one host."""
+        return (
+            "https://api.getsafepay.com"
+            if self.safepay_environment.lower() == "production"
+            else "https://sandbox.api.getsafepay.com"
+        )
+
     auth_jwt_issuer: str = "https://auth.offensiveconditions.org"
     auth_jwt_audience: str = "offcon-api"
     auth_jwt_clock_skew_seconds: int = 5
@@ -102,8 +151,37 @@ class Settings(BaseSettings):
     # --- User service client (for team membership lookups) ---
     user_svc_addr: str = "user-svc:9001"
 
+    # --- Orchestrator client (per-team challenge containers) ---
+    # /internal is not proxied by the edge, so this address only resolves
+    # inside the compose network.
+    orchestrator_url: str = "http://orchestrator:8002"
+    #: Shared secret for the orchestrator's /internal group. Empty means the
+    #: orchestrator will refuse every spawn, which is the intended failure.
+    orchestrator_internal_token: str = ""
+    challenge_instance_ttl_minutes: int = 120
+    #: Live containers one entry (team, or solo player) may hold at once.
+    #: The lab port range is small — 30 ports on this deployment — so without a
+    #: per-entry ceiling a handful of entrants can hold every port and nobody
+    #: else can spawn anything for the rest of the event.
+    max_concurrent_instances_per_entry: int = 3
+    # Ports opened for a challenge container when the challenge does not name
+    # its own. One TCP service is the overwhelmingly common shape.
+    challenge_default_port: int = 1337
+
     # --- Scoring rules ---
     # Default CTFd-style decay: f(n) = max(min_points, base * ((1 - (n-1)*0.012)^4))
+    # Flag submission throttling. The submit path documented a Redis sliding
+    # window for a long time without having one, so guessing was unbounded and
+    # rejected attempts were rolled back rather than recorded.
+    #
+    # Two buckets: one per challenge, so hammering a single flag is stopped
+    # quickly, and a wider one per participant, so spreading the guessing across
+    # challenges is stopped too. Both are per minute. Generous enough that a
+    # player typing fast never meets them, tight enough that scripted guessing
+    # is pointless.
+    flag_submit_per_challenge_per_minute: int = 12
+    flag_submit_per_participant_per_minute: int = 40
+
     dynamic_scoring_decay_factor: float = 0.012
     dynamic_scoring_decay_power: int = 4
     # First blood bonus order (1st = 5%, 2nd = 3%, 3rd = 1% of base by default)
